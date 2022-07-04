@@ -1,0 +1,59 @@
+diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
+index b804444e16d4..1f7d3b15cf4a 100644
+--- a/arch/x86/kvm/Makefile
++++ b/arch/x86/kvm/Makefile
+@@ -20,7 +20,8 @@ kvm-y			+= x86.o emulate.o i8259.o irq.o lapic.o \
+ 
+ kvm-intel-y		+= vmx/vmx.o vmx/vmenter.o vmx/pmu_intel.o vmx/vmcs12.o \
+ 			   vmx/evmcs.o vmx/nested.o vmx/posted_intr.o
+-kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o
++kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o \
++			   svm/cachepc/cachepc.o svm/cachepc/util.o
+ 
+ obj-$(CONFIG_KVM)	+= kvm.o
+ obj-$(CONFIG_KVM_INTEL)	+= kvm-intel.o
+diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
+index 7b3cfbe8f7e3..cd5cb4320a17 100644
+--- a/arch/x86/kvm/svm/svm.c
++++ b/arch/x86/kvm/svm/svm.c
+@@ -2,6 +2,8 @@
+ 
+ #include <linux/kvm_host.h>
+ 
++#include "cachepc/cachepc.h"
++
+ #include "irq.h"
+ #include "mmu.h"
+ #include "kvm_cache_regs.h"
+@@ -3728,6 +3730,16 @@ void __svm_vcpu_run(unsigned long vmcb_pa, unsigned long *regs);
+ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+ 					struct vcpu_svm *svm)
+ {
++	static struct cache_ctx *ctx = NULL;
++	static struct cacheline *cache_ds = NULL;
++	static struct cacheline *curr_head = NULL;
++	static struct cacheline *next_head = NULL;
++	static int run_index = 0;
++
++	if (!ctx) ctx = cachepc_get_ctx(L1);
++	if (!cache_ds) cache_ds = cachepc_prepare_ds(ctx);
++	if (!curr_head) curr_head = cache_ds;
++
+ 	/*
+ 	 * VMENTER enables interrupts (host state), but the kernel state is
+ 	 * interrupts disabled when this is invoked. Also tell RCU about
+@@ -3751,7 +3763,13 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+ 	if (sev_es_guest(svm->vcpu.kvm)) {
+ 		__svm_sev_es_vcpu_run(svm->vmcb_pa);
+ 	} else {
+-		__svm_vcpu_run(svm->vmcb_pa, (unsigned long *)&svm->vcpu.arch.regs);
++		curr_head = cachepc_prime(curr_head);
++ 		__svm_vcpu_run(svm->vmcb_pa, (unsigned long *)&svm->vcpu.arch.regs);
++		next_head = cachepc_probe(curr_head);
++		//cachepc_save_msrmt(curr_head, "/tmp/msrmt", run_index);
++		cachepc_print_msrmt(curr_head);
++		curr_head = next_head;
++		run_index += 1;
+ 
+ #ifdef CONFIG_X86_64
+ 		native_wrmsrl(MSR_GS_BASE, svm->host.gs_base);

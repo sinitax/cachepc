@@ -7,7 +7,7 @@ static uint16_t get_virt_cache_set(cache_ctx *ctx, void *ptr);
 static void *aligned_alloc(size_t alignment, size_t size);
 
 cache_ctx *
-get_cache_ctx(cache_level cache_level)
+cachepc_get_ctx(cache_level cache_level)
 {
 	cache_ctx *ctx;
        
@@ -53,7 +53,7 @@ cachepc_prepare_ds(cache_ctx *ctx)
 }
 
 void
-cachepc_save_msrmt(cacheline *head, const char *prefix, int index)
+cachepc_save_msrmts(cacheline *head, const char *prefix, int index)
 {
 	char filename[256];
 
@@ -62,7 +62,7 @@ cachepc_save_msrmt(cacheline *head, const char *prefix, int index)
 }
 
 void
-cache_print_msrmts(cacheline *head)
+cachepc_print_msrmts(cacheline *head)
 {
 	cacheline *curr_cl;
 

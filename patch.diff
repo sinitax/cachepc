@@ -13,7 +13,7 @@ index b804444e16d4..1f7d3b15cf4a 100644
  obj-$(CONFIG_KVM)	+= kvm.o
  obj-$(CONFIG_KVM_INTEL)	+= kvm-intel.o
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index 7b3cfbe8f7e3..cd5cb4320a17 100644
+index 7b3cfbe8f7e3..12c5ff2447a0 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,8 @@
@@ -46,14 +46,105 @@ index 7b3cfbe8f7e3..cd5cb4320a17 100644
  	if (sev_es_guest(svm->vcpu.kvm)) {
  		__svm_sev_es_vcpu_run(svm->vmcb_pa);
  	} else {
--		__svm_vcpu_run(svm->vmcb_pa, (unsigned long *)&svm->vcpu.arch.regs);
 +		curr_head = cachepc_prime(curr_head);
-+ 		__svm_vcpu_run(svm->vmcb_pa, (unsigned long *)&svm->vcpu.arch.regs);
+ 		__svm_vcpu_run(svm->vmcb_pa, (unsigned long *)&svm->vcpu.arch.regs);
 +		next_head = cachepc_probe(curr_head);
-+		//cachepc_save_msrmt(curr_head, "/tmp/msrmt", run_index);
-+		cachepc_print_msrmt(curr_head);
++		//cachepc_save_msrmts(curr_head, "/tmp/msrmt", run_index);
++		cachepc_print_msrmts(curr_head);
 +		curr_head = next_head;
 +		run_index += 1;
  
  #ifdef CONFIG_X86_64
  		native_wrmsrl(MSR_GS_BASE, svm->host.gs_base);
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 7f2e2a09ebbd..762eb35f19e5 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -35,6 +35,10 @@
+ 
+ #include <asm/kvm_host.h>
+ 
++extern struct proc_dir_entry *cachepc_msrmts_file;
++extern uint8_t cachepc_msrmts[1 << 20];
++extern uint64_t cachepc_msrmts_count;
++
+ #ifndef KVM_MAX_VCPU_ID
+ #define KVM_MAX_VCPU_ID KVM_MAX_VCPUS
+ #endif
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 2541a17ff1c4..5f001419362b 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -51,6 +51,7 @@
+ #include <linux/io.h>
+ #include <linux/lockdep.h>
+ #include <linux/kthread.h>
++#include <linux/proc_fs.h>
+ 
+ #include <asm/processor.h>
+ #include <asm/ioctl.h>
+@@ -143,6 +144,10 @@ static void hardware_disable_all(void);
+ 
+ static void kvm_io_bus_destroy(struct kvm_io_bus *bus);
+ 
++struct proc_dir_entry *cachepc_msrmts_file;
++uint8_t cachepc_msrmts[1 << 20];
++uint64_t cachepc_msrmts_count;
++
+ __visible bool kvm_rebooting;
+ EXPORT_SYMBOL_GPL(kvm_rebooting);
+ 
+@@ -4765,10 +4770,29 @@ static void check_processor_compat(void *data)
+ 	*c->ret = kvm_arch_check_processor_compat(c->opaque);
+ }
+ 
++ssize_t
++kvm_cachepc_read(struct file *file, char *buf, size_t buflen, loff_t *off)
++{
++	size_t len;
++
++	printk(KERN_INFO "Reading cachepc proc file\n");
++
++	if (*off >= cachepc_msrmts_count)
++		return 0;
++
++	len = cachepc_msrmts_count - *off;
++	if (len > buflen) len = buflen;
++
++	memcpy(buf, cachepc_msrmts + *off, len);
++
++	return len;
++}
++
+ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+ 		  struct module *module)
+ {
+ 	struct kvm_cpu_compat_check c;
++	struct proc_ops proc_ops;
+ 	int r;
+ 	int cpu;
+ 
+@@ -4848,6 +4872,15 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+ 	r = kvm_vfio_ops_init();
+ 	WARN_ON(r);
+ 
++	cachepc_msrmts_count = 0;
++
++	memset(&proc_ops, 0, sizeof(proc_ops));
++	proc_ops.proc_read = kvm_cachepc_read;
++
++	cachepc_msrmts_file = proc_create("cachepc", 0644, NULL, &proc_ops);
++	BUG_ON(cachepc_msrmts_file == NULL);
++
++	
+ 	return 0;
+ 
+ out_unreg:
+@@ -4872,6 +4905,7 @@ EXPORT_SYMBOL_GPL(kvm_init);
+ 
+ void kvm_exit(void)
+ {
++	remove_proc_entry("cachepc", cachepc_msrmts_file);
+ 	debugfs_remove_recursive(kvm_debugfs_dir);
+ 	misc_deregister(&kvm_dev);
+ 	kmem_cache_destroy(kvm_vcpu_cache);

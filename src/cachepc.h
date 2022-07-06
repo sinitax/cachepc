@@ -10,8 +10,8 @@
 
 cache_ctx *cachepc_get_ctx(cache_level cl);
 cacheline *cachepc_prepare_ds(cache_ctx *ctx);
-void cachepc_save_msrmt(cacheline *head, const char *prefix, int index);
-void cachepc_print_msrmt(cacheline *head);
+void cachepc_save_msrmts(cacheline *head, const char *prefix, int index);
+void cachepc_print_msrmts(cacheline *head);
 
 __attribute__((always_inline))
 static inline cacheline *cachepc_prime(cacheline *head);

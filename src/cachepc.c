@@ -6,10 +6,45 @@ static cacheline **allocate_cache_ds(cache_ctx *ctx);
 static uint16_t get_virt_cache_set(cache_ctx *ctx, void *ptr);
 static void *aligned_alloc(size_t alignment, size_t size);
 
+void
+cachepc_init_counters(void)
+{
+	uint32_t event, event_no, event_mask;
+	uint64_t reg_addr;
+
+	/* SEE: https://developer.amd.com/resources/developer-guides-manuals (PPR 17H 31H, P.166)
+	 *
+	 * performance event selection is done via 0xC001_020X with X = (0..A)[::2]
+	 * performance event reading is done viea 0XC001_020X with X = (1..B)[::2]
+	 *
+	 * 6 slots total
+	 */
+       
+	reg_addr = 0xc0010200; /* first slot */
+	event_no = 0x64;
+	event_mask = 0x08;
+	event = event_no | (event_mask << 8);
+	event |= (1<< 17); /* OsUserMode bit */
+	event |= (1 << 22); /* enable performance counter */
+	printk(KERN_INFO "Writing to msr event %d", event);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
+
+	reg_addr = 0xc0010202;
+	event_no = 0x64;
+	event_mask = 0xC8;
+	event = event_no | (event_mask << 8); 
+	event |= (1<< 17); /* OsUserMode bit */
+	event |= (1 << 22); /* enable performance counter */
+	printk(KERN_INFO "Writing to msr event %d", event);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
+}
+
 cache_ctx *
 cachepc_get_ctx(cache_level cache_level)
 {
 	cache_ctx *ctx;
+
+	printk(KERN_INFO "CACHEPC_GET_CTX");
        
 	ctx = kzalloc(sizeof(cache_ctx), GFP_KERNEL);
 	BUG_ON(ctx == NULL);
@@ -44,6 +79,8 @@ cachepc_prepare_ds(cache_ctx *ctx)
 {
 	cacheline **cacheline_ptr_arr;
 	cacheline *cache_ds;
+
+	printk(KERN_INFO "CACHEPC_BUILD_CACHE_DS");
 	
        	cacheline_ptr_arr = allocate_cache_ds(ctx);
 	cache_ds = build_cache_ds(ctx, cacheline_ptr_arr);

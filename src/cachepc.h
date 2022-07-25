@@ -8,6 +8,11 @@
 #include "cache_types.h"
 #include "util.h"
 
+#define L2_HIT_CNTR 0xC0010201
+#define L2_MISS_CNTR 0xC0010203
+
+void cachepc_init_counters(void);
+
 cache_ctx *cachepc_get_ctx(cache_level cl);
 cacheline *cachepc_prepare_ds(cache_ctx *ctx);
 void cachepc_save_msrmts(cacheline *head, const char *prefix, int index);
@@ -33,6 +38,8 @@ static inline cacheline *
 cachepc_prime(cacheline *head)
 {
     cacheline *curr_cl;
+
+    printk(KERN_WARNING "PROBE");
 
     cachepc_cpuid();
     curr_cl = head;
@@ -78,13 +85,12 @@ cachepc_prime_rev(cacheline *head)
 static inline cacheline *
 cachepc_probe_set(cacheline *curr_cl)
 {
-	uint64_t pre1, pre2, pre3;
-	uint64_t post1, post2, post3;
+	uint64_t pre1, pre2;
+	uint64_t post1, post2;
 	cacheline *next_cl;
 
-	pre1 = cachepc_readpmc(0);
-	pre2 = cachepc_readpmc(1);
-	pre3 = cachepc_readpmc(2);
+	pre1 = cachepc_readpmc(L2_HIT_CNTR);
+	pre2 = cachepc_readpmc(L2_MISS_CNTR);
 
 	cachepc_mfence();
 	asm volatile(
@@ -104,18 +110,15 @@ cachepc_probe_set(cacheline *curr_cl)
 	cachepc_mfence();
 	cachepc_cpuid();
 
-	post1 = cachepc_readpmc(0);
+	post1 = cachepc_readpmc(L2_HIT_CNTR);
 	cachepc_cpuid();
-	post2 = cachepc_readpmc(1);
-	cachepc_cpuid();
-	post3 = cachepc_readpmc(2);
+	post2 = cachepc_readpmc(L2_MISS_CNTR);
 	cachepc_cpuid();
 
 	/* works across size boundary */
 	curr_cl->count = 0;
 	curr_cl->count += post1 - pre1;
 	curr_cl->count += post2 - pre2;
-	curr_cl->count += post3 - pre3;
 
 	return next_cl;
 }
@@ -124,6 +127,8 @@ static inline cacheline *
 cachepc_probe(cacheline *head)
 {
 	cacheline *curr_cs;
+
+	printk(KERN_WARNING "PROBE");
        
 	curr_cs = head;
 	do {

@@ -25,10 +25,9 @@ cachepc_readpmc(uint64_t event)
 	uint32_t lo, hi;
 
 	asm volatile (
-		"mov %[event], %%rcx\t\n"
-		"rdpmc\t\n"
+		"rdmsr"
 		: "=a" (lo), "=d" (hi)
-		: [event] "r" (event)
+		: "c"(event)
 	);
 
 	return ((uint64_t) hi << 32) | lo;

@@ -8,8 +8,8 @@
 
 #define REMOVE_PAGE_OFFSET(ptr) ((void *) (((uintptr_t) ptr) & PAGE_MASK))
 
-#define GET_BIT(b, i) (((b & (1 << i)) >> i) & 1)
-#define SET_BIT(b, i) (b | (1 << i))
+#define GET_BIT(b, i) (((b) >> (i)) & 1)
+#define SET_BIT(b, i) ((b) | (1 << (i)))
 
 /* Operate cacheline flags
  * Used flags:

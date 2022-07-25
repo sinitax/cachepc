@@ -12,8 +12,8 @@ random_perm(uint32_t *arr, uint32_t arr_len)
 		idx = idx % i;
 
 		tmp = arr[idx];
-		arr[i] = arr[idx];
-		arr[idx] = tmp;
+		arr[idx] = arr[i];
+		arr[i] = tmp;
 	}
 }
 

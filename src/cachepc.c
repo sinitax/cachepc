@@ -26,16 +26,16 @@ cachepc_init_counters(void)
 	event = event_no | (event_mask << 8);
 	event |= (1<< 17); /* OsUserMode bit */
 	event |= (1 << 22); /* enable performance counter */
-	printk(KERN_INFO "Writing to msr event %d", event);
+	printk(KERN_WARNING "CachePC: Initialized event %d\n", event);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 
 	reg_addr = 0xc0010202;
 	event_no = 0x64;
 	event_mask = 0xC8;
 	event = event_no | (event_mask << 8); 
-	event |= (1<< 17); /* OsUserMode bit */
+	event |= (1 << 17); /* OsUserMode bit */
 	event |= (1 << 22); /* enable performance counter */
-	printk(KERN_INFO "Writing to msr event %d", event);
+	printk(KERN_WARNING "CachePC: Initialized event %d\n", event);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 }
 
@@ -44,11 +44,12 @@ cachepc_get_ctx(cache_level cache_level)
 {
 	cache_ctx *ctx;
 
-	printk(KERN_INFO "CACHEPC_GET_CTX");
+	// printk(KERN_WARNING "CachePC: Getting ctx..\n");
        
 	ctx = kzalloc(sizeof(cache_ctx), GFP_KERNEL);
 	BUG_ON(ctx == NULL);
 
+	BUG_ON(cache_level != L1);
 	if (cache_level == L1) {
 		ctx->addressing = L1_ADDRESSING;
 		ctx->sets = L1_SETS;
@@ -68,6 +69,8 @@ cachepc_get_ctx(cache_level cache_level)
 	ctx->set_size = CACHELINE_SIZE * ctx->associativity;
 	ctx->cache_size = ctx->sets * ctx->set_size;
 
+	// printk(KERN_WARNING "CachePC: Getting ctx done\n");
+
 	return ctx;
 }
 
@@ -80,11 +83,13 @@ cachepc_prepare_ds(cache_ctx *ctx)
 	cacheline **cacheline_ptr_arr;
 	cacheline *cache_ds;
 
-	printk(KERN_INFO "CACHEPC_BUILD_CACHE_DS");
+	//printk(KERN_WARNING "CachePC: Preparing ds..\n");
 	
        	cacheline_ptr_arr = allocate_cache_ds(ctx);
 	cache_ds = build_cache_ds(ctx, cacheline_ptr_arr);
 	kfree(cacheline_ptr_arr);
+
+	// printk(KERN_WARNING "CachePC: Preparing ds done\n");
 
 	return cache_ds;
 }
@@ -106,12 +111,30 @@ cachepc_print_msrmts(cacheline *head)
 	curr_cl = head;
 	do {
 		if (IS_FIRST(curr_cl->flags)) {
-			printk(KERN_WARNING "Count for cache set %i: %llu\n",
+			printk(KERN_WARNING "CachePC: Count for cache set %i: %llu\n",
 				curr_cl->cache_set, curr_cl->count);
 		}
 
 		curr_cl = curr_cl->prev;
 	} while (curr_cl != head);
+}
+
+void *
+remove_cache_set(cache_ctx *ctx, void *ptr)
+{
+	return (void *) (((uintptr_t) ptr) & ~SET_MASK(ctx->sets));
+}
+
+void
+cachepc_release_ds(cache_ctx *ctx, cacheline *ds)
+{
+	kfree(remove_cache_set(ctx, ds));
+}
+
+void
+cachepc_release_ctx(cache_ctx *ctx)
+{
+	kfree(ctx);
 }
 
 /*
@@ -136,13 +159,13 @@ cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
  	idx_per_set = kzalloc(ctx->sets * sizeof(uint32_t), GFP_KERNEL);
 	BUG_ON(idx_per_set == NULL);
 
-	cl_ptr_arr_sorted  = kmalloc(ctx->nr_of_cachelines * sizeof(cacheline *), GFP_KERNEL);
+	cl_ptr_arr_sorted = kzalloc(ctx->nr_of_cachelines * sizeof(cacheline *), GFP_KERNEL);
 	BUG_ON(cl_ptr_arr_sorted == NULL);
 
 	set_len = ctx->associativity;
 	for (i = 0; i < ctx->nr_of_cachelines; ++i) {
-		set_offset      = cl_ptr_arr[i]->cache_set * set_len;
-		idx_curr_set    = idx_per_set[cl_ptr_arr[i]->cache_set];
+		set_offset = cl_ptr_arr[i]->cache_set * set_len;
+		idx_curr_set = idx_per_set[cl_ptr_arr[i]->cache_set];
 
 		cl_ptr_arr_sorted[set_offset + idx_curr_set] = cl_ptr_arr[i];
 		idx_per_set[cl_ptr_arr[i]->cache_set] += 1;
@@ -198,8 +221,8 @@ void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_p
 		curr_cl->prev = cacheline_ptr_arr[idx_map[(len - 1 + i) % len]];
 		curr_cl->count = 0;
 
-		if (curr_cl == cacheline_ptr_arr[0]) {
-			curr_cl->flags       = SET_FIRST(DEFAULT_FLAGS);
+		if (idx_map[i] == 0) {
+			curr_cl->flags = SET_FIRST(DEFAULT_FLAGS);
 			curr_cl->prev->flags = SET_LAST(DEFAULT_FLAGS);
 		} else {
 			curr_cl->flags = curr_cl->flags | DEFAULT_FLAGS;
@@ -219,13 +242,13 @@ allocate_cache_ds(cache_ctx *ctx)
 	cacheline **cl_ptr_arr, *cl_arr;
 	uint32_t i;
 
-	cl_ptr_arr = (cacheline **) kzalloc(ctx->nr_of_cachelines * sizeof(cacheline *), GFP_KERNEL);
+	cl_ptr_arr = kzalloc(ctx->nr_of_cachelines * sizeof(cacheline *), GFP_KERNEL);
 	BUG_ON(cl_ptr_arr == NULL);
 
 	BUG_ON(ctx->addressing != VIRTUAL);
 
 	// For virtual addressing, allocating a consecutive chunk of memory is enough
-	cl_arr = (cacheline *) aligned_alloc(PAGE_SIZE, ctx->cache_size);
+	cl_arr = aligned_alloc(PAGE_SIZE, ctx->cache_size);
 	BUG_ON(cl_arr == NULL);
 
 	for (i = 0; i < ctx->nr_of_cachelines; ++i) {
@@ -249,10 +272,9 @@ aligned_alloc(size_t alignment, size_t size)
 
 	if (size % alignment != 0)
 		size = size - (size % alignment) + alignment;
-	p = kmalloc(size, GFP_KERNEL);
+	p = kzalloc(size, GFP_KERNEL);
 	BUG_ON(((uintptr_t) p) % alignment != 0);
 
 	return p;
 }
-
 

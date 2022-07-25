@@ -17,6 +17,8 @@ cache_ctx *cachepc_get_ctx(cache_level cl);
 cacheline *cachepc_prepare_ds(cache_ctx *ctx);
 void cachepc_save_msrmts(cacheline *head, const char *prefix, int index);
 void cachepc_print_msrmts(cacheline *head);
+void cachepc_release_ds(cache_ctx *ctx, cacheline *ds);
+void cachepc_release_ctx(cache_ctx *ctx);
 
 __attribute__((always_inline))
 static inline cacheline *cachepc_prime(cacheline *head);
@@ -39,7 +41,7 @@ cachepc_prime(cacheline *head)
 {
     cacheline *curr_cl;
 
-    printk(KERN_WARNING "PROBE");
+    //printk(KERN_WARNING "CachePC: Priming..\n");
 
     cachepc_cpuid();
     curr_cl = head;
@@ -48,6 +50,8 @@ cachepc_prime(cacheline *head)
         cachepc_mfence();
     } while(curr_cl != head);
     cachepc_cpuid();
+
+    //printk(KERN_WARNING "CachePC: Priming done\n");
 
     return curr_cl->prev;
 }
@@ -128,12 +132,14 @@ cachepc_probe(cacheline *head)
 {
 	cacheline *curr_cs;
 
-	printk(KERN_WARNING "PROBE");
+	//printk(KERN_WARNING "CachePC: Probing..");
        
 	curr_cs = head;
 	do {
 		curr_cs = cachepc_probe_set(curr_cs);
 	} while (__builtin_expect(curr_cs != head, 1));
+
+	//printk(KERN_WARNING "CachePC: Probing done");
 
 	return curr_cs->next;
 }

@@ -1,8 +1,19 @@
 diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
-index b804444e16d4..1f7d3b15cf4a 100644
+index b804444e16d4..c94f8c4460f1 100644
 --- a/arch/x86/kvm/Makefile
 +++ b/arch/x86/kvm/Makefile
-@@ -20,7 +20,8 @@ kvm-y			+= x86.o emulate.o i8259.o irq.o lapic.o \
+@@ -10,7 +10,9 @@ endif
+ KVM := ../../../virt/kvm
+ 
+ kvm-y			+= $(KVM)/kvm_main.o $(KVM)/coalesced_mmio.o \
+-				$(KVM)/eventfd.o $(KVM)/irqchip.o $(KVM)/vfio.o
++				$(KVM)/eventfd.o $(KVM)/irqchip.o $(KVM)/vfio.o \
++				svm/cachepc/cachepc.o svm/cachepc/util.o
++
+ kvm-$(CONFIG_KVM_ASYNC_PF)	+= $(KVM)/async_pf.o
+ 
+ kvm-y			+= x86.o emulate.o i8259.o irq.o lapic.o \
+@@ -20,7 +22,8 @@ kvm-y			+= x86.o emulate.o i8259.o irq.o lapic.o \
  
  kvm-intel-y		+= vmx/vmx.o vmx/vmenter.o vmx/pmu_intel.o vmx/vmcs12.o \
  			   vmx/evmcs.o vmx/nested.o vmx/posted_intr.o
@@ -13,7 +24,7 @@ index b804444e16d4..1f7d3b15cf4a 100644
  obj-$(CONFIG_KVM)	+= kvm.o
  obj-$(CONFIG_KVM_INTEL)	+= kvm-intel.o
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index 7b3cfbe8f7e3..4c6ebe040c30 100644
+index 7b3cfbe8f7e3..e9a2b1048e28 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,8 @@
@@ -25,37 +36,38 @@ index 7b3cfbe8f7e3..4c6ebe040c30 100644
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -3728,6 +3730,16 @@ void __svm_vcpu_run(unsigned long vmcb_pa, unsigned long *regs);
- static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
- 					struct vcpu_svm *svm)
+@@ -3785,8 +3787,18 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+ 
+ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
  {
+-	struct vcpu_svm *svm = to_svm(vcpu);
 +	static struct cache_ctx *ctx = NULL;
-+	static struct cacheline *cache_ds = NULL;
-+	static struct cacheline *curr_head = NULL;
-+	static struct cacheline *next_head = NULL;
++	static struct cacheline *ds = NULL;
++	static struct cacheline *head = NULL;
 +	static int run_index = 0;
++	struct vcpu_svm *svm;
 +
 +	if (!ctx) ctx = cachepc_get_ctx(L1);
-+	if (!cache_ds) cache_ds = cachepc_prepare_ds(ctx);
-+	if (!curr_head) curr_head = cache_ds;
++	if (!ds) ds = cachepc_prepare_ds(ctx);
 +
- 	/*
- 	 * VMENTER enables interrupts (host state), but the kernel state is
- 	 * interrupts disabled when this is invoked. Also tell RCU about
-@@ -3751,7 +3763,13 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
- 	if (sev_es_guest(svm->vcpu.kvm)) {
- 		__svm_sev_es_vcpu_run(svm->vmcb_pa);
- 	} else {
-+		curr_head = cachepc_prime(curr_head);
- 		__svm_vcpu_run(svm->vmcb_pa, (unsigned long *)&svm->vcpu.arch.regs);
-+		next_head = cachepc_probe(curr_head);
-+		//cachepc_save_msrmts(curr_head, "/tmp/msrmt", run_index);
-+		cachepc_print_msrmts(curr_head);
-+		curr_head = next_head;
-+		run_index += 1;
++	head = cachepc_prime(ds);
  
- #ifdef CONFIG_X86_64
- 		native_wrmsrl(MSR_GS_BASE, svm->host.gs_base);
++	svm = to_svm(vcpu);
+ 	svm->vmcb->save.rax = vcpu->arch.regs[VCPU_REGS_RAX];
+ 	svm->vmcb->save.rsp = vcpu->arch.regs[VCPU_REGS_RSP];
+ 	svm->vmcb->save.rip = vcpu->arch.regs[VCPU_REGS_RIP];
+@@ -3912,6 +3925,11 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
+ 	if (is_guest_mode(vcpu))
+ 		return EXIT_FASTPATH_NONE;
+ 
++	cachepc_probe(head);
++	cachepc_print_msrmts(head);
++
++	run_index += 1;
++
+ 	return svm_exit_handlers_fastpath(vcpu);
+ }
+ 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
 index 7f2e2a09ebbd..762eb35f19e5 100644
 --- a/include/linux/kvm_host.h
@@ -72,7 +84,7 @@ index 7f2e2a09ebbd..762eb35f19e5 100644
  #define KVM_MAX_VCPU_ID KVM_MAX_VCPUS
  #endif
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..f900cf449fb8 100644
+index 2541a17ff1c4..fd7511484011 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,7 @@
@@ -133,7 +145,7 @@ index 2541a17ff1c4..f900cf449fb8 100644
  	int r;
  	int cpu;
  
-@@ -4848,6 +4874,16 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +4874,15 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -145,12 +157,11 @@ index 2541a17ff1c4..f900cf449fb8 100644
 +
 +	//cachepc_msrmts_file = proc_create("cachepc", 0644, NULL, &proc_ops);
 +	//BUG_ON(cachepc_msrmts_file == NULL);
-+
 +	
  	return 0;
  
  out_unreg:
-@@ -4872,6 +4908,7 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +4907,7 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

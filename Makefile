@@ -3,15 +3,13 @@ PWD := $(shell pwd)
 
 .PHONY: all reset clean prepare build
 
-all: reset prepare build
+all: reset clean prepare build
 
 clean:
 	$(MAKE) -C $(KERNEL_SOURCE) SUBDIRS=arch/x86/kvm clean
 
 reset:
 	git -C $(KERNEL_SOURCE) reset --hard
-	#git -C $(KERNEL_SOURCE) clean -dfx
-	#cp .config $(KERNEL_SOURCE)/.config
 
 $(KERNEL_SOURCE)/arch/x86/kvm/svm/cachepc:
 	ln -s $(PWD)/src $@

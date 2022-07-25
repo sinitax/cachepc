@@ -18,8 +18,7 @@ prepare: $(KERNEL_SOURCE)/arch/x86/kvm/svm/cachepc
 	git -C $(KERNEL_SOURCE) apply $(PWD)/patch.diff 
 
 build:
-	# $(MAKE) -C $(KERNEL_SOURCE) arch/x86/kvm/kvm.ko arch/x86/kvm/kvm-amd.ko
-	$(MAKE) -C $(KERNEL_SOURCE) -v modules -j6 SUBDIRS=arch/x86/kvm
+	#$(MAKE) -C $(KERNEL_SOURCE) arch/x86/kvm/kvm.ko arch/x86/kvm/kvm-amd.ko
 	$(MAKE) -C $(KERNEL_SOURCE) -j6 M=arch/x86/kvm
 
 load:

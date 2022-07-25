@@ -95,12 +95,19 @@ cachepc_prepare_ds(cache_ctx *ctx)
 }
 
 void
-cachepc_save_msrmts(cacheline *head, const char *prefix, int index)
+cachepc_save_msrmts(cacheline *head)
 {
-	char filename[256];
+	cacheline *curr_cl;
 
-	snprintf(filename, sizeof(filename), "%s.%i", prefix, index);
+	curr_cl = head;
+	do {
+		if (IS_FIRST(curr_cl->flags)) {
+			BUG_ON(curr_cl->cache_set >= cachepc_msrmts_count);
+			cachepc_msrmts[curr_cl->cache_set] = curr_cl->count;
+		}
 
+		curr_cl = curr_cl->prev;
+	} while (curr_cl != head);
 }
 
 void

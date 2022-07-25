@@ -15,7 +15,7 @@ void cachepc_init_counters(void);
 
 cache_ctx *cachepc_get_ctx(cache_level cl);
 cacheline *cachepc_prepare_ds(cache_ctx *ctx);
-void cachepc_save_msrmts(cacheline *head, const char *prefix, int index);
+void cachepc_save_msrmts(cacheline *head);
 void cachepc_print_msrmts(cacheline *head);
 void cachepc_release_ds(cache_ctx *ctx, cacheline *ds);
 void cachepc_release_ctx(cache_ctx *ctx);
@@ -31,6 +31,9 @@ static inline cacheline *cachepc_probe_set(cacheline *curr_cl);
 
 __attribute__((always_inline))
 static inline cacheline *cachepc_probe(cacheline *head);
+
+extern uint8_t *cachepc_msrmts;
+extern size_t cachepc_msrmts_count;
 
 /*
  * Prime phase: fill the target cache (encoded in the size of the data structure)

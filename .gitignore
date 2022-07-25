@@ -1,3 +1,4 @@
 build.sh
+push.sh
 *.o.cmd
 *.o

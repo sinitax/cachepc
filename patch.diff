@@ -81,7 +81,7 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
  }
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..c219a214d904 100644
+index 2541a17ff1c4..757128b13fe5 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -103,21 +103,26 @@ index 2541a17ff1c4..c219a214d904 100644
  MODULE_AUTHOR("Qumranet");
  MODULE_LICENSE("GPL");
  
-@@ -143,6 +148,13 @@ static void hardware_disable_all(void);
+@@ -143,6 +148,18 @@ static void hardware_disable_all(void);
  
  static void kvm_io_bus_destroy(struct kvm_io_bus *bus);
  
-+uint8_t *cachepc_msrmts;
-+size_t cachepc_msrmts_count;
 +struct proc_ops cachepc_proc_ops;
 +
++uint16_t *cachepc_msrmts;
++size_t cachepc_msrmts_count;
 +EXPORT_SYMBOL(cachepc_msrmts);
 +EXPORT_SYMBOL(cachepc_msrmts_count);
++
++cache_ctx *cachepc_ctx;
++cacheline *cachepc_ds;
++EXPORT_SYMBOL(cachepc_ctx);
++EXPORT_SYMBOL(cachepc_ds);
 +
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,6 +4777,50 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,94 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -141,14 +146,16 @@ index 2541a17ff1c4..c219a214d904 100644
 +kvm_cachepc_read(struct file *file, char *buf, size_t buflen, loff_t *off)
 +{
 +	size_t len, left;
++	size_t size;
 +
 +	printk(KERN_WARNING "CacheSC: Reading entries (%lu:%lli)\n",
 +		buflen, off ? *off : 0);
 +
-+	if (!off || *off >= cachepc_msrmts_count || *off < 0)
++	size = cachepc_msrmts_count * sizeof(uint16_t);
++	if (!off || *off >= size || *off < 0)
 +		return 0;
 +
-+	len = cachepc_msrmts_count - *off;
++	len = size - *off;
 +	if (len > buflen) len = buflen;
 +
 +	left = copy_to_user(buf, cachepc_msrmts + *off, len);
@@ -165,36 +172,83 @@ index 2541a17ff1c4..c219a214d904 100644
 +	return 0;
 +}
 +
++void
++kvm_cachepc_single_eviction_test(void *p)
++{
++	cacheline *head;
++        cacheline *ptr;
++
++	ptr = cachepc_prepare_victim(cachepc_ctx, 5);
++	head = cachepc_prime(cachepc_ds);
++	cachepc_victim(ptr);
++	cachepc_probe(head);
++
++	printk(KERN_WARNING "CachePC: Test done, results:");
++	cachepc_print_msrmts(head);
++	cachepc_save_msrmts(head);
++
++	cachepc_release_victim(cachepc_ctx, ptr);
++}
++
++void
++kvm_cachepc_init(void *p)
++{
++	int cpu;
++
++	cpu = get_cpu();
++
++	printk(KERN_WARNING "CachePC: Running on core %i\n", cpu);
++
++	cachepc_init_counters();
++
++	cachepc_ctx = cachepc_get_ctx(L1);
++	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
++
++	kvm_cachepc_single_eviction_test(p);
++
++	put_cpu();
++}
++
  int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  		  struct module *module)
  {
-@@ -4848,6 +4904,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+ 	struct kvm_cpu_compat_check c;
+-	int r;
+-	int cpu;
++	int r, cpu;
+ 
+ 	r = kvm_arch_init(opaque);
+ 	if (r)
+@@ -4848,6 +4947,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
-+	cachepc_init_counters();
-+
 +	cachepc_msrmts_count = L1_SETS;
-+	cachepc_msrmts = kzalloc(cachepc_msrmts_count, GFP_KERNEL);
++	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(uint16_t), GFP_KERNEL);
 +	BUG_ON(cachepc_msrmts == NULL);
++
++	r = smp_call_function_single(2, kvm_cachepc_init, NULL, true);
++	WARN_ON(r != 0);
 +
 +	memset(&cachepc_proc_ops, 0, sizeof(cachepc_proc_ops));
 +	cachepc_proc_ops.proc_open = kvm_cachepc_open;
 +	cachepc_proc_ops.proc_read = kvm_cachepc_read;
 +	cachepc_proc_ops.proc_write = kvm_cachepc_write;
 +	cachepc_proc_ops.proc_release = kvm_cachepc_close;
-+
 +	proc_create("cachepc", 0644, NULL, &cachepc_proc_ops);
 +	
  	return 0;
  
  out_unreg:
-@@ -4872,6 +4942,9 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +4985,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {
 +	remove_proc_entry("cachepc", NULL);
 +	kfree(cachepc_msrmts);
++
++	cachepc_release_ds(cachepc_ctx, cachepc_ds);
++	cachepc_release_ctx(cachepc_ctx);
 +
  	debugfs_remove_recursive(kvm_debugfs_dir);
  	misc_deregister(&kvm_dev);

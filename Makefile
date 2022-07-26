@@ -26,3 +26,12 @@ load:
 	sudo rmmod kvm || true
 	sudo insmod $(KERNEL_SOURCE)/arch/x86/kvm/kvm.ko
 	sudo insmod $(KERNEL_SOURCE)/arch/x86/kvm/kvm-amd.ko
+
+read: read.c
+	$(CC) -o $@ $<
+
+test: load read
+	@./read
+
+update: 
+	git -C $(KERNEL_SOURCE) diff > patch.diff

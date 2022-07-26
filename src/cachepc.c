@@ -1,5 +1,10 @@
 #include "cachepc.h"
 
+static void cl_insert(cacheline *last_cl, cacheline *new_cl);
+static void *remove_cache_set(cache_ctx *ctx, void *ptr);
+static void *remove_cache_group_set(void *ptr);
+
+static cacheline *prepare_cache_set_ds(cache_ctx *ctx, uint32_t *set, uint32_t sets_len);
 static cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cacheline_ptr_arr);
 static void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_ptr_arr);
 static cacheline **allocate_cache_ds(cache_ctx *ctx);
@@ -9,7 +14,7 @@ static void *aligned_alloc(size_t alignment, size_t size);
 void
 cachepc_init_counters(void)
 {
-	uint32_t event, event_no, event_mask;
+	uint64_t event, event_no, event_mask;
 	uint64_t reg_addr;
 
 	/* SEE: https://developer.amd.com/resources/developer-guides-manuals (PPR 17H 31H, P.166)
@@ -20,22 +25,24 @@ cachepc_init_counters(void)
 	 * 6 slots total
 	 */
        
-	reg_addr = 0xc0010200; /* first slot */
+	reg_addr = 0xc0010200;
 	event_no = 0x64;
 	event_mask = 0x08;
 	event = event_no | (event_mask << 8);
-	event |= (1<< 17); /* OsUserMode bit */
-	event |= (1 << 22); /* enable performance counter */
-	printk(KERN_WARNING "CachePC: Initialized event %d\n", event);
+	event |= (1ULL << 17); /* OS (kernel) events only */
+	event |= (1ULL << 22); /* enable performance counter */
+	event |= (1ULL << 40); /* Host events only */
+	printk(KERN_WARNING "CachePC: Initialized event %llu\n", event);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 
 	reg_addr = 0xc0010202;
 	event_no = 0x64;
-	event_mask = 0xC8;
+	event_mask = 0xF0;
 	event = event_no | (event_mask << 8); 
-	event |= (1 << 17); /* OsUserMode bit */
-	event |= (1 << 22); /* enable performance counter */
-	printk(KERN_WARNING "CachePC: Initialized event %d\n", event);
+	event |= (1ULL << 17); /* OS (kernel) events only */
+	event |= (1ULL << 22); /* enable performance counter */
+	event |= (1ULL << 40); /* Host events only */
+	printk(KERN_WARNING "CachePC: Initialized event %llu\n", event);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 }
 
@@ -74,6 +81,13 @@ cachepc_get_ctx(cache_level cache_level)
 	return ctx;
 }
 
+void
+cachepc_release_ctx(cache_ctx *ctx)
+{
+	kfree(ctx);
+}
+
+
 /*
  * Initialises the complete cache data structure for the given context
  */
@@ -92,6 +106,42 @@ cachepc_prepare_ds(cache_ctx *ctx)
 	// printk(KERN_WARNING "CachePC: Preparing ds done\n");
 
 	return cache_ds;
+}
+
+void
+cachepc_release_ds(cache_ctx *ctx, cacheline *ds)
+{
+	kfree(remove_cache_set(ctx, ds));
+}
+
+cacheline *
+cachepc_prepare_victim(cache_ctx *ctx, uint32_t set)
+{
+	cacheline *victim_set, *victim_cl;
+	cacheline *curr_cl, *next_cl;
+
+	victim_set = prepare_cache_set_ds(ctx, &set, 1);
+	victim_cl = victim_set;
+
+	// Free the other lines in the same set that are not used.
+	if (ctx->addressing == PHYSICAL) {
+		curr_cl = victim_cl->next;
+		do {
+			next_cl = curr_cl->next;
+			// Here, it is ok to free them directly, as every line in the same
+			// set is from a different page anyway.
+			kfree(remove_cache_group_set(curr_cl));
+			curr_cl = next_cl;
+		} while(curr_cl != victim_cl);
+	}
+
+	return victim_cl;
+}
+
+void
+cachepc_release_victim(cache_ctx *ctx, cacheline *victim)
+{
+	kfree(remove_cache_set(ctx, victim));
 }
 
 void
@@ -126,23 +176,109 @@ cachepc_print_msrmts(cacheline *head)
 	} while (curr_cl != head);
 }
 
+
+cacheline *
+prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
+{
+	cacheline *cache_ds, **first_cl_in_sets, **last_cl_in_sets;
+	cacheline *to_del_cls, *curr_cl, *next_cl, *cache_set_ds;
+	uint32_t i, cache_groups_len, cache_groups_max_len;
+	uint32_t *cache_groups;
+       
+	cache_ds = cachepc_prepare_ds(ctx);
+
+	first_cl_in_sets = kzalloc(ctx->sets * sizeof(cacheline *), GFP_KERNEL);
+	BUG_ON(first_cl_in_sets == NULL);
+
+	last_cl_in_sets  = kzalloc(ctx->sets * sizeof(cacheline *), GFP_KERNEL);
+	BUG_ON(last_cl_in_sets == NULL);
+
+	// Find the cache groups that are used, so that we can delete the other ones
+	// later (to avoid memory leaks)
+	cache_groups_max_len = ctx->sets / CACHE_GROUP_SIZE;
+	cache_groups = kmalloc(cache_groups_max_len * sizeof(uint32_t), GFP_KERNEL);
+	BUG_ON(cache_groups == NULL);
+
+	cache_groups_len = 0;
+	for (i = 0; i < sets_len; ++i) {
+		if (!is_in_arr(sets[i] / CACHE_GROUP_SIZE, cache_groups, cache_groups_len)) {
+			cache_groups[cache_groups_len] = sets[i] / CACHE_GROUP_SIZE;
+			++cache_groups_len;
+		}
+	}
+
+	to_del_cls = NULL;
+	curr_cl = cache_ds;
+
+	// Extract the partial data structure for the cache sets and ensure correct freeing
+	do {
+		next_cl = curr_cl->next;
+
+		if (IS_FIRST(curr_cl->flags)) {
+			first_cl_in_sets[curr_cl->cache_set] = curr_cl;
+		}
+		if (IS_LAST(curr_cl->flags)) {
+			last_cl_in_sets[curr_cl->cache_set] = curr_cl;
+		}
+
+		if (ctx->addressing == PHYSICAL && !is_in_arr(
+			curr_cl->cache_set / CACHE_GROUP_SIZE, cache_groups, cache_groups_len))
+		{
+			// Already free all unused blocks of the cache ds for physical
+			// addressing, because we loose their refs
+			cl_insert(to_del_cls, curr_cl);
+			to_del_cls = curr_cl;
+		}
+		curr_cl = next_cl;
+
+	} while(curr_cl != cache_ds);
+
+	// Fix partial cache set ds
+	for (i = 0; i < sets_len; ++i) {
+		last_cl_in_sets[sets[i]]->next = first_cl_in_sets[sets[(i + 1) % sets_len]];
+		first_cl_in_sets[sets[(i + 1) % sets_len]]->prev = last_cl_in_sets[sets[i]];
+	}
+	cache_set_ds = first_cl_in_sets[sets[0]];
+
+	// Free unused cache lines
+	if (ctx->addressing == PHYSICAL) {
+		cachepc_release_ds(ctx, to_del_cls);
+	}
+
+	kfree(first_cl_in_sets);
+	kfree(last_cl_in_sets);
+	kfree(cache_groups);
+
+	return cache_set_ds;
+}
+
+void 
+cl_insert(cacheline *last_cl, cacheline *new_cl)
+{
+    if (last_cl == NULL) {
+        // Adding the first entry is a special case
+        new_cl->next = new_cl;
+        new_cl->prev = new_cl;
+    } else {
+        new_cl->next = last_cl->next;
+        new_cl->prev = last_cl;
+        last_cl->next->prev = new_cl;
+        last_cl->next = new_cl;
+    }
+}
+
 void *
 remove_cache_set(cache_ctx *ctx, void *ptr)
 {
 	return (void *) (((uintptr_t) ptr) & ~SET_MASK(ctx->sets));
 }
 
-void
-cachepc_release_ds(cache_ctx *ctx, cacheline *ds)
+void *
+remove_cache_group_set(void *ptr)
 {
-	kfree(remove_cache_set(ctx, ds));
+	return (void *) (((uintptr_t) ptr) & ~SET_MASK(CACHE_GROUP_SIZE));
 }
 
-void
-cachepc_release_ctx(cache_ctx *ctx)
-{
-	kfree(ctx);
-}
 
 /*
  * Create a randomized doubly linked list with the following structure:

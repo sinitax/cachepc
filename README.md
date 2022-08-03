@@ -56,13 +56,15 @@ vm_guest_without(void)
 ```
 2. One VM that performs a memory access in a target cache set and then "VMEXISTS":
 ```
-__attribute__((section("guest_without"))) void
-vm_guest_without(void)
+__attribute__((section("guest_with"))) void
+vm_guest_with(void)
 {
 	while (1) {
+		asm volatile("mov %%bl, (%[v])"
+			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
 		asm volatile("out %%al, (%%dx)" : : );
 	}
-}
+}5
 ```
 
 After one VMEXIT for both VMs, the `test_vm.c` reads out the performance counter results and prints which sets have been accessed. It also storews some logs in 

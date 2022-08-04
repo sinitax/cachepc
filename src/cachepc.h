@@ -103,6 +103,7 @@ cachepc_probe(cacheline *start_cl)
 {
 	uint64_t pre1, pre2;
 	uint64_t post1, post2;
+	volatile int i = 0;
 	cacheline *next_cl;
 	cacheline *curr_cl;
 
@@ -112,6 +113,11 @@ cachepc_probe(cacheline *start_cl)
 		cachepc_cpuid();
 		cachepc_mfence();
 	
+		pre1 = cachepc_readpmc(L2_HIT_CNTR);
+		pre2 = cachepc_readpmc(L2_MISS_CNTR);
+		
+		cachepc_cpuid();
+		cachepc_mfence();
 		asm volatile(
 			"mov 8(%[curr_cl]), %%rax \n\t"              // +8
 			"mov 8(%%rax), %%rcx \n\t"                   // +16
@@ -130,13 +136,13 @@ cachepc_probe(cacheline *start_cl)
 		cachepc_cpuid();
 		cachepc_mfence();
 
-		pre1 = cachepc_readpmc(L2_HIT_CNTR);
-		pre2 = cachepc_readpmc(L2_MISS_CNTR);
 
 		cachepc_cpuid();
 		cachepc_mfence();
-
-		msleep(100);
+		
+		//msleep(100);
+		//for(i=0; i<100000; ++i){
+		//}
 
 		post1 = cachepc_readpmc(L2_HIT_CNTR);
 		cachepc_cpuid();
@@ -147,6 +153,7 @@ cachepc_probe(cacheline *start_cl)
 		curr_cl->count = 0;
 		curr_cl->count += post1 - pre1;
 		curr_cl->count += post2 - pre2;
+		curr_cl = next_cl;
 	} while (__builtin_expect(curr_cl != start_cl, 1));
 
 	return curr_cl->next;

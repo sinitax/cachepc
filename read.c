@@ -17,6 +17,8 @@ main(int argc, const char **argv)
 	assert(len == sizeof(counts));
 
 	for (i = 0; i < 64; i++) {
+		//printf("%d %hu\n", i, counts[i]);
+		//continue;
 		if (i % 16 == 0 && i)
 			printf("\n");
 		if (counts[i] > 0)

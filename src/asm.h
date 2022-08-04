@@ -36,7 +36,7 @@ cachepc_readpmc(uint64_t event)
 		: "c"(event)
 	);
 
-	return ((uint64_t) hi << 32) | lo;
+	return ((uint64_t) hi << 32) | (uint64_t)lo;
 }
 
 void
@@ -58,7 +58,7 @@ cachepc_lfence(void)
 	);
 }
 
-void
+inline void
 cachepc_sfence(void)
 {
 	asm volatile(
@@ -67,7 +67,7 @@ cachepc_sfence(void)
 	);
 }
 
-void
+inline void
 cachepc_mfence(void)
 {
 	asm volatile(
@@ -76,7 +76,7 @@ cachepc_mfence(void)
 	);
 }
 
-void
+inline void
 cachepc_readq(void *p)
 {
 	asm volatile (
@@ -85,7 +85,7 @@ cachepc_readq(void *p)
 	);
 }
 
-void
+inline void
 cachepc_victim(void *p)
 {
 	cachepc_mfence();

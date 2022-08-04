@@ -24,10 +24,10 @@ cachepc_init_counters(void)
 	 *
 	 * 6 slots total
 	 */
-       
+
 	reg_addr = 0xc0010200;
-	event_no = 0x64;
-	event_mask = 0x08;
+	event_no = 0x64;//0x29;//0x64;
+	event_mask = 0x08; //0x07; //0x08;
 	event = event_no | (event_mask << 8);
 	event |= (1ULL << 17); /* OS (kernel) events only */
 	event |= (1ULL << 22); /* enable performance counter */

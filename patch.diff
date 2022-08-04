@@ -24,7 +24,7 @@ index b804444e16d4..c94f8c4460f1 100644
  obj-$(CONFIG_KVM)	+= kvm.o
  obj-$(CONFIG_KVM_INTEL)	+= kvm-intel.o
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index 7b3cfbe8f7e3..71697d08e9e4 100644
+index 7b3cfbe8f7e3..f9a6b37eb36a 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,8 @@
@@ -36,7 +36,7 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -3785,8 +3787,18 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+@@ -3785,8 +3787,19 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
  
  static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
  {
@@ -48,7 +48,8 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
 +	struct vcpu_svm *svm;
 +
 +	printk(KERN_WARNING "CachePC: svm_cpu_enter_exit()\n");
-+
++	printk(KERN_WARNING "Vincent CachePC: svm_cpu_enter_exit()\n");
++	cachepc_init_counters();
 +	if (!ctx) ctx = cachepc_get_ctx(L1);
 +	if (!ds) ds = cachepc_prepare_ds(ctx);
  
@@ -56,7 +57,7 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
  	svm->vmcb->save.rax = vcpu->arch.regs[VCPU_REGS_RAX];
  	svm->vmcb->save.rsp = vcpu->arch.regs[VCPU_REGS_RSP];
  	svm->vmcb->save.rip = vcpu->arch.regs[VCPU_REGS_RIP];
-@@ -3835,8 +3847,14 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
+@@ -3835,8 +3848,15 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
  	 */
  	x86_spec_ctrl_set_guest(svm->spec_ctrl, svm->virt_spec_ctrl);
  
@@ -66,12 +67,13 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
  
 +	cachepc_probe(head);
 +	//cachepc_print_msrmts(head);
++	printk(KERN_WARNING "Vincent: Saving measurements\n");
 +	cachepc_save_msrmts(head);
 +
  	/*
  	 * We do not use IBRS in the kernel. If this vCPU has used the
  	 * SPEC_CTRL MSR it may have left it on; save the value and
-@@ -3912,6 +3930,8 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
+@@ -3912,6 +3932,8 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
  	if (is_guest_mode(vcpu))
  		return EXIT_FASTPATH_NONE;
  
@@ -81,7 +83,7 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
  }
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..757128b13fe5 100644
+index 2541a17ff1c4..1c3c3b63baba 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -122,7 +124,7 @@ index 2541a17ff1c4..757128b13fe5 100644
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,12 +4782,94 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,95 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -178,7 +180,7 @@ index 2541a17ff1c4..757128b13fe5 100644
 +	cacheline *head;
 +        cacheline *ptr;
 +
-+	ptr = cachepc_prepare_victim(cachepc_ctx, 5);
++	ptr = cachepc_prepare_victim(cachepc_ctx, 48);
 +	head = cachepc_prime(cachepc_ds);
 +	cachepc_victim(ptr);
 +	cachepc_probe(head);
@@ -212,6 +214,7 @@ index 2541a17ff1c4..757128b13fe5 100644
  int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  		  struct module *module)
  {
++	printk(KERN_WARNING "Vincent: KVM Init called\n");
  	struct kvm_cpu_compat_check c;
 -	int r;
 -	int cpu;
@@ -219,7 +222,7 @@ index 2541a17ff1c4..757128b13fe5 100644
  
  	r = kvm_arch_init(opaque);
  	if (r)
-@@ -4848,6 +4947,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +4948,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -240,7 +243,7 @@ index 2541a17ff1c4..757128b13fe5 100644
  	return 0;
  
  out_unreg:
-@@ -4872,6 +4985,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +4986,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

@@ -3,3 +3,4 @@ push.sh
 *.o.cmd
 *.o
 read
+.vscode

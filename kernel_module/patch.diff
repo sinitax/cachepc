@@ -83,7 +83,7 @@ index 7b3cfbe8f7e3..f9a6b37eb36a 100644
  }
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..5cb5be763962 100644
+index 2541a17ff1c4..9be3d3a7fa91 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -124,7 +124,7 @@ index 2541a17ff1c4..5cb5be763962 100644
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,12 +4782,98 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,100 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -168,6 +168,8 @@ index 2541a17ff1c4..5cb5be763962 100644
 +	return len;
 +}
 +
++void kvm_cachepc_single_eviction_test(void *p);
++
 +ssize_t
 +kvm_cachepc_write(struct file *file, const char *buf, size_t buflen, loff_t *off)
 +{
@@ -183,7 +185,7 @@ index 2541a17ff1c4..5cb5be763962 100644
 +	cacheline *head;
 +        cacheline *ptr;
 +
-+	ptr = cachepc_prepare_victim(cachepc_ctx, 48);
++	ptr = cachepc_prepare_victim(cachepc_ctx, 15);
 +	head = cachepc_prime(cachepc_ds);
 +	cachepc_victim(ptr);
 +	cachepc_probe(head);
@@ -225,7 +227,7 @@ index 2541a17ff1c4..5cb5be763962 100644
  
  	r = kvm_arch_init(opaque);
  	if (r)
-@@ -4848,6 +4951,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +4953,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -246,7 +248,7 @@ index 2541a17ff1c4..5cb5be763962 100644
  	return 0;
  
  out_unreg:
-@@ -4872,6 +4989,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +4991,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

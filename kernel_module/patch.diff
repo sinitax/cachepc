@@ -83,7 +83,7 @@ index 7b3cfbe8f7e3..f9a6b37eb36a 100644
  }
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..1c3c3b63baba 100644
+index 2541a17ff1c4..5cb5be763962 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -124,7 +124,7 @@ index 2541a17ff1c4..1c3c3b63baba 100644
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,12 +4782,95 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,98 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -171,6 +171,9 @@ index 2541a17ff1c4..1c3c3b63baba 100644
 +ssize_t
 +kvm_cachepc_write(struct file *file, const char *buf, size_t buflen, loff_t *off)
 +{
++	printk(KERN_WARNING "Vincent: Writing to cachepc device, now doing single eviction\n");
++	int r = 0;
++	r = smp_call_function_single(2, kvm_cachepc_single_eviction_test, NULL, true);
 +	return 0;
 +}
 +
@@ -222,7 +225,7 @@ index 2541a17ff1c4..1c3c3b63baba 100644
  
  	r = kvm_arch_init(opaque);
  	if (r)
-@@ -4848,6 +4948,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +4951,20 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -243,7 +246,7 @@ index 2541a17ff1c4..1c3c3b63baba 100644
  	return 0;
  
  out_unreg:
-@@ -4872,6 +4986,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +4989,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

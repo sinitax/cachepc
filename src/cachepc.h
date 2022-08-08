@@ -1,16 +1,9 @@
 #pragma once
 
-#include <linux/kernel.h>
-#include <linux/types.h> 
-#include <linux/slab.h>
-#include <linux/delay.h>
-
 #include "asm.h"
 #include "cache_types.h"
 #include "util.h"
-
-#define L2_MISS_CNTR 0xC0010201
-#define L2_HIT_CNTR 0xC0010203
+#include "cachepc_user.h"
 
 void cachepc_init_counters(void);
 
@@ -32,11 +25,11 @@ static inline cacheline *cachepc_prime(cacheline *head);
 __attribute__((always_inline))
 static inline cacheline *cachepc_prime_rev(cacheline *head);
 
-//__attribute__((always_inline))
-//static inline cacheline *cachepc_probe_set(cacheline *curr_cl);
-
 __attribute__((always_inline))
 static inline cacheline *cachepc_probe(cacheline *head);
+
+__attribute__((always_inline))
+static inline void cachepc_victim(void *p);
 
 extern uint16_t *cachepc_msrmts;
 extern size_t cachepc_msrmts_count;
@@ -101,23 +94,20 @@ cachepc_prime_rev(cacheline *head)
 cacheline *
 cachepc_probe(cacheline *start_cl)
 {
-	uint64_t pre1, pre2;
-	uint64_t post1, post2;
-	volatile int i = 0;
+	uint64_t pre, post;
 	cacheline *next_cl;
 	cacheline *curr_cl;
+	volatile register uint64_t i asm("r12");
 
 	curr_cl = start_cl;
 
 	do {
-		cachepc_cpuid();
+		pre = cachepc_readpmc(0);
+		pre += cachepc_readpmc(1);
+
 		cachepc_mfence();
-	
-		pre1 = cachepc_readpmc(L2_HIT_CNTR);
-		pre2 = cachepc_readpmc(L2_MISS_CNTR);
+		cachepc_cpuid();
 		
-		cachepc_cpuid();
-		cachepc_mfence();
 		asm volatile(
 			"mov 8(%[curr_cl]), %%rax \n\t"              // +8
 			"mov 8(%%rax), %%rcx \n\t"                   // +16
@@ -133,45 +123,28 @@ cachepc_probe(cacheline *start_cl)
 			: "rax", "rcx"
 		);
 
-		cachepc_cpuid();
 		cachepc_mfence();
-
-
 		cachepc_cpuid();
+
+		post = cachepc_readpmc(0);
+		post += cachepc_readpmc(1);
+
 		cachepc_mfence();
-		
-		//msleep(100);
-		//for(i=0; i<100000; ++i){
-		//}
-
-		post1 = cachepc_readpmc(L2_HIT_CNTR);
-		cachepc_cpuid();
-		post2 = cachepc_readpmc(L2_MISS_CNTR);
 		cachepc_cpuid();
 
 		/* works across size boundary */
-		curr_cl->count = 0;
-		curr_cl->count += post1 - pre1;
-		curr_cl->count += post2 - pre2;
+		curr_cl->count = post - pre;
+
 		curr_cl = next_cl;
 	} while (__builtin_expect(curr_cl != start_cl, 1));
 
 	return curr_cl->next;
 }
 
-// static inline cacheline *
-// cachepc_probe(cacheline *head)
-// {
-// 	cacheline *curr_cs;
-// 
-// 	//printk(KERN_WARNING "CachePC: Probing..");
-//        
-// 	curr_cs = head;
-// 	do {
-// 		curr_cs = cachepc_probe_set(curr_cs);
-// 	} while (__builtin_expect(curr_cs != head, 1));
-// 
-// 	//printk(KERN_WARNING "CachePC: Probing done");
-// 
-// 	return curr_cs->next;
-// }
+void
+cachepc_victim(void *p)
+{
+	cachepc_cpuid();
+	cachepc_mfence();
+	cachepc_readq(p);
+}

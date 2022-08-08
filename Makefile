@@ -30,6 +30,9 @@ load:
 read: read.c
 	$(CC) -o $@ $<
 
+access: access.c src/cachepc_user.h
+	$(CC) -o $@ $< -I src
+
 test: load read
 	@./read
 

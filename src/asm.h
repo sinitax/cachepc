@@ -22,13 +22,12 @@ static inline void cachepc_mfence(void);
 __attribute__((always_inline))
 static inline void cachepc_readq(void *p);
 
-__attribute__((always_inline))
-static inline void cachepc_victim(void *p);
-
 uint64_t
 cachepc_readpmc(uint64_t event)
 {
 	uint32_t lo, hi;
+
+	event = 0xC0010201 + 2 * event;
 
 	asm volatile (
 		"rdmsr"
@@ -36,7 +35,7 @@ cachepc_readpmc(uint64_t event)
 		: "c"(event)
 	);
 
-	return ((uint64_t) hi << 32) | (uint64_t)lo;
+	return ((uint64_t) hi << 32) | (uint64_t) lo;
 }
 
 void
@@ -54,40 +53,33 @@ cachepc_lfence(void)
 {
 	asm volatile(
 		"lfence\n\t"
-		::
+		::: "memory"
 	);
 }
 
-inline void
+void
 cachepc_sfence(void)
 {
 	asm volatile(
 		"sfence\n\t"
-		::
+		::: "memory"
 	);
 }
 
-inline void
+void
 cachepc_mfence(void)
 {
 	asm volatile(
 		"mfence\n\t"
-		::
+		::: "memory"
 	);
 }
 
-inline void
+void
 cachepc_readq(void *p)
 {
 	asm volatile (
 		"movq (%0), %%r10\n\t"
 		: : "r" (p) : "r10"
 	);
-}
-
-inline void
-cachepc_victim(void *p)
-{
-	cachepc_mfence();
-	cachepc_readq(p);
 }

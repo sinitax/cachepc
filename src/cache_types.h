@@ -2,8 +2,6 @@
 
 #include "device_conf.h"
 
-#include <linux/build_bug.h>
-
 #define SET_MASK(SETS) (((((uintptr_t) SETS) * CACHELINE_SIZE) - 1) ^ (CACHELINE_SIZE - 1))
 
 #define REMOVE_PAGE_OFFSET(ptr) ((void *) (((uintptr_t) ptr) & PAGE_MASK))

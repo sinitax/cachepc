@@ -1,5 +1,11 @@
 #include "cachepc.h"
 
+#include <linux/kernel.h>
+#include <linux/types.h> 
+#include <linux/slab.h>
+#include <linux/delay.h>
+#include <linux/ioctl.h>
+
 static void cl_insert(cacheline *last_cl, cacheline *new_cl);
 static void *remove_cache_set(cache_ctx *ctx, void *ptr);
 static void *remove_cache_group_set(void *ptr);
@@ -26,8 +32,8 @@ cachepc_init_counters(void)
 	 */
 
 	reg_addr = 0xc0010200;
-	event_no = 0x64;//0x29;//0x64;
-	event_mask = 0x08; //0x07; //0x08;
+	event_no = 0x70;
+	event_mask = 0xFF;
 	event = event_no | (event_mask << 8);
 	event |= (1ULL << 17); /* OS (kernel) events only */
 	event |= (1ULL << 22); /* enable performance counter */
@@ -36,14 +42,25 @@ cachepc_init_counters(void)
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 
 	reg_addr = 0xc0010202;
-	event_no = 0x64;
-	event_mask = 0xF0;
+	event_no = 0x71;
+	event_mask = 0xFF;
 	event = event_no | (event_mask << 8); 
 	event |= (1ULL << 17); /* OS (kernel) events only */
 	event |= (1ULL << 22); /* enable performance counter */
 	event |= (1ULL << 40); /* Host events only */
 	printk(KERN_WARNING "CachePC: Initialized event %llu\n", event);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
+
+	reg_addr = 0xc0010204;
+	event_no = 0x72;
+	event_mask = 0xFF;
+	event = event_no | (event_mask << 8); 
+	event |= (1ULL << 17); /* OS (kernel) events only */
+	event |= (1ULL << 22); /* enable performance counter */
+	event |= (1ULL << 40); /* Host events only */
+	printk(KERN_WARNING "CachePC: Initialized event %llu\n", event);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
+
 }
 
 cache_ctx *
@@ -148,6 +165,8 @@ void
 cachepc_save_msrmts(cacheline *head)
 {
 	cacheline *curr_cl;
+
+	printk(KERN_WARNING "CachePC: Updating /proc/cachepc\n");
 
 	curr_cl = head;
 	do {

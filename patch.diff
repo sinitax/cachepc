@@ -80,7 +80,7 @@ index 7b3cfbe8f7e3..16dfd9b2938e 100644
  	 * We do not use IBRS in the kernel. If this vCPU has used the
  	 * SPEC_CTRL MSR it may have left it on; save the value and
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..8c46d509bd13 100644
+index 2541a17ff1c4..5a85ea4ce5af 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -121,7 +121,7 @@ index 2541a17ff1c4..8c46d509bd13 100644
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,12 +4782,240 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,289 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -147,7 +147,7 @@ index 2541a17ff1c4..8c46d509bd13 100644
 +	size_t len, left;
 +	size_t size;
 +
-+	printk(KERN_WARNING "CacheSC: Reading entries (%lu:%lli)\n",
++	printk(KERN_WARNING "CachePC: Reading entries (%lu:%lli)\n",
 +		buflen, off ? *off : 0);
 +
 +	size = cachepc_msrmts_count * sizeof(uint16_t);
@@ -157,7 +157,7 @@ index 2541a17ff1c4..8c46d509bd13 100644
 +	len = size - *off;
 +	if (len > buflen) len = buflen;
 +
-+	left = copy_to_user(buf, cachepc_msrmts + *off, len);
++	left = copy_to_user(buf, (uint8_t *) cachepc_msrmts + *off, len);
 +
 +	len -= left;
 +	*off += len;
@@ -169,6 +169,39 @@ index 2541a17ff1c4..8c46d509bd13 100644
 +kvm_cachepc_write(struct file *file, const char *buf, size_t buflen, loff_t *off)
 +{
 +	return 0;
++}
++
++void
++kvm_cachepc_stream_hwpf_test(void *p)
++{
++	cacheline *cl;
++	uint32_t count;
++	uint32_t *arg;
++
++	arg = p;
++
++	/* l2 data cache, hit or miss */
++	cachepc_init_pmc(0, 0x64, 0xD8);
++
++	cl = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
++	BUG_ON(cl == NULL);
++
++	cachepc_prime(cachepc_ds);
++
++	count = cachepc_read_pmc(0);
++
++	asm volatile ("lea 0(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
++	asm volatile ("lea 8(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
++	asm volatile ("lea 16(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
++	asm volatile ("lea 24(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
++
++	count = cachepc_read_pmc(0) - count;
++
++	printk(KERN_WARNING "CachePC: HWPF test done, result: 4 (expected) vs. %u (actual) misses", count);
++
++	if (arg) *arg = count != 4;
++
++	kfree(cl);
 +}
 +
 +void
@@ -258,12 +291,33 @@ index 2541a17ff1c4..8c46d509bd13 100644
 +}
 +
 +void
++kvm_cachepc_stream_hwpf_disable(void)
++{
++	uint64_t reg_addr, val;
++	uint32_t lo, hi;
++
++	/* attempt to disable hwpf.. */
++
++	reg_addr = 0xc0011022;
++	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
++	val = (uint64_t) lo | ((uint64_t) hi << 32);
++	val |= 1 << 13;
++	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
++	printk("Writing MSR %08llX to disable HWPF: %16llX\n", reg_addr, val);
++
++	/* CAUSES CRASH! */
++	//reg_addr = 0xc001101C;
++	//asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
++	//val = (uint64_t) lo | ((uint64_t) hi << 32);
++	//val |= 1 << 23;
++	//asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
++	//printk("Writing MSR %08llX to disable HWPF: %16llX\n", reg_addr, val);
++}
++
++void
 +kvm_cachepc_init(void *p)
 +{
-+	cacheline *cl, *head;
 +	int cpu;
-+
-+	local_irq_disable();
 +
 +	cpu = get_cpu();
 +
@@ -272,18 +326,13 @@ index 2541a17ff1c4..8c46d509bd13 100644
 +	cachepc_ctx = cachepc_get_ctx(L1);
 +	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
 +
-+	head = cl = cachepc_ds;
-+	do {
-+		cl = cl->next;
-+		printk(KERN_WARNING "%i:%i\n", cl->cache_set, cl->cache_line);
-+	} while (cl != head);
++	kvm_cachepc_stream_hwpf_disable();
 +
-+	kvm_cachepc_single_access_test(p);
-+	kvm_cachepc_single_eviction_test(p);
++	kvm_cachepc_stream_hwpf_test(NULL);
++	kvm_cachepc_single_access_test(NULL);
++	kvm_cachepc_single_eviction_test(NULL);
 +
 +	put_cpu();
-+
-+	local_irq_enable();
 +}
 +
 +void
@@ -364,7 +413,7 @@ index 2541a17ff1c4..8c46d509bd13 100644
  
  	r = kvm_arch_init(opaque);
  	if (r)
-@@ -4848,6 +5093,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +5142,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -386,7 +435,7 @@ index 2541a17ff1c4..8c46d509bd13 100644
  	return 0;
  
  out_unreg:
-@@ -4872,6 +5132,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +5181,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

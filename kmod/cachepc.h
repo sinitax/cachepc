@@ -16,6 +16,8 @@ void cachepc_release_ds(cache_ctx *ctx, cacheline *ds);
 cacheline *cachepc_prepare_victim(cache_ctx *ctx, uint32_t set);
 void cachepc_release_victim(cache_ctx *ctx, cacheline *ptr);
 
+void *cachepc_aligned_alloc(size_t alignment, size_t size);
+
 void cachepc_save_msrmts(cacheline *head);
 void cachepc_print_msrmts(cacheline *head);
 

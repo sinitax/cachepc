@@ -15,7 +15,6 @@ static cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cacheline_ptr_arr);
 static void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_ptr_arr);
 static cacheline **allocate_cache_ds(cache_ctx *ctx);
 static uint16_t get_virt_cache_set(cache_ctx *ctx, void *ptr);
-static void *aligned_alloc(size_t alignment, size_t size);
 
 void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask)
@@ -385,7 +384,7 @@ allocate_cache_ds(cache_ctx *ctx)
 	BUG_ON(ctx->addressing != VIRTUAL);
 
 	// For virtual addressing, allocating a consecutive chunk of memory is enough
-	cl_arr = aligned_alloc(PAGE_SIZE, ctx->cache_size);
+	cl_arr = cachepc_aligned_alloc(PAGE_SIZE, ctx->cache_size);
 	BUG_ON(cl_arr == NULL);
 
 	for (i = 0; i < ctx->nr_of_cachelines; ++i) {
@@ -404,7 +403,7 @@ get_virt_cache_set(cache_ctx *ctx, void *ptr)
 }
 
 void *
-aligned_alloc(size_t alignment, size_t size)
+cachepc_aligned_alloc(size_t alignment, size_t size)
 {
 	void *p;
 

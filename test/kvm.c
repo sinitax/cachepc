@@ -1,6 +1,8 @@
 /* for CPU_ZERO macros.. */
 #define _GNU_SOURCE
 
+#include "cachepc_user.h"
+
 #include <linux/kvm.h>
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
@@ -71,6 +73,8 @@ static pid_t victim_pid;
 static struct kvm kvm;
 static struct kvm_run *kvm_run;
 
+static int cachepc_fd;
+
 #define TARGET_CACHE_LINESIZE 64
 #define TARGET_SET 15
 
@@ -115,10 +119,9 @@ pin_process(pid_t pid, int cpu, bool assert)
 
 	CPU_ZERO(&cpuset);
 	CPU_SET(cpu, &cpuset);
-    return true;
 	status = sched_setaffinity(pid, sizeof(cpu_set_t), &cpuset);
 	if (status < 0) {
-		if (assert) err(EXIT_FAILURE, "sched_setaffinity");
+		if (assert) err(1, "sched_setaffinity");
 		return false;
 	}
 
@@ -139,13 +142,13 @@ read_stat_core(pid_t pid)
 	if (!file) return -1;
 
 	if (!fgets(line, sizeof(line), file))
-		err(EXIT_FAILURE, "read stat");
+		err(1, "read stat");
 
 	p = line;
 	for (i = 0; i < 38 && (p = strchr(p, ' ')); i++)
 		p += 1;
 
-	if (!p) errx(EXIT_FAILURE, "stat format");
+	if (!p) errx(1, "stat format");
 	cpu = atoi(p);
 
 	fclose(file);
@@ -166,7 +169,7 @@ clear_cores(uint64_t cpu_mask)
 	/* move all processes from the target cpu to secondary */
 
 	proc_dir = opendir("/proc");
-	if (!proc_dir) err(EXIT_FAILURE, "opendir");
+	if (!proc_dir) err(1, "opendir");
 
 	while ((proc_ent = readdir(proc_dir))) {
 		pid = atoi(proc_ent->d_name);
@@ -181,7 +184,7 @@ clear_cores(uint64_t cpu_mask)
 
 		snprintf(taskpath, sizeof(taskpath), "/proc/%u/task", pid);
 		task_dir = opendir(taskpath);
-		if (!task_dir) err(EXIT_FAILURE, "opendir");
+		if (!task_dir) err(1, "opendir");
 
 		while ((task_ent = readdir(task_dir))) {
 			tid = atoi(task_ent->d_name);
@@ -210,23 +213,23 @@ kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
 
 	kvm.fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
 	if (kvm.fd < 0)
-		err(EXIT_FAILURE, "/dev/kvm");
+		err(1, "/dev/kvm");
 
 	/* Make sure we have the stable version of the API */
 	ret = ioctl(kvm.fd, KVM_GET_API_VERSION, NULL);
 	if (ret == -1)
-		err(EXIT_FAILURE, "KVM_GET_API_VERSION");
+		err(1, "KVM_GET_API_VERSION");
 	if (ret != 12)
-		errx(EXIT_FAILURE, "KVM_GET_API_VERSION %d, expected 12", ret);
+		errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
 
 	kvm.vmfd = ioctl(kvm.fd, KVM_CREATE_VM, 0);
 	if (kvm.vmfd < 0)
-		err(EXIT_FAILURE, "KVM_CREATE_VM");
+		err(1, "KVM_CREATE_VM");
 
 	/* Allocate one aligned page of guest memory to hold the code. */
 	kvm.mem = mmap(NULL, ramsize, PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	if (!kvm.mem) err(EXIT_FAILURE, "allocating guest memory");
+	if (!kvm.mem) err(1, "allocating guest memory");
 	assert(code_stop - code_start <= ramsize);
 	memcpy(kvm.mem, code_start, code_stop - code_start);
 
@@ -239,29 +242,29 @@ kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
     printf("Ramsize %d\n", region.memory_size);
 	printf("Access guest %d\n", TARGET_CACHE_LINESIZE * TARGET_SET);
 	ret = ioctl(kvm.vmfd, KVM_SET_USER_MEMORY_REGION, &region);
-	if (ret < 0) err(EXIT_FAILURE, "KVM_SET_USER_MEMORY_REGION");
+	if (ret < 0) err(1, "KVM_SET_USER_MEMORY_REGION");
 
 	kvm.vcpufd = ioctl(kvm.vmfd, KVM_CREATE_VCPU, 0);
-	if (kvm.vcpufd < 0) err(EXIT_FAILURE, "KVM_CREATE_VCPU");
+	if (kvm.vcpufd < 0) err(1, "KVM_CREATE_VCPU");
 
 	/* Map the shared kvm_run structure and following data. */
 	ret = ioctl(kvm.fd, KVM_GET_VCPU_MMAP_SIZE, NULL);
-	if (ret < 0) err(EXIT_FAILURE, "KVM_GET_VCPU_MMAP_SIZE");
+	if (ret < 0) err(1, "KVM_GET_VCPU_MMAP_SIZE");
 
 	if (ret < sizeof(struct kvm_run))
-		errx(EXIT_FAILURE, "KVM_GET_VCPU_MMAP_SIZE too small");
+		errx(1, "KVM_GET_VCPU_MMAP_SIZE too small");
 	kvm_run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
 		MAP_SHARED, kvm.vcpufd, 0);
-	if (!kvm_run) err(EXIT_FAILURE, "mmap vcpu");
+	if (!kvm_run) err(1, "mmap vcpu");
 
 	/* Initialize CS to point at 0, via a read-modify-write of sregs. */
 	memset(&sregs, 0, sizeof(sregs));
 	ret = ioctl(kvm.vcpufd, KVM_GET_SREGS, &sregs);
-	if (ret < 0) err(EXIT_FAILURE, "KVM_GET_SREGS");
+	if (ret < 0) err(1, "KVM_GET_SREGS");
 	sregs.cs.base = 0;
 	sregs.cs.selector = 0;
 	ret = ioctl(kvm.vcpufd, KVM_SET_SREGS, &sregs);
-	if (ret < 0) err(EXIT_FAILURE, "KVM_SET_SREGS");
+	if (ret < 0) err(1, "KVM_SET_SREGS");
 
 	/* Initialize registers: instruction pointer for our code, addends, and
 	 * initial flags required by x86 architecture. */
@@ -271,16 +274,16 @@ kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
 	regs.rdx = 0;
 	regs.rflags = 0x2;
 	ret = ioctl(kvm.vcpufd, KVM_SET_REGS, &regs);
-	if (ret < 0) err(EXIT_FAILURE, "KVM_SET_REGS");
+	if (ret < 0) err(1, "KVM_SET_REGS");
 }
 
 int16_t *print_accessed_sets(){
 	//int16_t counts[64];
 	int16_t *counts = (int16_t *)malloc(64*sizeof(int16_t));
 	size_t i, len;
-	int fd;
-	fd = open("/proc/cachepc", O_RDONLY);
-	len = read(fd, counts, 64*sizeof(int16_t)); // sizeof(counts));
+
+	lseek(cachepc_fd, 0, SEEK_SET);
+	len = read(cachepc_fd, counts, 64*sizeof(int16_t)); // sizeof(counts));
 	assert(len == 64*sizeof(int16_t));//sizeof(counts));
 
 	for (i = 0; i < 64; i++) {
@@ -296,13 +299,13 @@ int16_t *print_accessed_sets(){
 	}
 	printf("\n Target Set Count: %d %hu \n", TARGET_SET, counts[TARGET_SET]);
 	printf("\n");
-	close(fd);
+
 	return counts;
 }
 
 
 void
-collect(	const char *prefix, size_t code_start, size_t code_stop)
+collect(const char *prefix, size_t code_start, size_t code_stop)
 {
 	int ret;
 
@@ -319,27 +322,30 @@ collect(	const char *prefix, size_t code_start, size_t code_stop)
 	printf("Now calling KVM_RUN");
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
 	if (kvm_run->exit_reason == KVM_EXIT_MMIO)
-		errx(EXIT_FAILURE, "Victim access OOB: %lu\n",
+		errx(1, "Victim access OOB: %lu\n",
 			kvm_run->mmio.phys_addr);
 
 	if (ret < 0 || kvm_run->exit_reason != KVM_EXIT_IO)
-		errx(EXIT_FAILURE, "KVM died: %i %i\n",
+		errx(1, "KVM died: %i %i\n",
 			ret, kvm_run->exit_reason);
 	close(kvm.fd);
 	close(kvm.vmfd);
 	close(kvm.vcpufd);
 }
 
-void dump_msrmt_results_to_log(char *log_file_path, int16_t msrmt_results[SAMPLE_COUNT][64]){
-	FILE *fp = fopen(log_file_path,"w+");
-	if (!fp){
-		errx(EXIT_FAILURE, "Failed to open log file\n");
-	}
+void dump_msrmt_results_to_log(char *log_file_path, int16_t msrmt_results[SAMPLE_COUNT][64])
+{
+	FILE *fp;
+       
+	fp = fopen(log_file_path,"w+");
+	if (!fp) err(1, "fopen");
+
 	fprintf(fp, "Number of samples: %d\n", SAMPLE_COUNT);
 	fprintf(fp, "Target set: %d\n", TARGET_SET);
 	fprintf(fp, "Measurements per sample: %d\n", 64);
 	fprintf(fp, "Legend: target set: %d\n", TARGET_SET);
 	fprintf(fp, "Output cache attack data\n"); 
+
 	for(int i=0; i<SAMPLE_COUNT; ++i){
 		fprintf(fp, "Sample number %d:\n", i);
 		for(int j=0; j<64; ++j){
@@ -348,19 +354,31 @@ void dump_msrmt_results_to_log(char *log_file_path, int16_t msrmt_results[SAMPLE
 		}
 		fprintf(fp,"\n");
 	}
-	close(fp);
 
+	close(fp);
 }
 
 int
 main(int argc, const char **argv)
 {
+	uint32_t arg;
+	int ret;
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	clear_cores(1 << TARGET_CORE);
 	pin_process(0, TARGET_CORE, true);
 
+	cachepc_fd = open("/proc/cachepc", O_RDONLY);
+	if (cachepc_fd < 0) err(1, "open");
+
+	arg = 0x000064F0;
+	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
+	if (ret == -1) err(1, "ioctl fail");
+
+	arg = 0x01006408;
+	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
+	if (ret == -1) err(1, "ioctl fail");
 
 	printf("\n");
 	printf("Number of samples: %d\n", SAMPLE_COUNT);
@@ -399,7 +417,8 @@ main(int argc, const char **argv)
 		putchar('\n');
 	}
 	printf("\n");
-	dump_msrmt_results_to_log("msmrt_without_access.out", msmrt_without_access);
-	dump_msrmt_results_to_log("msmrt_with_access.out", msmrt_with_access);
+	//dump_msrmt_results_to_log("msmrt_without_access.out", msmrt_without_access);
+	//dump_msrmt_results_to_log("msmrt_with_access.out", msmrt_with_access);
 
+	close(cachepc_fd);
 }

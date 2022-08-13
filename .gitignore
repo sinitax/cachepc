@@ -1,5 +1,6 @@
 build.sh
 push.sh
+.vscode
 *.o.cmd
 *.o
-.vscode
+*.out

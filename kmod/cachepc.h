@@ -5,7 +5,7 @@
 #include "util.h"
 #include "cachepc_user.h"
 
-void cachepc_init_counters(void);
+void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask);
 
 cache_ctx *cachepc_get_ctx(cache_level cl);
 void cachepc_release_ctx(cache_ctx *ctx);
@@ -31,6 +31,9 @@ static inline cacheline *cachepc_probe(cacheline *head);
 __attribute__((always_inline))
 static inline void cachepc_victim(void *p);
 
+__attribute__((always_inline))
+static inline uint64_t cachepc_read_pmc(uint64_t event);
+
 extern uint16_t *cachepc_msrmts;
 extern size_t cachepc_msrmts_count;
 
@@ -46,8 +49,6 @@ cachepc_prime(cacheline *head)
 {
     cacheline *curr_cl;
 
-    //printk(KERN_WARNING "CachePC: Priming..\n");
-
     cachepc_cpuid();
     curr_cl = head;
     do {
@@ -55,8 +56,6 @@ cachepc_prime(cacheline *head)
         cachepc_mfence();
     } while(curr_cl != head);
     cachepc_cpuid();
-
-    //printk(KERN_WARNING "CachePC: Priming done\n");
 
     return curr_cl->prev;
 }
@@ -102,8 +101,8 @@ cachepc_probe(cacheline *start_cl)
 	curr_cl = start_cl;
 
 	do {
-		pre = cachepc_readpmc(0);
-		pre += cachepc_readpmc(1);
+		pre = cachepc_read_pmc(0);
+		pre += cachepc_read_pmc(1);
 
 		cachepc_mfence();
 		cachepc_cpuid();
@@ -126,8 +125,8 @@ cachepc_probe(cacheline *start_cl)
 		cachepc_mfence();
 		cachepc_cpuid();
 
-		post = cachepc_readpmc(0);
-		post += cachepc_readpmc(1);
+		post = cachepc_read_pmc(0);
+		post += cachepc_read_pmc(1);
 
 		cachepc_mfence();
 		cachepc_cpuid();
@@ -147,4 +146,20 @@ cachepc_victim(void *p)
 	cachepc_cpuid();
 	cachepc_mfence();
 	cachepc_readq(p);
+}
+
+uint64_t
+cachepc_read_pmc(uint64_t event)
+{
+	uint32_t lo, hi;
+
+	event = 0xC0010201 + 2 * event;
+
+	asm volatile (
+		"rdmsr"
+		: "=a" (lo), "=d" (hi)
+		: "c"(event)
+	);
+
+	return ((uint64_t) hi << 32) | (uint64_t) lo;
 }

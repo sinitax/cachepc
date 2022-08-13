@@ -89,7 +89,7 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
  }
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..830cdb295d9c 100644
+index 2541a17ff1c4..a84a99f4b182 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -130,7 +130,7 @@ index 2541a17ff1c4..830cdb295d9c 100644
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,12 +4782,203 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,245 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -186,11 +186,14 @@ index 2541a17ff1c4..830cdb295d9c 100644
 +	cacheline *ptr;
 +	uint64_t pre, post;
 +	volatile register uint64_t i asm("r11");
-+	int *cnt;
++	uint32_t *user;
 +
-+	cnt = p;
++	/* l2 prefetches, hit or miss */
++	cachepc_init_pmc(0, 0x60, 0x01);
 +
-+	ptr = cachepc_prepare_victim(cachepc_ctx, 48);
++	user = p;
++	
++	ptr = cachepc_prepare_victim(cachepc_ctx, user ? *user : 48);
 +
 +	cachepc_mfence();
 +	cachepc_cpuid();
@@ -205,17 +208,17 @@ index 2541a17ff1c4..830cdb295d9c 100644
 +	cachepc_mfence();
 +	cachepc_cpuid();
 +
-+	pre = cachepc_readpmc(0);
++	pre = cachepc_read_pmc(0);
 +
-+	cachepc_mfence();
-+	cachepc_cpuid();
++	//cachepc_mfence();
++	//cachepc_cpuid();
 +
-+	pre += cachepc_readpmc(1);
++	//pre += cachepc_read_pmc(1);
 +
-+	cachepc_mfence();
-+	cachepc_cpuid();
++	//cachepc_mfence();
++	//cachepc_cpuid();
 +
-+	pre += cachepc_readpmc(2);
++	//pre += cachepc_read_pmc(2);
 +
 +	cachepc_mfence();
 +	cachepc_cpuid();
@@ -230,24 +233,24 @@ index 2541a17ff1c4..830cdb295d9c 100644
 +	cachepc_mfence();
 +	cachepc_cpuid();
 +
-+	post = cachepc_readpmc(0);
++	post = cachepc_read_pmc(0);
 +
-+	cachepc_mfence();
-+	cachepc_cpuid();
++	//cachepc_mfence();
++	//cachepc_cpuid();
 +
-+	post += cachepc_readpmc(1);
++	//post += cachepc_read_pmc(1);
 +
-+	cachepc_mfence();
-+	cachepc_cpuid();
++	//cachepc_mfence();
++	//cachepc_cpuid();
 +
-+	post += cachepc_readpmc(2);
++	//post += cachepc_read_pmc(2);
 +
 +	cachepc_mfence();
 +	cachepc_cpuid();
 +
 +	printk(KERN_WARNING "CachePC: Single access test done, result: %llu", post - pre);
 +
-+	if (cnt) *cnt = post - pre;
++	if (user) *user = post - pre;
 +
 +	cachepc_release_victim(cachepc_ctx, ptr);
 +}
@@ -257,14 +260,19 @@ index 2541a17ff1c4..830cdb295d9c 100644
 +{
 +	cacheline *head;
 +        cacheline *ptr;
++	uint32_t *user;
 +
-+	ptr = cachepc_prepare_victim(cachepc_ctx, 48);
++	user = p;
++
++	/* l2 data cache, hit or miss */
++	cachepc_init_pmc(0, 0x64, 0xD8);
++
++	ptr = cachepc_prepare_victim(cachepc_ctx, user ? *user : 48);
 +	head = cachepc_prime(cachepc_ds);
-+	//cachepc_victim(ptr);
++	cachepc_victim(ptr);
 +	cachepc_probe(head);
 +
 +	printk(KERN_WARNING "CachePC: Single eviction test done\n");
-+	//cachepc_print_msrmts(head);
 +	cachepc_save_msrmts(head);
 +
 +	cachepc_release_victim(cachepc_ctx, ptr);
@@ -281,8 +289,6 @@ index 2541a17ff1c4..830cdb295d9c 100644
 +
 +	printk(KERN_WARNING "CachePC: Running on core %i\n", cpu);
 +
-+	cachepc_init_counters();
-+
 +	cachepc_ctx = cachepc_get_ctx(L1);
 +	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
 +
@@ -294,29 +300,65 @@ index 2541a17ff1c4..830cdb295d9c 100644
 +	local_irq_enable();
 +}
 +
++void
++kvm_cachepc_init_pmc_ioctl(void *p)
++{
++	uint32_t event;
++	uint8_t index, event_no, event_mask;
++
++	WARN_ON(p == NULL);
++	if (!p) return;
++
++	event = *(uint32_t *)p;
++
++	index = (event & 0xFF000000) >> 24;
++	event_no = (event & 0x0000FF00) >> 8;
++	event_mask = (event & 0x000000FF) >> 0;
++
++	cachepc_init_pmc(index, event_no, event_mask);
++}
++
 +long
 +kvm_cachepc_ioctl(struct file *file, unsigned int cmd, unsigned long argp)
 +{
-+	int r;
 +	void __user *arg_user;
-+	int cnt;
++	uint32_t u32;
++	int r;
 +
 +	arg_user = (void __user *)argp;
 +	switch (cmd) {
-+	case CACHEPC_IOCTL_ACCESS_TEST:
++	case CACHEPC_IOCTL_TEST_ACCESS:
 +		printk(KERN_WARNING "CachePC: ioctl access test\n");
++		if (arg_user) {
++			if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
++				return -EFAULT;
++		}
 +		r = smp_call_function_single(2,
-+			kvm_cachepc_single_access_test, &cnt, true);
++			kvm_cachepc_single_access_test, &u32, true);
 +		WARN_ON(r != 0);
 +		if (arg_user) {
-+			if (copy_to_user(arg_user, &cnt, sizeof(int)))
++			if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
 +				return -EFAULT;
 +		}
 +		break;
-+	case CACHEPC_IOCTL_EVICTION_TEST:
++	case CACHEPC_IOCTL_TEST_EVICTION:
 +		printk(KERN_WARNING "CachePC: ioctl eviction test\n");
++		if (arg_user) {
++			if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
++				return -EFAULT;
++		}
 +		r = smp_call_function_single(2,
-+			kvm_cachepc_single_eviction_test, NULL, true);
++			kvm_cachepc_single_eviction_test, &u32, true);
++		WARN_ON(r != 0);
++		break;
++	case CACHEPC_IOCTL_INIT_PMC:
++		printk(KERN_WARNING "CachePC: ioctl init counter\n");
++		if (arg_user) {
++			if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
++				return -EFAULT;
++		}
++		r = smp_call_function_single(2,
++			kvm_cachepc_init_pmc_ioctl, &u32, true);
 +		WARN_ON(r != 0);
 +		break;
 +	default:
@@ -336,7 +378,7 @@ index 2541a17ff1c4..830cdb295d9c 100644
  
  	r = kvm_arch_init(opaque);
  	if (r)
-@@ -4848,6 +5056,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +5098,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -358,7 +400,7 @@ index 2541a17ff1c4..830cdb295d9c 100644
  	return 0;
  
  out_unreg:
-@@ -4872,6 +5095,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +5137,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

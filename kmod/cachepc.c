@@ -18,49 +18,28 @@ static uint16_t get_virt_cache_set(cache_ctx *ctx, void *ptr);
 static void *aligned_alloc(size_t alignment, size_t size);
 
 void
-cachepc_init_counters(void)
+cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask)
 {
-	uint64_t event, event_no, event_mask;
+	uint64_t event;
 	uint64_t reg_addr;
 
-	/* SEE: https://developer.amd.com/resources/developer-guides-manuals (PPR 17H 31H, P.166)
+	/* REF: https://developer.amd.com/resources/developer-guides-manuals (PPR 17H 31H, P.166)
 	 *
-	 * performance event selection is done via 0xC001_020X with X = (0..A)[::2]
-	 * performance event reading is done viea 0XC001_020X with X = (1..B)[::2]
-	 *
-	 * 6 slots total
+	 * performance event selection via 0xC001_020X with X = (0..A)[::2]
+	 * performance event reading viea 0XC001_020X with X = (1..B)[::2]
 	 */
 
-	reg_addr = 0xc0010200;
-	event_no = 0x70;
-	event_mask = 0xFF;
+	WARN_ON(index >= 6);
+	if (index >= 6) return;
+
+	reg_addr = 0xc0010200 + index * 2;
 	event = event_no | (event_mask << 8);
 	event |= (1ULL << 17); /* OS (kernel) events only */
 	event |= (1ULL << 22); /* enable performance counter */
 	event |= (1ULL << 40); /* Host events only */
-	printk(KERN_WARNING "CachePC: Initialized event %llu\n", event);
+	printk(KERN_WARNING "CachePC: Initialized %i. PMC %02X:%02X\n",
+		index, event_no, event_mask);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
-
-	reg_addr = 0xc0010202;
-	event_no = 0x71;
-	event_mask = 0xFF;
-	event = event_no | (event_mask << 8); 
-	event |= (1ULL << 17); /* OS (kernel) events only */
-	event |= (1ULL << 22); /* enable performance counter */
-	event |= (1ULL << 40); /* Host events only */
-	printk(KERN_WARNING "CachePC: Initialized event %llu\n", event);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
-
-	reg_addr = 0xc0010204;
-	event_no = 0x72;
-	event_mask = 0xFF;
-	event = event_no | (event_mask << 8); 
-	event |= (1ULL << 17); /* OS (kernel) events only */
-	event |= (1ULL << 22); /* enable performance counter */
-	event |= (1ULL << 40); /* Host events only */
-	printk(KERN_WARNING "CachePC: Initialized event %llu\n", event);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
-
 }
 
 cache_ctx *

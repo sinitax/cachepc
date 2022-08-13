@@ -13,12 +13,16 @@ int
 main(int argc, const char **argv)
 {
 	uint16_t counts[64];
+	uint32_t arg;
 	size_t i, len;
 	int fd, ret;
 
 	fd = open("/proc/cachepc", O_RDONLY);
 
-	ret = ioctl(fd, CACHEPC_IOCTL_EVICTION_TEST, NULL);
+	arg = 48;
+	if (argc == 2) arg = atoi(argv[1]);
+
+	ret = ioctl(fd, CACHEPC_IOCTL_TEST_EVICTION, &arg);
 	if (ret == -1) err(1, "ioctl fail");
 
 	len = read(fd, counts, sizeof(counts));

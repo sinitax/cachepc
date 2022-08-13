@@ -5,9 +5,6 @@
 #define CPUID_AFFECTED_REGS "rax", "rbx", "rcx", "rdx"
 
 __attribute__((always_inline))
-static inline uint64_t cachepc_readpmc(uint64_t event);
-
-__attribute__((always_inline))
 static inline void cachepc_cpuid(void);
 
 __attribute__((always_inline))
@@ -21,22 +18,6 @@ static inline void cachepc_mfence(void);
 
 __attribute__((always_inline))
 static inline void cachepc_readq(void *p);
-
-uint64_t
-cachepc_readpmc(uint64_t event)
-{
-	uint32_t lo, hi;
-
-	event = 0xC0010201 + 2 * event;
-
-	asm volatile (
-		"rdmsr"
-		: "=a" (lo), "=d" (hi)
-		: "c"(event)
-	);
-
-	return ((uint64_t) hi << 32) | (uint64_t) lo;
-}
 
 void
 cachepc_cpuid(void)

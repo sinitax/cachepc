@@ -46,8 +46,6 @@ cache_ctx *
 cachepc_get_ctx(cache_level cache_level)
 {
 	cache_ctx *ctx;
-
-	// printk(KERN_WARNING "CachePC: Getting ctx..\n");
        
 	ctx = kzalloc(sizeof(cache_ctx), GFP_KERNEL);
 	BUG_ON(ctx == NULL);
@@ -71,8 +69,6 @@ cachepc_get_ctx(cache_level cache_level)
 	ctx->nr_of_cachelines = ctx->sets * ctx->associativity;
 	ctx->set_size = CACHELINE_SIZE * ctx->associativity;
 	ctx->cache_size = ctx->sets * ctx->set_size;
-
-	// printk(KERN_WARNING "CachePC: Getting ctx done\n");
 
 	return ctx;
 }
@@ -395,6 +391,7 @@ allocate_cache_ds(cache_ctx *ctx)
 	for (i = 0; i < ctx->nr_of_cachelines; ++i) {
 		cl_ptr_arr[i] = cl_arr + i;
 		cl_ptr_arr[i]->cache_set = get_virt_cache_set(ctx, cl_ptr_arr[i]);
+		cl_ptr_arr[i]->cache_line = i / ctx->sets;
 	}
 
 	return cl_ptr_arr;

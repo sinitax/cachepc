@@ -20,16 +20,22 @@ prng_bytes(uint8_t *dst, size_t size)
 void
 random_perm(uint32_t *arr, uint32_t arr_len)
 {
-	uint32_t i, idx, tmp;
+	uint32_t i, mid; // idx, tmp;
 
-	for (i = arr_len - 1; i > 0; --i) {
-		prng_bytes((void*)&idx, 4);
-		idx = idx % i;
-
-		tmp = arr[idx];
-		arr[idx] = arr[i];
-		arr[i] = tmp;
+	/* defeat stream prefetcher by preventing access direction */
+	mid = arr_len / 2;
+	for (i = 0; i < arr_len; i++) {
+		arr[i] = mid + (i % 2 ? -1 : 1) * ((i + 1) / 2);
 	}
+
+	// for (i = arr_len - 1; i > 0; --i) {
+	// 	prng_bytes((void*)&idx, 4);
+	// 	idx = idx % i;
+
+	// 	tmp = arr[idx];
+	// 	arr[idx] = arr[i];
+	// 	arr[i] = tmp;
+	// }
 }
 
 void

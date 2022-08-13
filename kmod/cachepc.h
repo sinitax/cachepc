@@ -49,13 +49,12 @@ cachepc_prime(cacheline *head)
 {
     cacheline *curr_cl;
 
-    cachepc_cpuid();
+    //cachepc_cpuid();
     curr_cl = head;
     do {
         curr_cl = curr_cl->next;
-        cachepc_mfence();
     } while(curr_cl != head);
-    cachepc_cpuid();
+    //cachepc_cpuid();
 
     return curr_cl->prev;
 }
@@ -79,13 +78,12 @@ cachepc_prime_rev(cacheline *head)
 {
     cacheline *curr_cl;
 
-    cachepc_cpuid();
+    //cachepc_cpuid();
     curr_cl = head;
     do {
         curr_cl = curr_cl->prev;
-        cachepc_mfence();
     } while(curr_cl != head);
-    cachepc_cpuid();
+    //cachepc_cpuid();
 
     return curr_cl->prev;
 }
@@ -96,16 +94,14 @@ cachepc_probe(cacheline *start_cl)
 	uint64_t pre, post;
 	cacheline *next_cl;
 	cacheline *curr_cl;
-	volatile register uint64_t i asm("r12");
 
 	curr_cl = start_cl;
 
 	do {
 		pre = cachepc_read_pmc(0);
-		pre += cachepc_read_pmc(1);
 
 		cachepc_mfence();
-		cachepc_cpuid();
+		//cachepc_cpuid();
 		
 		asm volatile(
 			"mov 8(%[curr_cl]), %%rax \n\t"              // +8
@@ -123,13 +119,12 @@ cachepc_probe(cacheline *start_cl)
 		);
 
 		cachepc_mfence();
-		cachepc_cpuid();
+		//cachepc_cpuid();
 
 		post = cachepc_read_pmc(0);
-		post += cachepc_read_pmc(1);
 
 		cachepc_mfence();
-		cachepc_cpuid();
+		//cachepc_cpuid();
 
 		/* works across size boundary */
 		curr_cl->count = post - pre;

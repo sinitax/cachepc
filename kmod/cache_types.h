@@ -22,9 +22,8 @@
 #define IS_LAST(flags) GET_BIT(flags, 1)
 #define IS_CACHE_GROUP_INIT(flags) GET_BIT(flags, 2)
 
-// Offset of the next and prev field in the cacheline struct
-#define CL_NEXT_OFFSET 0
-#define CL_PREV_OFFSET 8
+#define CL_NEXT_OFFSET offsetof(struct cacheline, next)
+#define CL_PREV_OFFSET offsetof(struct cacheline, prev)
 
 typedef enum cache_level cache_level;
 typedef enum addressing_type addressing_type;
@@ -53,12 +52,15 @@ struct cacheline {
     cacheline *next;
     cacheline *prev;
 
-    uint16_t cache_set;
-    uint16_t flags;
+    uint32_t cache_set;
+    uint32_t cache_line;
+    uint32_t flags;
 
     // Unused padding to fill cache line
     uint64_t count;
-    char padding[32];
+
+    char padding[24];
 };
 
 static_assert(sizeof(struct cacheline) == CACHELINE_SIZE, "Bad cache line struct size");
+static_assert(CL_NEXT_OFFSET == 0 && CL_PREV_OFFSET == 8);

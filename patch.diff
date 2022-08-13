@@ -89,7 +89,7 @@ index 7b3cfbe8f7e3..71697d08e9e4 100644
  }
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..116ca17af03a 100644
+index 2541a17ff1c4..830cdb295d9c 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -130,7 +130,7 @@ index 2541a17ff1c4..116ca17af03a 100644
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,12 +4782,197 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,203 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -313,6 +313,12 @@ index 2541a17ff1c4..116ca17af03a 100644
 +				return -EFAULT;
 +		}
 +		break;
++	case CACHEPC_IOCTL_EVICTION_TEST:
++		printk(KERN_WARNING "CachePC: ioctl eviction test\n");
++		r = smp_call_function_single(2,
++			kvm_cachepc_single_eviction_test, NULL, true);
++		WARN_ON(r != 0);
++		break;
 +	default:
 +		return -EINVAL;
 +	}
@@ -330,7 +336,7 @@ index 2541a17ff1c4..116ca17af03a 100644
  
  	r = kvm_arch_init(opaque);
  	if (r)
-@@ -4848,6 +5050,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +5056,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -352,7 +358,7 @@ index 2541a17ff1c4..116ca17af03a 100644
  	return 0;
  
  out_unreg:
-@@ -4872,6 +5089,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +5095,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

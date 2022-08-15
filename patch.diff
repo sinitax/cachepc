@@ -80,7 +80,7 @@ index 7b3cfbe8f7e3..16dfd9b2938e 100644
  	 * We do not use IBRS in the kernel. If this vCPU has used the
  	 * SPEC_CTRL MSR it may have left it on; save the value and
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2541a17ff1c4..5a85ea4ce5af 100644
+index 2541a17ff1c4..d8d78359d735 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -51,6 +51,9 @@
@@ -121,7 +121,7 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
  __visible bool kvm_rebooting;
  EXPORT_SYMBOL_GPL(kvm_rebooting);
  
-@@ -4765,12 +4782,289 @@ static void check_processor_compat(void *data)
+@@ -4765,12 +4782,301 @@ static void check_processor_compat(void *data)
  	*c->ret = kvm_arch_check_processor_compat(c->opaque);
  }
  
@@ -177,6 +177,7 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +	cacheline *cl;
 +	uint32_t count;
 +	uint32_t *arg;
++	int i, max;
 +
 +	arg = p;
 +
@@ -190,14 +191,14 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +
 +	count = cachepc_read_pmc(0);
 +
-+	asm volatile ("lea 0(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
-+	asm volatile ("lea 8(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
-+	asm volatile ("lea 16(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
-+	asm volatile ("lea 24(%0), %%rbx; mov (%%rbx), %%rbx" : : "r"(cl) : "rbx");
++	max = cachepc_ctx->nr_of_cachelines;
++	for (i = 0; i < max; i++)
++		asm volatile ("mov (%0), %%rbx" : : "r"(cl + i) : "rbx");
 +
 +	count = cachepc_read_pmc(0) - count;
 +
-+	printk(KERN_WARNING "CachePC: HWPF test done, result: 4 (expected) vs. %u (actual) misses", count);
++	printk(KERN_WARNING "CachePC: HWPF test done (%u vs. %u => %s)\n",
++		count, max, (count == max) ? "passed" : "failed");
 +
 +	if (arg) *arg = count != 4;
 +
@@ -211,9 +212,6 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +	uint64_t pre, post;
 +	volatile register uint64_t i asm("r11");
 +	uint32_t *user;
-+
-+	/* l2 prefetches, hit or miss */
-+	// cachepc_init_pmc(0, 0x60, 0x01);
 +
 +	/* l2 data cache, hit or miss */
 +	cachepc_init_pmc(0, 0x64, 0xD8);
@@ -257,7 +255,8 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +	cachepc_mfence();
 +	cachepc_cpuid();
 +
-+	printk(KERN_WARNING "CachePC: Single access test done, result: %llu", post - pre);
++	printk(KERN_WARNING "CachePC: Single access test done (%llu vs %u => %s)",
++		post - pre, 1, (post - pre == 1) ? "passed" : "failed");
 +
 +	if (user) *user = post - pre;
 +
@@ -267,9 +266,11 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +void
 +kvm_cachepc_single_eviction_test(void *p)
 +{
-+	cacheline *head;
++	cacheline *head, *cl, *evicted;
 +        cacheline *ptr;
++	uint32_t target;
 +	uint32_t *user;
++	int count;
 +
 +	user = p;
 +
@@ -278,13 +279,26 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +
 +	WARN_ON(user && *user >= L1_SETS);
 +	if (user && *user >= L1_SETS) return;	
-+	ptr = cachepc_prepare_victim(cachepc_ctx, user ? *user : 48);
++	target = user ? *user : 48;
++
++	ptr = cachepc_prepare_victim(cachepc_ctx, target);
 +
 +	head = cachepc_prime(cachepc_ds);
 +	cachepc_victim(ptr);
 +	cachepc_probe(head);
 +
-+	printk(KERN_WARNING "CachePC: Single eviction test done\n");
++	count = 0;
++	evicted = NULL;
++	cl = head = cachepc_ds;
++	while (cl->next != head) {
++		count += cl->count;
++		if (cl->count > 0)
++			evicted = cl;
++		cl = cl->next;
++	}
++
++	printk(KERN_WARNING "CachePC: Single eviction test done (%u vs %u => %s)\n",
++		count, 1, (count == 1 && evicted->cache_set == target) ? "passed" : "failed");
 +	cachepc_save_msrmts(head);
 +
 +	cachepc_release_victim(cachepc_ctx, ptr);
@@ -296,27 +310,18 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +	uint64_t reg_addr, val;
 +	uint32_t lo, hi;
 +
-+	/* attempt to disable hwpf.. */
-+
 +	reg_addr = 0xc0011022;
 +	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
 +	val = (uint64_t) lo | ((uint64_t) hi << 32);
 +	val |= 1 << 13;
 +	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
-+	printk("Writing MSR %08llX to disable HWPF: %16llX\n", reg_addr, val);
-+
-+	/* CAUSES CRASH! */
-+	//reg_addr = 0xc001101C;
-+	//asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
-+	//val = (uint64_t) lo | ((uint64_t) hi << 32);
-+	//val |= 1 << 23;
-+	//asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
-+	//printk("Writing MSR %08llX to disable HWPF: %16llX\n", reg_addr, val);
++	printk("CachePC: Writing MSR %08llX to disable HWPF: %016llX\n", reg_addr, val);
 +}
 +
 +void
 +kvm_cachepc_init(void *p)
 +{
++	cacheline *cl, *head;
 +	int cpu;
 +
 +	cpu = get_cpu();
@@ -326,11 +331,18 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +	cachepc_ctx = cachepc_get_ctx(L1);
 +	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
 +
++	printk(KERN_WARNING "CachePC: Cacheline configuration\n");
++	cl = head = cachepc_ds;
++	do {
++		printk(KERN_WARNING "CachePC: %i %i\n", cl->cache_set, cl->cache_line);
++		cl = cl->next;
++	} while (cl != head);
++
 +	kvm_cachepc_stream_hwpf_disable();
 +
-+	kvm_cachepc_stream_hwpf_test(NULL);
-+	kvm_cachepc_single_access_test(NULL);
 +	kvm_cachepc_single_eviction_test(NULL);
++	kvm_cachepc_single_access_test(NULL);
++	kvm_cachepc_stream_hwpf_test(NULL);
 +
 +	put_cpu();
 +}
@@ -363,7 +375,7 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +	arg_user = (void __user *)argp;
 +	switch (cmd) {
 +	case CACHEPC_IOCTL_TEST_ACCESS:
-+		printk(KERN_WARNING "CachePC: ioctl access test\n");
++		printk(KERN_WARNING "CachePC: Called ioctl access test\n");
 +		if (arg_user) {
 +			if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
 +				return -EFAULT;
@@ -377,7 +389,7 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +		}
 +		break;
 +	case CACHEPC_IOCTL_TEST_EVICTION:
-+		printk(KERN_WARNING "CachePC: ioctl eviction test\n");
++		printk(KERN_WARNING "CachePC: Called ioctl eviction test\n");
 +		if (arg_user) {
 +			if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
 +				return -EFAULT;
@@ -387,7 +399,7 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
 +		WARN_ON(r != 0);
 +		break;
 +	case CACHEPC_IOCTL_INIT_PMC:
-+		printk(KERN_WARNING "CachePC: ioctl init counter\n");
++		printk(KERN_WARNING "CachePC: Called ioctl init counter\n");
 +		if (arg_user) {
 +			if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
 +				return -EFAULT;
@@ -413,7 +425,7 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
  
  	r = kvm_arch_init(opaque);
  	if (r)
-@@ -4848,6 +5142,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4848,6 +5154,21 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -435,7 +447,7 @@ index 2541a17ff1c4..5a85ea4ce5af 100644
  	return 0;
  
  out_unreg:
-@@ -4872,6 +5181,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
+@@ -4872,6 +5193,12 @@ EXPORT_SYMBOL_GPL(kvm_init);
  
  void kvm_exit(void)
  {

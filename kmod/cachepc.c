@@ -284,8 +284,9 @@ remove_cache_group_set(void *ptr)
  * and D = Associativity = | cache set |
  */
 cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
+	cacheline **first_cl_in_sets, **last_cl_in_sets;
 	cacheline **cl_ptr_arr_sorted;
-	cacheline *curr_cl, *next_cl;
+	cacheline *curr_cl;
 	cacheline *cache_ds;
 	uint32_t *idx_per_set;
 	uint32_t idx_curr_set, set_offset;
@@ -319,17 +320,30 @@ cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
 
 	gen_random_indices(idx_map, ctx->sets);
 
-	curr_cl = cl_ptr_arr_sorted[idx_map[0] * set_len]->prev;
-	for (j = 0; j < ctx->sets; ++j) {
-		curr_cl->next = cl_ptr_arr_sorted[idx_map[(j + 1) % ctx->sets] * set_len];
-		next_cl = curr_cl->next->prev;
-		curr_cl->next->prev = curr_cl;
-		curr_cl = next_cl;
+	first_cl_in_sets = kzalloc(ctx->sets * sizeof(cacheline *), GFP_KERNEL);
+	BUG_ON(first_cl_in_sets == NULL);
+
+	last_cl_in_sets  = kzalloc(ctx->sets * sizeof(cacheline *), GFP_KERNEL);
+	BUG_ON(last_cl_in_sets == NULL);
+
+	for (j = 0; j < ctx->nr_of_cachelines; ++j) {
+		curr_cl = cl_ptr_arr_sorted[j];
+		if (IS_FIRST(curr_cl->flags))
+			first_cl_in_sets[curr_cl->cache_set] = curr_cl;
+		if (IS_LAST(curr_cl->flags))
+			last_cl_in_sets[curr_cl->cache_set] = curr_cl;
 	}
 
-	cache_ds = cl_ptr_arr_sorted[idx_map[0] * set_len];
+	/* connect up sets */
+	for (i = 0; i < ctx->sets; ++i) {
+		last_cl_in_sets[idx_map[i]]->next = first_cl_in_sets[idx_map[(i + 1) % ctx->sets]];
+		first_cl_in_sets[idx_map[(i + 1) % ctx->sets]]->prev = last_cl_in_sets[idx_map[i]];
+	}
+	cache_ds = first_cl_in_sets[idx_map[0]];
 
 	kfree(cl_ptr_arr_sorted);
+	kfree(first_cl_in_sets);
+	kfree(last_cl_in_sets);
 	kfree(idx_per_set);
 	kfree(idx_map);
 
@@ -361,7 +375,7 @@ void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_p
 			curr_cl->flags = SET_FIRST(DEFAULT_FLAGS);
 			curr_cl->prev->flags = SET_LAST(DEFAULT_FLAGS);
 		} else {
-			curr_cl->flags = curr_cl->flags | DEFAULT_FLAGS;
+			curr_cl->flags |= DEFAULT_FLAGS;
 		}
 	}
 

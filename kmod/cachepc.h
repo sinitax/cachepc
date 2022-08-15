@@ -49,16 +49,21 @@ extern cacheline *cachepc_ds;
 cacheline *
 cachepc_prime(cacheline *head)
 {
-    cacheline *curr_cl;
+	cacheline *curr_cl;
 
-    //cachepc_cpuid();
-    curr_cl = head;
-    do {
-        curr_cl = curr_cl->next;
-    } while(curr_cl != head);
-    //cachepc_cpuid();
+	cachepc_mfence();
+	cachepc_cpuid();
+	
+	curr_cl = head;
+	do {
+		curr_cl = curr_cl->next;
+	} while (curr_cl != head);
+	curr_cl = curr_cl->prev;
 
-    return curr_cl->prev;
+	cachepc_mfence();
+	cachepc_cpuid();
+
+	return curr_cl;
 }
 
 /*
@@ -78,16 +83,20 @@ cachepc_prime(cacheline *head)
 cacheline *
 cachepc_prime_rev(cacheline *head)
 {
-    cacheline *curr_cl;
+	cacheline *curr_cl;
 
-    //cachepc_cpuid();
-    curr_cl = head;
-    do {
-        curr_cl = curr_cl->prev;
-    } while(curr_cl != head);
-    //cachepc_cpuid();
+	cachepc_mfence();
+	cachepc_cpuid();
 
-    return curr_cl->prev;
+	curr_cl = head;
+	do {
+		curr_cl = curr_cl->prev;
+	} while(curr_cl != head);
+
+	cachepc_mfence();
+	cachepc_cpuid();
+
+	return curr_cl->prev;
 }
 
 cacheline *
@@ -96,6 +105,9 @@ cachepc_probe(cacheline *start_cl)
 	uint64_t pre, post;
 	cacheline *next_cl;
 	cacheline *curr_cl;
+
+	cachepc_mfence();
+	cachepc_cpuid();
 
 	curr_cl = start_cl;
 
@@ -134,21 +146,32 @@ cachepc_probe(cacheline *start_cl)
 		curr_cl = next_cl;
 	} while (__builtin_expect(curr_cl != start_cl, 1));
 
+	cachepc_mfence();
+	cachepc_cpuid();
+
 	return curr_cl->next;
 }
 
 void
 cachepc_victim(void *p)
 {
-	cachepc_cpuid();
 	cachepc_mfence();
+	cachepc_cpuid();
+
 	cachepc_readq(p);
+
+	cachepc_mfence();
+	cachepc_cpuid();
 }
 
 uint64_t
 cachepc_read_pmc(uint64_t event)
 {
 	uint32_t lo, hi;
+	uint64_t res;
+
+	cachepc_mfence();
+	cachepc_cpuid();
 
 	event = 0xC0010201 + 2 * event;
 
@@ -157,6 +180,10 @@ cachepc_read_pmc(uint64_t event)
 		: "=a" (lo), "=d" (hi)
 		: "c"(event)
 	);
+	res = ((uint64_t) hi << 32) | (uint64_t) lo;
 
-	return ((uint64_t) hi << 32) | (uint64_t) lo;
+	cachepc_mfence();
+	cachepc_cpuid();
+
+	return res;
 }

@@ -49,21 +49,21 @@ extern cacheline *cachepc_ds;
 cacheline *
 cachepc_prime(cacheline *head)
 {
-	cacheline *curr_cl;
+	cacheline *curr_cl, *prev_cl;
 
 	cachepc_mfence();
 	cachepc_cpuid();
 	
 	curr_cl = head;
 	do {
+		prev_cl = curr_cl;
 		curr_cl = curr_cl->next;
 	} while (curr_cl != head);
-	curr_cl = curr_cl->prev;
 
 	cachepc_mfence();
 	cachepc_cpuid();
 
-	return curr_cl;
+	return prev_cl;
 }
 
 /*
@@ -114,9 +114,6 @@ cachepc_probe(cacheline *start_cl)
 	do {
 		pre = cachepc_read_pmc(0);
 
-		cachepc_mfence();
-		//cachepc_cpuid();
-		
 		asm volatile(
 			"mov 8(%[curr_cl]), %%rax \n\t"              // +8
 			"mov 8(%%rax), %%rcx \n\t"                   // +16
@@ -132,13 +129,7 @@ cachepc_probe(cacheline *start_cl)
 			: "rax", "rcx"
 		);
 
-		cachepc_mfence();
-		//cachepc_cpuid();
-
 		post = cachepc_read_pmc(0);
-
-		cachepc_mfence();
-		//cachepc_cpuid();
 
 		/* works across size boundary */
 		curr_cl->count = post - pre;
@@ -146,10 +137,12 @@ cachepc_probe(cacheline *start_cl)
 		curr_cl = next_cl;
 	} while (__builtin_expect(curr_cl != start_cl, 1));
 
+	next_cl = curr_cl->next;
+
 	cachepc_mfence();
 	cachepc_cpuid();
 
-	return curr_cl->next;
+	return next_cl;
 }
 
 void

@@ -304,7 +304,7 @@ int16_t *print_accessed_sets(){
 }
 
 
-void
+int16_t *
 collect(const char *prefix, size_t code_start, size_t code_stop)
 {
 	int ret;
@@ -314,10 +314,8 @@ collect(const char *prefix, size_t code_start, size_t code_stop)
 	kvm_init(131072, code_start, code_stop);
 	printf("KVm init done\n");
 
-
 	ret = 0;
 	kvm_run->exit_reason = KVM_EXIT_IO;
-
 	
 	printf("Now calling KVM_RUN");
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
@@ -328,9 +326,14 @@ collect(const char *prefix, size_t code_start, size_t code_stop)
 	if (ret < 0 || kvm_run->exit_reason != KVM_EXIT_IO)
 		errx(1, "KVM died: %i %i\n",
 			ret, kvm_run->exit_reason);
+
+	int16_t *sets = print_accessed_sets();
+
 	close(kvm.fd);
 	close(kvm.vmfd);
 	close(kvm.vcpufd);
+
+	return sets;
 }
 
 void dump_msrmt_results_to_log(char *log_file_path, int16_t msrmt_results[SAMPLE_COUNT][64])
@@ -388,13 +391,12 @@ main(int argc, const char **argv)
 	int16_t msmrt_with_access[SAMPLE_COUNT][64];
 	for(int i=0; i < SAMPLE_COUNT; ++i){
 		printf("First: Testing VM without memory access \n");
-		collect("without", __start_guest_without, __stop_guest_without);
-		int16_t *tmp_res =  print_accessed_sets();
+		int16_t *tmp_res;
+		tmp_res = collect("without", __start_guest_without, __stop_guest_without);
 		memcpy(msmrt_without_access[i], tmp_res, 64*sizeof(int16_t));
 		free(tmp_res);
 		printf("Now: Testing access with memory access \n");
-		collect( "with", __start_guest_with, __stop_guest_with);
-		tmp_res = print_accessed_sets();
+		tmp_res = collect("with", __start_guest_with, __stop_guest_with);
 		memcpy(msmrt_with_access[i], tmp_res, 64*sizeof(int16_t));
 		free(tmp_res);
 	}

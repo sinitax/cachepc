@@ -140,7 +140,7 @@ cachepc_save_msrmts(cacheline *head)
 {
 	cacheline *curr_cl;
 
-	printk(KERN_WARNING "CachePC: Updating /proc/cachepc\n");
+	// printk(KERN_WARNING "CachePC: Updating /proc/cachepc\n");
 
 	curr_cl = head;
 	do {
@@ -369,7 +369,6 @@ void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_p
 		curr_cl = cacheline_ptr_arr[idx_map[i]];
 		curr_cl->next = cacheline_ptr_arr[idx_map[(i + 1) % len]];
 		curr_cl->prev = cacheline_ptr_arr[idx_map[(len - 1 + i) % len]];
-		curr_cl->count = 0;
 
 		if (idx_map[i] == 0) {
 			curr_cl->flags = SET_FIRST(DEFAULT_FLAGS);
@@ -405,6 +404,7 @@ allocate_cache_ds(cache_ctx *ctx)
 		cl_ptr_arr[i] = cl_arr + i;
 		cl_ptr_arr[i]->cache_set = get_virt_cache_set(ctx, cl_ptr_arr[i]);
 		cl_ptr_arr[i]->cache_line = i / ctx->sets;
+		cl_ptr_arr[i]->count = 0;
 	}
 
 	return cl_ptr_arr;

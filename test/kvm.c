@@ -20,8 +20,8 @@
 #include <err.h>
 #include <fcntl.h>
 #include <sched.h>
-#include <stdbool.h>
 #include <string.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -31,9 +31,7 @@
 #define SAMPLE_COUNT 100
 
 #define TARGET_CORE 2
-#define SECONDARY_CORE 2
-
-#define TARGET_CACHE L1
+#define SECONDARY_CORE 3
 
 struct kvm {
 	int fd;
@@ -47,22 +45,6 @@ extern uint8_t __start_guest_with[];
 extern uint8_t __stop_guest_with[];
 extern uint8_t __start_guest_without[];
 extern uint8_t __stop_guest_without[];
-
-static const uint8_t kvm_code[] = {
-	0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
-	0x00, 0xd8,       /* add %bl, %al */
-	0x04, '0',        /* add $'0', %al */
-	0xee,             /* out %al, (%dx) */
-	0xb0, '\n',       /* mov $'\n', %al */
-	0xee,             /* out %al, (%dx) */
-	0xf4,             /* hlt */
-};
-
-#if TARGET_CACHE == L1
-static int perf_counters[] = {400, 401}; /* L1 Miss */
-#elif TARGET_CACHE == L2
-static int perf_counters[] = {404, 402, 403}; /* L2 Miss */
-#endif
 
 static bool ready = false;
 static bool processed = false;
@@ -82,7 +64,7 @@ __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
 	while (1) {
-		asm volatile("mov %%bl, (%[v])"
+		asm volatile("mov (%[v]), %%bl"
 			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
 		asm volatile("out %%al, (%%dx)" : : );
 	}
@@ -94,21 +76,6 @@ vm_guest_without(void)
 	while (1) {
 		asm volatile("out %%al, (%%dx)" : : );
 	}
-}
-
-static inline uint64_t
-read_pmc(uint64_t event)
-{
-	uint32_t lo, hi;
-
-	asm volatile (
-		"mov %[event], %%rcx\t\n"
-		"rdpmc\t\n"
-		: "=a" (lo), "=d" (hi)
-		: [event] "r" (event)
-	);
-
-	return ((uint64_t) hi << 32) | lo;
 }
 
 bool
@@ -178,7 +145,8 @@ clear_cores(uint64_t cpu_mask)
 		cpu = read_stat_core(pid);
 		if (cpu >= 0 && (1 << cpu) & cpu_mask) {
 			res = pin_process(pid, SECONDARY_CORE, false);
-			if (!res) printf("Failed pin %i from %i\n", pid, cpu);
+			// if (!res) printf("Failed pin %i from %i\n", pid, cpu);
+			if (res) printf("Pinned %i from %i\n", tid, cpu);
 			continue;
 		}
 
@@ -193,7 +161,8 @@ clear_cores(uint64_t cpu_mask)
 			cpu = read_stat_core(tid);
 			if (cpu >= 0 && (1 << cpu) & cpu_mask) {
 				res = pin_process(tid, SECONDARY_CORE, false);
-				if (!res) printf("Failed pin %i from %i\n", tid, cpu);
+				//if (!res) printf("Failed pin %i from %i\n", tid, cpu);
+				if (res) printf("Pinned thread %i from %i\n", tid, cpu);
 			}
 		}
 
@@ -204,7 +173,7 @@ clear_cores(uint64_t cpu_mask)
 }
 
 void
-kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
+kvm_init(size_t ramsize, void *code_start, void *code_stop)
 {
 	struct kvm_userspace_memory_region region;
 	struct kvm_regs regs;
@@ -212,19 +181,15 @@ kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
 	int ret;
 
 	kvm.fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-	if (kvm.fd < 0)
-		err(1, "/dev/kvm");
+	if (kvm.fd < 0) err(1, "/dev/kvm");
 
 	/* Make sure we have the stable version of the API */
 	ret = ioctl(kvm.fd, KVM_GET_API_VERSION, NULL);
-	if (ret == -1)
-		err(1, "KVM_GET_API_VERSION");
-	if (ret != 12)
-		errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
+	if (ret == -1) err(1, "KVM_GET_API_VERSION");
+	if (ret != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
 
 	kvm.vmfd = ioctl(kvm.fd, KVM_CREATE_VM, 0);
-	if (kvm.vmfd < 0)
-		err(1, "KVM_CREATE_VM");
+	if (kvm.vmfd < 0) err(1, "KVM_CREATE_VM");
 
 	/* Allocate one aligned page of guest memory to hold the code. */
 	kvm.mem = mmap(NULL, ramsize, PROT_READ | PROT_WRITE,
@@ -239,8 +204,7 @@ kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
 	region.memory_size = ramsize;
 	region.guest_phys_addr = 0x0000;
 	region.userspace_addr = (uint64_t) kvm.mem;
-    printf("Ramsize %d\n", region.memory_size);
-	printf("Access guest %d\n", TARGET_CACHE_LINESIZE * TARGET_SET);
+
 	ret = ioctl(kvm.vmfd, KVM_SET_USER_MEMORY_REGION, &region);
 	if (ret < 0) err(1, "KVM_SET_USER_MEMORY_REGION");
 
@@ -270,6 +234,8 @@ kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
 	 * initial flags required by x86 architecture. */
 	memset(&regs, 0, sizeof(regs));
 	regs.rip = 0x0;
+	regs.rsp = ramsize - 1;
+	regs.rbp = ramsize - 1;
 	regs.rax = 0;
 	regs.rdx = 0;
 	regs.rflags = 0x2;
@@ -277,25 +243,26 @@ kvm_init(size_t ramsize, size_t code_start, size_t code_stop)
 	if (ret < 0) err(1, "KVM_SET_REGS");
 }
 
-int16_t *print_accessed_sets(){
-	//int16_t counts[64];
-	int16_t *counts = (int16_t *)malloc(64*sizeof(int16_t));
+uint16_t *
+read_counts() 
+{
+	uint16_t *counts = (uint16_t *)malloc(64*sizeof(uint16_t));
 	size_t i, len;
 
 	lseek(cachepc_fd, 0, SEEK_SET);
-	len = read(cachepc_fd, counts, 64*sizeof(int16_t)); // sizeof(counts));
-	assert(len == 64*sizeof(int16_t));//sizeof(counts));
+	len = read(cachepc_fd, counts, 64 * sizeof(uint16_t));
+	assert(len == 64 * sizeof(uint16_t));
 
 	for (i = 0; i < 64; i++) {
-			//printf("%d %hu\n", i, counts[i]);
-			//continue;
 			if (i % 16 == 0 && i)
-					printf("\n");
-			if (counts[i] > 0)
-					printf("\x1b[91m");
+				printf("\n");
+			if (counts[i] == 1)
+				printf("\x1b[38;5;88m");
+			else if (counts[i] > 1)
+				printf("\x1b[38;5;196m");
 			printf("%2i ", i);
 			if (counts[i] > 0)
-					printf("\x1b[0m");
+				printf("\x1b[0m");
 	}
 	printf("\n Target Set Count: %d %hu \n", TARGET_SET, counts[TARGET_SET]);
 	printf("\n");
@@ -304,68 +271,48 @@ int16_t *print_accessed_sets(){
 }
 
 
-int16_t *
-collect(const char *prefix, size_t code_start, size_t code_stop)
+uint16_t *
+collect(const char *prefix, void *code_start, void *code_stop)
 {
+	struct kvm_regs regs;
+	uint16_t *counts;
 	int ret;
 
 	/* using cache size for alignment of kvm memory access */
-	//kvm_init(32768, code_start, code_stop);
-	kvm_init(131072, code_start, code_stop);
-	printf("KVm init done\n");
+	kvm_init(64 * 64 * 8 * 2, code_start, code_stop);
 
 	ret = 0;
 	kvm_run->exit_reason = KVM_EXIT_IO;
-	
-	printf("Now calling KVM_RUN");
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
-	if (kvm_run->exit_reason == KVM_EXIT_MMIO)
-		errx(1, "Victim access OOB: %lu\n",
-			kvm_run->mmio.phys_addr);
+	if (kvm_run->exit_reason == KVM_EXIT_MMIO) {
+		memset(&regs, 0, sizeof(regs));
+		ret = ioctl(kvm.vcpufd, KVM_SET_REGS, &regs);
+		errx(1, "Victim access OOB: %lu %08llx => %02X\n",
+			kvm_run->mmio.phys_addr, regs.rip,
+			((uint8_t*)kvm.mem)[regs.rip]);
+	}
 
 	if (ret < 0 || kvm_run->exit_reason != KVM_EXIT_IO)
-		errx(1, "KVM died: %i %i\n",
-			ret, kvm_run->exit_reason);
+		errx(1, "KVM died: %i %i\n", ret, kvm_run->exit_reason);
 
-	int16_t *sets = print_accessed_sets();
+	printf("Evictions %s access:\n", prefix);
+	counts = read_counts();
 
 	close(kvm.fd);
 	close(kvm.vmfd);
 	close(kvm.vcpufd);
 
-	return sets;
-}
-
-void dump_msrmt_results_to_log(char *log_file_path, int16_t msrmt_results[SAMPLE_COUNT][64])
-{
-	FILE *fp;
-       
-	fp = fopen(log_file_path,"w+");
-	if (!fp) err(1, "fopen");
-
-	fprintf(fp, "Number of samples: %d\n", SAMPLE_COUNT);
-	fprintf(fp, "Target set: %d\n", TARGET_SET);
-	fprintf(fp, "Measurements per sample: %d\n", 64);
-	fprintf(fp, "Legend: target set: %d\n", TARGET_SET);
-	fprintf(fp, "Output cache attack data\n"); 
-
-	for(int i=0; i<SAMPLE_COUNT; ++i){
-		fprintf(fp, "Sample number %d:\n", i);
-		for(int j=0; j<64; ++j){
-			fprintf(fp, "%3d ", msrmt_results[i][j]);
-			//assert((msrmt_results[i][TARGET_SET] > 0));
-		}
-		fprintf(fp,"\n");
-	}
-
-	close(fp);
+	return counts;
 }
 
 int
 main(int argc, const char **argv)
 {
+	uint16_t without_access[SAMPLE_COUNT][64];
+	uint16_t with_access[SAMPLE_COUNT][64];
+	uint16_t *counts;
 	uint32_t arg;
-	int ret;
+	int i, j, ret;
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -375,52 +322,24 @@ main(int argc, const char **argv)
 	cachepc_fd = open("/proc/cachepc", O_RDONLY);
 	if (cachepc_fd < 0) err(1, "open");
 
-	arg = 0x000064F0;
+	/* init L1 miss counter */
+	arg = 0x000064D8;
 	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
 	if (ret == -1) err(1, "ioctl fail");
 
-	arg = 0x01006408;
-	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
-	if (ret == -1) err(1, "ioctl fail");
+	for (i = 0; i < SAMPLE_COUNT; i++) {
+		counts = collect("without", __start_guest_without, __stop_guest_without);
+		memcpy(without_access[i], counts, 64 * sizeof(uint16_t));
+		free(counts);
+		counts = collect("with", __start_guest_with, __stop_guest_with);
+		memcpy(with_access[i], counts, 64 * sizeof(uint16_t));
+		free(counts);
+	}
 
-	printf("\n");
-	printf("Number of samples: %d\n", SAMPLE_COUNT);
-	printf("Target set: %d\n", TARGET_SET);
-
-	int16_t msmrt_without_access[SAMPLE_COUNT][64];
-	int16_t msmrt_with_access[SAMPLE_COUNT][64];
-	for(int i=0; i < SAMPLE_COUNT; ++i){
-		printf("First: Testing VM without memory access \n");
-		int16_t *tmp_res;
-		tmp_res = collect("without", __start_guest_without, __stop_guest_without);
-		memcpy(msmrt_without_access[i], tmp_res, 64*sizeof(int16_t));
-		free(tmp_res);
-		printf("Now: Testing access with memory access \n");
-		tmp_res = collect("with", __start_guest_with, __stop_guest_with);
-		memcpy(msmrt_with_access[i], tmp_res, 64*sizeof(int16_t));
-		free(tmp_res);
+	for (i = 0; i < SAMPLE_COUNT; i++) {
+		assert(with_access[i][TARGET_SET] > 0);
+		//assert(without_access[i][TARGET_SET] == 0);
 	}
-	printf("#### MSRT_WITHOUT_ACCESS ####\n");
-	for(int i=0; i<SAMPLE_COUNT; ++i){
-		printf("Sample number %d:\n", i);
-		for(int j=0; j<64; ++j){
-			printf("%3d ", msmrt_without_access[i][j]);
-		}
-		putchar('\n');
-	}
-	printf("\n");
-	printf("#### MSRT_WITH_ACCESS ####\n");
-	for(int i=0; i<SAMPLE_COUNT; ++i){
-		printf("Sample number %d:\n", i);
-		for(int j=0; j<64; ++j){
-			printf("%3d ", msmrt_with_access[i][j]);
-			assert((msmrt_with_access[i][TARGET_SET] > 0));
-		}
-		putchar('\n');
-	}
-	printf("\n");
-	//dump_msrmt_results_to_log("msmrt_without_access.out", msmrt_without_access);
-	//dump_msrmt_results_to_log("msmrt_with_access.out", msmrt_with_access);
 
 	close(cachepc_fd);
 }

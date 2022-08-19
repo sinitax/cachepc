@@ -32,7 +32,7 @@ index b804444e16d4..17167ccfca22 100644
  obj-$(CONFIG_KVM)	+= kvm.o
  obj-$(CONFIG_KVM_INTEL)	+= kvm-intel.o
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index 7b3cfbe8f7e3..75ef27b944de 100644
+index 7b3cfbe8f7e3..e6b30237aa06 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,8 @@
@@ -44,18 +44,19 @@ index 7b3cfbe8f7e3..75ef27b944de 100644
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -3751,7 +3753,10 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+@@ -3751,7 +3753,11 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
  	if (sev_es_guest(svm->vcpu.kvm)) {
  		__svm_sev_es_vcpu_run(svm->vmcb_pa);
  	} else {
-+		cacheline *head = cachepc_prime(cachepc_ds);
++		memset(cachepc_msrmts, 0, 64 * 2);
  		__svm_vcpu_run(svm->vmcb_pa, (unsigned long *)&svm->vcpu.arch.regs);
-+		cachepc_probe(head);
-+		cachepc_save_msrmts(head);
++		cachepc_save_msrmts(cachepc_ds);
++		//asm volatile ("movb $1, (%0)" : : "r"(cachepc_msrmts) : "rax");
++		//asm volatile ("movb $1, cachepc_msrmts");
  
  #ifdef CONFIG_X86_64
  		native_wrmsrl(MSR_GS_BASE, svm->host.gs_base);
-@@ -3785,8 +3790,12 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+@@ -3785,8 +3791,12 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu,
  
  static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu)
  {
@@ -69,6 +70,187 @@ index 7b3cfbe8f7e3..75ef27b944de 100644
  	svm->vmcb->save.rax = vcpu->arch.regs[VCPU_REGS_RAX];
  	svm->vmcb->save.rsp = vcpu->arch.regs[VCPU_REGS_RSP];
  	svm->vmcb->save.rip = vcpu->arch.regs[VCPU_REGS_RIP];
+diff --git a/arch/x86/kvm/svm/vmenter.S b/arch/x86/kvm/svm/vmenter.S
+index 6feb8c08f45a..f2e71fb17274 100644
+--- a/arch/x86/kvm/svm/vmenter.S
++++ b/arch/x86/kvm/svm/vmenter.S
+@@ -27,14 +27,53 @@
+ #define VCPU_R15	__VCPU_REGS_R15 * WORD_SIZE
+ #endif
+ 
++.extern cachepc_msrmts
++
+ .section .noinstr.text, "ax"
+ 
++.macro push_xmm gpr xmm
++	vmovq \gpr, \xmm
++.endm
++
++.macro pop_xmm gpr xmm
++	vmovq \xmm, \gpr
++.endm
++
++.macro swap_xmm grp xmm
++	vmovq \grp, %xmm1
++	vmovq \xmm, \grp
++	vmovq %xmm1, \xmm
++.endm
++
++.macro barrier
++	mfence
++	mov $0x80000005,%eax
++	cpuid
++.endm
++
+ /**
+  * __svm_vcpu_run - Run a vCPU via a transition to SVM guest mode
+  * @vmcb_pa:	unsigned long
+  * @regs:	unsigned long * (to guest registers)
+  */
+ SYM_FUNC_START(__svm_vcpu_run)
++	/* store regs in zmm */
++	push_xmm %rax, %xmm0
++	push_xmm %rcx, %xmm2
++	push_xmm %rdx, %xmm3
++	push_xmm %rbp, %xmm4
++	push_xmm %rsp, %xmm5
++	push_xmm %rdi, %xmm6
++	push_xmm %rsi, %xmm7
++	push_xmm %r8, %xmm8
++	push_xmm %r9, %xmm9
++	push_xmm %r10, %xmm10
++	push_xmm %r11, %xmm11
++	push_xmm %r12, %xmm12
++	push_xmm %r13, %xmm13
++	push_xmm %r14, %xmm14
++	push_xmm %r15, %xmm15
++
+ 	push %_ASM_BP
+ #ifdef CONFIG_X86_64
+ 	push %r15
+@@ -45,6 +84,7 @@ SYM_FUNC_START(__svm_vcpu_run)
+ 	push %edi
+ 	push %esi
+ #endif
++
+ 	push %_ASM_BX
+ 
+ 	/* Save @regs. */
+@@ -77,6 +117,45 @@ SYM_FUNC_START(__svm_vcpu_run)
+ 	/* "POP" @vmcb to RAX. */
+ 	pop %_ASM_AX
+ 
++	swap_xmm %rax, %xmm0
++	swap_xmm %rcx, %xmm2
++	swap_xmm %rdx, %xmm3
++	swap_xmm %rbp, %xmm4
++	swap_xmm %rsp, %xmm5
++	swap_xmm %rdi, %xmm6
++	swap_xmm %rsi, %xmm7
++	swap_xmm %r8, %xmm8
++	swap_xmm %r9, %xmm9
++	swap_xmm %r10, %xmm10
++	swap_xmm %r11, %xmm11
++	swap_xmm %r12, %xmm12
++	swap_xmm %r13, %xmm13
++	swap_xmm %r14, %xmm14
++	swap_xmm %r15, %xmm15
++
++	mov cachepc_ds, %rsi
++	mov 0x8(%rsi), %r15
++	
++	lea prime_ret(%rip), %rdi
++	jmp cachepc_prime_vcall+1 // skip stack pushes
++prime_ret:
++
++	swap_xmm %rax, %xmm0
++	swap_xmm %rcx, %xmm2
++	swap_xmm %rdx, %xmm3
++	swap_xmm %rbp, %xmm4
++	swap_xmm %rsp, %xmm5
++	swap_xmm %rdi, %xmm6
++	swap_xmm %rsi, %xmm7
++	swap_xmm %r8, %xmm8
++	swap_xmm %r9, %xmm9
++	swap_xmm %r10, %xmm10
++	swap_xmm %r11, %xmm11
++	swap_xmm %r12, %xmm12
++	swap_xmm %r13, %xmm13
++	swap_xmm %r14, %xmm14
++	swap_xmm %r15, %xmm15
++
+ 	/* Enter guest mode */
+ 	sti
+ 1:	vmload %_ASM_AX
+@@ -85,8 +164,10 @@ SYM_FUNC_START(__svm_vcpu_run)
+ 	jne 3f
+ 	ud2
+ 	_ASM_EXTABLE(1b, 2b)
++	
++3:		
++	vmrun %_ASM_AX
+ 
+-3:	vmrun %_ASM_AX
+ 	jmp 5f
+ 4:	cmpb $0, kvm_rebooting
+ 	jne 5f
+@@ -102,6 +183,44 @@ SYM_FUNC_START(__svm_vcpu_run)
+ 7:
+ 	cli
+ 
++	swap_xmm %rax, %xmm0
++	swap_xmm %rcx, %xmm2
++	swap_xmm %rdx, %xmm3
++	swap_xmm %rbp, %xmm4
++	swap_xmm %rsp, %xmm5
++	swap_xmm %rdi, %xmm6
++	swap_xmm %rsi, %xmm7
++	swap_xmm %r8, %xmm8
++	swap_xmm %r9, %xmm9
++	swap_xmm %r10, %xmm10
++	swap_xmm %r11, %xmm11
++	swap_xmm %r12, %xmm12
++	swap_xmm %r13, %xmm13
++	swap_xmm %r14, %xmm14
++	swap_xmm %r15, %xmm15
++
++	mov %r15, %rsi
++	lea probe_ret(%rip), %rdi
++	jmp cachepc_probe_vcall+6 // skip stack pushs
++probe_ret:
++
++	swap_xmm %rax, %xmm0
++	swap_xmm %rcx, %xmm2
++	swap_xmm %rdx, %xmm3
++	swap_xmm %rbp, %xmm4
++	swap_xmm %rsp, %xmm5
++	swap_xmm %rdi, %xmm6
++	swap_xmm %rsi, %xmm7
++	swap_xmm %r8, %xmm8
++	swap_xmm %r9, %xmm9
++	swap_xmm %r10, %xmm10
++	swap_xmm %r11, %xmm11
++	swap_xmm %r12, %xmm12
++	swap_xmm %r13, %xmm13
++	swap_xmm %r14, %xmm14
++	swap_xmm %r15, %xmm15
++
++
+ #ifdef CONFIG_RETPOLINE
+ 	/* IMPORTANT: Stuff the RSB immediately after VM-Exit, before RET! */
+ 	FILL_RETURN_BUFFER %_ASM_AX, RSB_CLEAR_LOOPS, X86_FEATURE_RETPOLINE
+@@ -166,6 +285,11 @@ SYM_FUNC_START(__svm_vcpu_run)
+ 	pop %edi
+ #endif
+ 	pop %_ASM_BP
++
++	# mov cachepc_msrmts(%rip), %rax
++	# mov $0x1, %edx
++	# mov %dx, (%rax)
++
+ 	ret
+ SYM_FUNC_END(__svm_vcpu_run)
+ 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
 index 2541a17ff1c4..7efbdfd0e3e2 100644
 --- a/virt/kvm/kvm_main.c

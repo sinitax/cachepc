@@ -16,6 +16,22 @@ static void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cach
 static cacheline **allocate_cache_ds(cache_ctx *ctx);
 static uint16_t get_virt_cache_set(cache_ctx *ctx, void *ptr);
 
+cacheline *cachepc_prime_cl = NULL;
+
+void
+cachepc_prime_vcall(uintptr_t ret, cacheline *cl)
+{
+	cachepc_prime(cl);
+	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
+}
+
+void
+cachepc_probe_vcall(uintptr_t ret, cacheline *cl)
+{
+	cachepc_probe(cl);
+	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
+}
+
 void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask)
 {

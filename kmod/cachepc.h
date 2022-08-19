@@ -21,6 +21,9 @@ void *cachepc_aligned_alloc(size_t alignment, size_t size);
 void cachepc_save_msrmts(cacheline *head);
 void cachepc_print_msrmts(cacheline *head);
 
+void cachepc_prime_vcall(uintptr_t ret, cacheline *cl);
+void cachepc_probe_vcall(uintptr_t ret, cacheline *cl);
+
 __attribute__((always_inline))
 static inline cacheline *cachepc_prime(cacheline *head);
 

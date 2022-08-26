@@ -27,6 +27,7 @@
 #include <stdio.h>
 
 #define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
+#define MIN(a,b) ((a) > (b) ? (b) : (a))
 
 #define SAMPLE_COUNT 100
 
@@ -198,7 +199,7 @@ kvm_init(size_t ramsize, void *code_start, void *code_stop)
 	assert(code_stop - code_start <= ramsize);
 	memcpy(kvm.mem, code_start, code_stop - code_start);
 
-	/* Map it to the second page frame (to avoid the real-mode IDT at 0). */
+	/* Map it into vm memory */
 	memset(&region, 0, sizeof(region));
 	region.slot = 0;
 	region.memory_size = ramsize;
@@ -247,29 +248,34 @@ uint16_t *
 read_counts() 
 {
 	uint16_t *counts = (uint16_t *)malloc(64*sizeof(uint16_t));
-	size_t i, len;
+	size_t len;
 
 	lseek(cachepc_fd, 0, SEEK_SET);
 	len = read(cachepc_fd, counts, 64 * sizeof(uint16_t));
 	assert(len == 64 * sizeof(uint16_t));
 
-	for (i = 0; i < 64; i++) {
-			if (i % 16 == 0 && i)
-				printf("\n");
-			if (counts[i] == 1)
-				printf("\x1b[38;5;88m");
-			else if (counts[i] > 1)
-				printf("\x1b[38;5;196m");
-			printf("%2i ", i);
-			if (counts[i] > 0)
-				printf("\x1b[0m");
-	}
-	printf("\n Target Set Count: %d %hu \n", TARGET_SET, counts[TARGET_SET]);
-	printf("\n");
-
 	return counts;
 }
 
+void
+print_counts(uint16_t *counts)
+{
+	int i;
+
+	for (i = 0; i < 64; i++) {
+		if (i % 16 == 0 && i)
+			printf("\n");
+		if (counts[i] == 1)
+			printf("\x1b[38;5;88m");
+		else if (counts[i] > 1)
+			printf("\x1b[38;5;196m");
+		printf("%2i ", i);
+		if (counts[i] > 0)
+			printf("\x1b[0m");
+	}
+	printf("\n Target Set Count: %d %hu \n", TARGET_SET, counts[TARGET_SET]);
+	printf("\n");
+}
 
 uint16_t *
 collect(const char *prefix, void *code_start, void *code_stop)
@@ -282,11 +288,16 @@ collect(const char *prefix, void *code_start, void *code_stop)
 	kvm_init(64 * 64 * 8 * 2, code_start, code_stop);
 
 	ret = 0;
-	kvm_run->exit_reason = KVM_EXIT_IO;
+	kvm_run->exit_reason = 0;
+
+	/* run vm twice, use count without initial stack setup */
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
+	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
+
 	if (kvm_run->exit_reason == KVM_EXIT_MMIO) {
 		memset(&regs, 0, sizeof(regs));
-		ret = ioctl(kvm.vcpufd, KVM_SET_REGS, &regs);
+		ret = ioctl(kvm.vcpufd, KVM_GET_REGS, &regs);
+		if (ret < 0) err(1, "KVM_GET_REGS");
 		errx(1, "Victim access OOB: %lu %08llx => %02X\n",
 			kvm_run->mmio.phys_addr, regs.rip,
 			((uint8_t*)kvm.mem)[regs.rip]);
@@ -295,7 +306,6 @@ collect(const char *prefix, void *code_start, void *code_stop)
 	if (ret < 0 || kvm_run->exit_reason != KVM_EXIT_IO)
 		errx(1, "KVM died: %i %i\n", ret, kvm_run->exit_reason);
 
-	printf("Evictions %s access:\n", prefix);
 	counts = read_counts();
 
 	close(kvm.fd);
@@ -310,9 +320,9 @@ main(int argc, const char **argv)
 {
 	uint16_t without_access[SAMPLE_COUNT][64];
 	uint16_t with_access[SAMPLE_COUNT][64];
-	uint16_t *counts;
+	uint16_t *counts, *baseline;
 	uint32_t arg;
-	int i, j, ret;
+	int i, k, ret;
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -327,13 +337,37 @@ main(int argc, const char **argv)
 	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
 	if (ret == -1) err(1, "ioctl fail");
 
+	baseline = calloc(sizeof(uint16_t), 64);
+	if (!baseline) err(1, "counts");
+	for (k = 0; k < 64; k++)
+		baseline[k] = UINT16_MAX;
+
 	for (i = 0; i < SAMPLE_COUNT; i++) {
 		counts = collect("without", __start_guest_without, __stop_guest_without);
 		memcpy(without_access[i], counts, 64 * sizeof(uint16_t));
 		free(counts);
+
 		counts = collect("with", __start_guest_with, __stop_guest_with);
 		memcpy(with_access[i], counts, 64 * sizeof(uint16_t));
 		free(counts);
+
+		for (k = 0; k < 64; k++) {
+			baseline[k] = MIN(baseline[k], without_access[i][k]);
+			baseline[k] = MIN(baseline[k], with_access[i][k]);
+		}
+	}
+	
+	for (i = 0; i < SAMPLE_COUNT; i++) {
+		for (k = 0; k < 64; k++) {
+			with_access[i][k] -= baseline[k];
+			without_access[i][k] -= baseline[k];
+		}
+
+		printf("Evictions with access:\n");
+		print_counts(with_access[i]);
+
+		printf("Evictions without access:\n");
+		print_counts(without_access[i]);
 	}
 
 	for (i = 0; i < SAMPLE_COUNT; i++) {
@@ -343,3 +377,4 @@ main(int argc, const char **argv)
 
 	close(cachepc_fd);
 }
+

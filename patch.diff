@@ -249,6 +249,18 @@ index 6feb8c08f45a..2f259db92037 100644
  	ret
  SYM_FUNC_END(__svm_vcpu_run)
  
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 4097d028c3ab..81685bd567a2 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -5414,6 +5414,7 @@ static int kvm_vm_ioctl_set_msr_filter(struct kvm *kvm, void __user *argp)
+ long kvm_arch_vm_ioctl(struct file *filp,
+ 		       unsigned int ioctl, unsigned long arg)
+ {
++	printk(KERN_WARNING "Vincent kvm arch ioctl \n");
+ 	struct kvm *kvm = filp->private_data;
+ 	void __user *argp = (void __user *)arg;
+ 	int r = -ENOTTY;
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
 index 2541a17ff1c4..7efbdfd0e3e2 100644
 --- a/virt/kvm/kvm_main.c

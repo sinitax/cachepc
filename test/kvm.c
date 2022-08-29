@@ -296,7 +296,7 @@ sev_ioctl(int fd, int cmd, void *data, int *error)
     input.sev_fd = fd;
     input.data = (__u64)(unsigned long)data;
 
-    r = kvm_vm_ioctl(kvm.fd, KVM_MEMORY_ENCRYPT_OP, &input);
+    r = kvm_vm_ioctl(kvm.vmfd, KVM_MEMORY_ENCRYPT_OP, &input);
 
     if (error) {
         *error = input.error;
@@ -306,20 +306,54 @@ sev_ioctl(int fd, int cmd, void *data, int *error)
 }
 
 void
-kvm_svm_init()
+kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
 {
+	//https://www.amd.com/system/files/TechDocs/55766_SEV-KM_API_Specification.pdf
+	//
 	int sev_fd;
 	int fw_error;
 	int status;
+	struct kvm_regs regs;
+	uint16_t *counts;
+	int ret, r;
 
+	/* using cache size for alignment of kvm memory access */
+	kvm_init(64 * 64 * 8 * 2, code_start, code_stop);
+
+	ret = 0;
+	kvm_run->exit_reason = 0;
 	sev_fd = open("/dev/sev", O_RDWR | O_CLOEXEC);
 	if (sev_fd < 0) err(1, "/dev/sev");
-	kvm.fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-	if (kvm.fd < 0) err(1, "/dev/kvm");
-	int r = ioctl(kvm.fd, KVM_MEMORY_ENCRYPT_OP, NULL); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
+	//kvm.fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
+	//if (kvm.fd < 0) err(1, "/dev/kvm");
+	///kvm.vmfd = ioctl(kvm.fd, KVM_CREATE_VM, 0);
+	//if (kvm.vmfd < 0) err(1, "KVM_CREATE_VM");
+	//int r = ioctl(kvm.fd, KVM_GET_API_VERSION, NULL); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
+	//if (r == -1) err(1, "KVM_GET_API_VERSION");
+	//if (r != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", r);
+	//printf("KVM API Version %d\n", r);
+	r = ioctl(kvm.vmfd, KVM_MEMORY_ENCRYPT_OP, NULL); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
 	printf("SEV ioctol %d \n",r);
 	printf("fw_error %d \n", fw_error);
-	if (r < 0) err(1,"SEV ioctol");
+	if (r < 0) err(1,"SEV ioctol does not seem to be enabled");
+	r = sev_ioctl(sev_fd,KVM_SEV_INIT, NULL, &fw_error); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
+	printf("SEV ioctol %d \n",r);
+	printf("fw_error %d \n", fw_error);
+	if (r < 0) err(1,"Problem with KVM_SEV_INIT");
+	//Next command: 
+	struct kvm_sev_launch_start start;
+	memset(&start, 0, sizeof(struct kvm_sev_launch_start));
+	start.handle = 0; //Create a new handle
+	start.policy = 0x30000;
+	r = sev_ioctl(sev_fd,KVM_SEV_LAUNCH_START, &start, &fw_error); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
+	printf("SEV ioctol %d, start.handle %d \n",r, start.handle);
+	printf("fw_error %d \n", fw_error);
+	if (r < 0) err(1,"Problem with KVM_SEV_INIT");
+	
+
+
+
+	
 
 	//printf("Return code opening /dev/sev %d\n", sev_fd);
 	//printf("Return code 	%d \n", ioctl(sev_fd, KVM_SEV_ES_INIT, NULL));
@@ -422,7 +456,7 @@ main(int argc, const char **argv)
 	if (!baseline) err(1, "counts");
 	for (k = 0; k < 64; k++)
 		baseline[k] = UINT16_MAX;
-	kvm_svm_init();
+	kvm_svm_init(64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
 	return 0;
 	for (i = 0; i < SAMPLE_COUNT; i++) {
 		counts = collect("without", __start_guest_without, __stop_guest_without);

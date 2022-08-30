@@ -338,6 +338,44 @@ sev_launch_get_measure(int sev_fd)
 		free(data);
 }
 
+static const char *const sev_fw_errlist[] = {
+    "",
+    "Platform state is invalid",
+    "Guest state is invalid",
+    "Platform configuration is invalid",
+    "Buffer too small",
+    "Platform is already owned",
+    "Certificate is invalid",
+    "Policy is not allowed",
+    "Guest is not active",
+    "Invalid address",
+    "Bad signature",
+    "Bad measurement",
+    "Asid is already owned",
+    "Invalid ASID",
+    "WBINVD is required",
+    "DF_FLUSH is required",
+    "Guest handle is invalid",
+    "Invalid command",
+    "Guest is active",
+    "Hardware error",
+    "Hardware unsafe",
+    "Feature not supported",
+    "Invalid parameter"
+};
+
+
+#define SEV_FW_MAX_ERROR      23 //TODO VU: Right?
+
+static const char *
+fw_error_to_str(int code)
+{
+    if (code < 0 || code >= SEV_FW_MAX_ERROR) {
+        return "unknown error";
+    }
+
+    return sev_fw_errlist[code];
+}
 
 void
 kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
@@ -382,6 +420,31 @@ kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
 	sev_launch_get_measure(sev_fd);
 	ret = sev_ioctl(sev_fd, KVM_SEV_LAUNCH_FINISH, 0, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: %i %i", ret, fwerr);
+	//Test that memory encryption and decryption works
+	char *input_data = "VINCENT_ENCRYPTION";
+	int in_len = strlen(input_data)+1;
+	printf("Input length %d \n", in_len);
+	char *output_buffer = malloc(in_len);
+	char *decrypt_buffer = malloc(in_len);
+	struct kvm_sev_dbg dbg_enc_in;
+	dbg_enc_in.src_uaddr = (uint64_t) input_data;
+	dbg_enc_in.dst_uaddr = (uint64_t) output_buffer;
+	dbg_enc_in.len = in_len;
+	ret = sev_ioctl(sev_fd, KVM_SEV_DBG_ENCRYPT, &dbg_enc_in, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_DBG_ENCRYPT: %i %i", ret, fw_error_to_str(fwerr));
+	printf("Encrypted data debug\n");
+	vini_hexdump(output_buffer, in_len);
+	dbg_enc_in.src_uaddr = (uint64_t) output_buffer;
+	dbg_enc_in.dst_uaddr = (uint64_t) decrypt_buffer;
+		ret = sev_ioctl(sev_fd, KVM_SEV_DBG_DECRYPT, &dbg_enc_in, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_DBG_ENCRYPT: %i %i", ret, fw_error_to_str(fwerr));
+	printf("Decrypted data debug\n");
+	vini_hexdump(decrypt_buffer, in_len);
+	printf("%s \n", decrypt_buffer);
+
+
+
+
 
 	
 	//printf("Return code opening /dev/sev %d\n", sev_fd);

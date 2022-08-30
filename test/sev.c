@@ -62,13 +62,16 @@ static int cachepc_fd;
 #define TARGET_CACHE_LINESIZE 64
 #define TARGET_SET 15
 
+//https://events19.linuxfoundation.org/wp-content/uploads/2017/12/Extending-Secure-Encrypted-Virtualization-with-SEV-ES-Thomas-Lendacky-AMD.pdf
+//https://www.spinics.net/lists/linux-kselftest/msg27206.html
 __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
 	while (1) {
-		asm volatile("mov (%[v]), %%bl"
-			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
+		//asm volatile("mov (%[v]), %%bl"
+		//	: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
 		asm volatile("hlt"); 
+		//asm volatile("rep; vmmcall\n\r");
 		//asm volatile("out %%al, (%%dx)" : : );
 	}
 }
@@ -571,9 +574,9 @@ main(int argc, const char **argv)
 	//return 0;
 
 	for (i = 0; i < SAMPLE_COUNT; i++) {
-		counts = collect("without", __start_guest_without, __stop_guest_without);
-		memcpy(without_access[i], counts, 64 * sizeof(uint16_t));
-		free(counts);
+		//counts = collect("without", __start_guest_without, __stop_guest_without);
+		//memcpy(without_access[i], counts, 64 * sizeof(uint16_t));
+		//free(counts);
 
 		counts = collect("with", __start_guest_with, __stop_guest_with);
 		memcpy(with_access[i], counts, 64 * sizeof(uint16_t));

@@ -68,7 +68,8 @@ vm_guest_with(void)
 	while (1) {
 		asm volatile("mov (%[v]), %%bl"
 			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
-		asm volatile("out %%al, (%%dx)" : : );
+		asm volatile("hlt"); 
+		//asm volatile("out %%al, (%%dx)" : : );
 	}
 }
 
@@ -76,7 +77,8 @@ __attribute__((section("guest_without"))) void
 vm_guest_without(void)
 {
 	while (1) {
-		asm volatile("out %%al, (%%dx)" : : );
+		asm volatile("hlt");
+		//asm volatile("out %%al, (%%dx)" : : );
 	}
 }
 
@@ -377,6 +379,19 @@ fw_error_to_str(int code)
     return sev_fw_errlist[code];
 }
 
+uint8_t get_guest_state(int sev_fd, uint32_t handle){
+	//See Table 4.3 here
+	//https://www.amd.com/system/files/TechDocs/55766_SEV-KM_API_Specification.pdf
+	struct kvm_sev_guest_status guest_status_data;
+	guest_status_data.handle = 	handle;
+	int fwerror = 0;
+	int ret = sev_ioctl(sev_fd, KVM_SEV_GUEST_STATUS, &guest_status_data, &fwerror);
+	if (ret < 0) errx(1, "KVM_SEV_GUEST_STATUS: (%s) %s", strerror(errno), fw_error_to_str(fwerror));
+	return guest_status_data.state;
+
+
+}
+
 void
 kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
 {
@@ -392,6 +407,7 @@ kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
 
 	/* using cache size for alignment of kvm memory access */
 	kvm_init(ramsize, code_start, code_stop);
+	//kvm_svm_init(64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
 
 	sev_fd = open("/dev/sev", O_RDWR | O_CLOEXEC);
 	if (sev_fd < 0) err(1, "open /dev/sev");
@@ -441,6 +457,8 @@ kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
 	printf("Decrypted data debug\n");
 	vini_hexdump(decrypt_buffer, in_len);
 	printf("%s \n", decrypt_buffer);
+	printf("Guest state after setup %u", get_guest_state(sev_fd, start.handle));
+
 
 
 
@@ -492,13 +510,16 @@ collect(const char *prefix, void *code_start, void *code_stop)
 	int ret;
 
 	// using cache size for alignment of kvm memory access
-	kvm_init(64 * 64 * 8 * 2, code_start, code_stop);
-
+	//kvm_init(64 * 64 * 8 * 2, code_start, code_stop);
+	kvm_svm_init(64 * 64 * 8 * 2, code_start, code_stop);
+	printf("Vincent: SEV init done done!\n");
 	/* run vm twice, use count without initial stack setup */
+	printf("First ioctl running the VM\n");
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
+	printf("Second ioctl call to run the VM\n");
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
 
-	if (kvm_run->exit_reason == KVM_EXIT_MMIO) {
+	if (kvm_run->exit_reason == KVM_EXIT_MMIO || kvm_run->exit_reason == KVM_EXIT_HLT) {
 		memset(&regs, 0, sizeof(regs));
 		ret = ioctl(kvm.vcpufd, KVM_GET_REGS, &regs);
 		if (ret < 0) err(1, "KVM_GET_REGS");
@@ -506,8 +527,8 @@ collect(const char *prefix, void *code_start, void *code_stop)
 			kvm_run->mmio.phys_addr, regs.rip,
 			((uint8_t*)kvm.mem)[regs.rip]);
 	}
-
-	if (ret < 0 || kvm_run->exit_reason != KVM_EXIT_IO)
+	printf("KVM exit reason %d \n", kvm_run->exit_reason);
+	if (ret < 0 || (kvm_run->exit_reason != KVM_EXIT_IO && kvm_run->exit_reason != KVM_EXIT_HLT))
 		errx(1, "KVM died: %i %i\n", ret, kvm_run->exit_reason);
 
 	counts = read_counts();
@@ -546,8 +567,8 @@ main(int argc, const char **argv)
 	for (k = 0; k < 64; k++)
 		baseline[k] = UINT16_MAX;
 
-	kvm_svm_init(64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
-	return 0;
+	//kvm_svm_init(64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
+	//return 0;
 
 	for (i = 0; i < SAMPLE_COUNT; i++) {
 		counts = collect("without", __start_guest_without, __stop_guest_without);

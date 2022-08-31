@@ -25,7 +25,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdarg.h>
 
 #define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
@@ -245,120 +244,6 @@ kvm_init(size_t ramsize, void *code_start, void *code_stop)
 	if (ret < 0) err(1, "KVM_SET_REGS");
 }
 
-
-int kvm_vm_ioctl(int vmfd, int type, ...)
-{
-    int ret;
-    void *arg;
-    va_list ap;
-
-    va_start(ap, type);
-    arg = va_arg(ap, void *);
-    va_end(ap);
-
-    
-    ret = ioctl(vmfd, type, arg);
-    if (ret == -1) {
-        ret = -errno;
-    }
-    return ret;
-}
-
-
-//VU: Copied the below function from qemu, 
-//e.g. https://github.dev/OpenChannelSSD/qemu-nvme/blob/master/target/i386/sev.c
-//SEe also here: https://www.kernel.org/doc/Documentation/virt/kvm/amd-memory-encryption.rst
-//"The The main ioctl to access SEV is KVM_MEMORY_ENCRYPT_OP. "
-//If non-NULL, the argument to KVM_MEMORY_ENCRYPT_OP must be a struct kvm_sev_cmd::
-/*
-       struct kvm_sev_cmd {
-               __u32 id;
-               __u64 data;
-               __u32 error;
-               __u32 sev_fd;
-       };
-
-
-The ``id`` field contains the subcommand, and the ``data`` field points to
-another struct containing arguments specific to command.  The ``sev_fd``
-should point to a file descriptor that is opened on the ``/dev/sev``
-device, if needed (see individual commands).
-*/
-static int
-sev_ioctl(int fd, int cmd, void *data, int *error)
-{
-    int r;
-    struct kvm_sev_cmd input;
-
-    memset(&input, 0x0, sizeof(input));
-
-    input.id = cmd;
-    input.sev_fd = fd;
-    input.data = (__u64)(unsigned long)data;
-
-    r = kvm_vm_ioctl(kvm.vmfd, KVM_MEMORY_ENCRYPT_OP, &input);
-
-    if (error) {
-        *error = input.error;
-    }
-
-    return r;
-}
-
-void
-kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
-{
-	//https://www.amd.com/system/files/TechDocs/55766_SEV-KM_API_Specification.pdf
-	//
-	int sev_fd;
-	int fw_error;
-	int status;
-	struct kvm_regs regs;
-	uint16_t *counts;
-	int ret, r;
-
-	/* using cache size for alignment of kvm memory access */
-	kvm_init(64 * 64 * 8 * 2, code_start, code_stop);
-
-	ret = 0;
-	kvm_run->exit_reason = 0;
-	sev_fd = open("/dev/sev", O_RDWR | O_CLOEXEC);
-	if (sev_fd < 0) err(1, "/dev/sev");
-	//kvm.fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-	//if (kvm.fd < 0) err(1, "/dev/kvm");
-	///kvm.vmfd = ioctl(kvm.fd, KVM_CREATE_VM, 0);
-	//if (kvm.vmfd < 0) err(1, "KVM_CREATE_VM");
-	//int r = ioctl(kvm.fd, KVM_GET_API_VERSION, NULL); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
-	//if (r == -1) err(1, "KVM_GET_API_VERSION");
-	//if (r != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", r);
-	//printf("KVM API Version %d\n", r);
-	r = ioctl(kvm.vmfd, KVM_MEMORY_ENCRYPT_OP, NULL); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
-	printf("SEV ioctol %d \n",r);
-	printf("fw_error %d \n", fw_error);
-	if (r < 0) err(1,"SEV ioctol does not seem to be enabled");
-	r = sev_ioctl(sev_fd,KVM_SEV_INIT, NULL, &fw_error); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
-	printf("SEV ioctol %d \n",r);
-	printf("fw_error %d \n", fw_error);
-	if (r < 0) err(1,"Problem with KVM_SEV_INIT");
-	//Next command: 
-	struct kvm_sev_launch_start start;
-	memset(&start, 0, sizeof(struct kvm_sev_launch_start));
-	start.handle = 0; //Create a new handle
-	start.policy = 0x30000;
-	r = sev_ioctl(sev_fd,KVM_SEV_LAUNCH_START, &start, &fw_error); //sev_ioctl(sev_fd, NULL, NULL, &fw_error);
-	printf("SEV ioctol %d, start.handle %d \n",r, start.handle);
-	printf("fw_error %d \n", fw_error);
-	if (r < 0) err(1,"Problem with KVM_SEV_INIT");
-	
-
-
-
-	
-
-	//printf("Return code opening /dev/sev %d\n", sev_fd);
-	//printf("Return code 	%d \n", ioctl(sev_fd, KVM_SEV_ES_INIT, NULL));
-}
-
 uint16_t *
 read_counts() 
 {
@@ -409,7 +294,7 @@ collect(const char *prefix, void *code_start, void *code_stop)
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
 
-	if (kvm_run->exit_reason == KVM_EXIT_MMIO) {
+	if (kvm_run->exit_reason == KVM_EXIT_MMIO || kvm_run->exit_reason == KVM_EXIT_HLT) {
 		memset(&regs, 0, sizeof(regs));
 		ret = ioctl(kvm.vcpufd, KVM_GET_REGS, &regs);
 		if (ret < 0) err(1, "KVM_GET_REGS");
@@ -417,8 +302,8 @@ collect(const char *prefix, void *code_start, void *code_stop)
 			kvm_run->mmio.phys_addr, regs.rip,
 			((uint8_t*)kvm.mem)[regs.rip]);
 	}
-
-	if (ret < 0 || kvm_run->exit_reason != KVM_EXIT_IO)
+	printf("KVM exit reason %d \n", kvm_run->exit_reason);
+	if (ret < 0 || (kvm_run->exit_reason != KVM_EXIT_IO && kvm_run->exit_reason != KVM_EXIT_HLT))
 		errx(1, "KVM died: %i %i\n", ret, kvm_run->exit_reason);
 
 	counts = read_counts();
@@ -445,7 +330,7 @@ main(int argc, const char **argv)
 	pin_process(0, TARGET_CORE, true);
 
 	cachepc_fd = open("/proc/cachepc", O_RDONLY);
-	if (cachepc_fd < 0) err(1, "open /proc/cachepc");
+	if (cachepc_fd < 0) err(1, "open");
 
 	/* init L1 miss counter */
 	arg = 0x000064D8;
@@ -456,8 +341,7 @@ main(int argc, const char **argv)
 	if (!baseline) err(1, "counts");
 	for (k = 0; k < 64; k++)
 		baseline[k] = UINT16_MAX;
-	kvm_svm_init(64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
-	return 0;
+
 	for (i = 0; i < SAMPLE_COUNT; i++) {
 		counts = collect("without", __start_guest_without, __stop_guest_without);
 		memcpy(without_access[i], counts, 64 * sizeof(uint16_t));

@@ -28,7 +28,8 @@ load:
 	sudo insmod $(KERNEL_SOURCE)/arch/x86/kvm/kvm-amd.ko
 
 test/%: test/%.c kmod/cachepc_user.h
-	$(CC) -o $@ $< -I kmod
+#	$(CC) -o $@ $< -I kmod
+	clang -fsanitize=address -o $@ $< -I kmod
 
 update: 
 	git -C $(KERNEL_SOURCE) diff > patch.diff

@@ -3,6 +3,7 @@
 
 #include "cachepc_user.h"
 
+#include <linux/psp-sev.h>
 #include <linux/kvm.h>
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
@@ -35,11 +36,14 @@
 #define TARGET_CORE 2
 #define SECONDARY_CORE 3
 
+#define TARGET_CACHE_LINESIZE 64
+#define TARGET_SET 15
+
 struct kvm {
-	int fd;
-	int vmfd;
-	int vcpufd;
+	int fd, vmfd, vcpufd;
 	void *mem;
+	size_t memsize;
+	struct kvm_run *run;
 };
 
 /* start and end for guest assembly */
@@ -48,31 +52,87 @@ extern uint8_t __stop_guest_with[];
 extern uint8_t __start_guest_without[];
 extern uint8_t __stop_guest_without[];
 
-static bool ready = false;
-static bool processed = false;
+bool ready = false;
+bool processed = false;
 
-static ssize_t sysret;
-static pid_t victim_pid;
+ssize_t sysret;
+pid_t victim_pid;
 
-static struct kvm kvm;
-static struct kvm_run *kvm_run;
+/* ioctl dev fds */
+int kvm_dev, sev_dev, cachepc_dev;
 
-static int cachepc_fd;
+enum {
+	GSTATE_UNINIT,
+	GSTATE_LUPDATE,
+	GSTATE_LSECRET,
+	GSTATE_RUNNING,
+	GSTATE_SUPDATE,
+	GSTATE_RUPDATE,
+	GSTATE_SENT
+};
 
-#define TARGET_CACHE_LINESIZE 64
-#define TARGET_SET 15
+const char *sev_fwerr_strs[] = {
+	"Success",
+	"Platform state is invalid",
+	"Guest state is invalid",
+	"Platform configuration is invalid",
+	"Buffer too small",
+	"Platform is already owned",
+	"Certificate is invalid",
+	"Policy is not allowed",
+	"Guest is not active",
+	"Invalid address",
+	"Bad signature",
+	"Bad measurement",
+	"Asid is already owned",
+	"Invalid ASID",
+	"WBINVD is required",
+	"DF_FLUSH is required",
+	"Guest handle is invalid",
+	"Invalid command",
+	"Guest is active",
+	"Hardware error",
+	"Hardware unsafe",
+	"Feature not supported",
+	"Invalid parameter",
+	"Out of resources",
+	"Integrity checks failed"
+};
 
-//https://events19.linuxfoundation.org/wp-content/uploads/2017/12/Extending-Secure-Encrypted-Virtualization-with-SEV-ES-Thomas-Lendacky-AMD.pdf
-//https://www.spinics.net/lists/linux-kselftest/msg27206.html
+const char *sev_gstate_strs[] = {
+	"UNINIT",
+	"LUPDATE",
+	"LSECRET",
+	"RUNNING",
+	"SUPDATE",
+	"RUPDATE",
+	"SEND"
+};
+
+void
+hexdump(void *data, int len)
+{
+	int i;
+
+	for (i = 0; i < len; i++) {
+		if (i % 16 == 0 && i)
+			printf("\n");
+		printf("%02X ", *(uint8_t *)(data + i));
+	}
+	printf("\n");
+}
+
+// REF: https://events19.linuxfoundation.org/wp-content/uploads/2017/12/Extending-Secure-Encrypted-Virtualization-with-SEV-ES-Thomas-Lendacky-AMD.pdf
+// REF: https://www.spinics.net/lists/linux-kselftest/msg27206.html
 __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
 	while (1) {
-		//asm volatile("mov (%[v]), %%bl"
-		//	: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
-		asm volatile("hlt"); 
+		asm volatile("mov (%[v]), %%bl"
+			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
+		asm volatile("out %%al, (%%dx)" : : );
+		//asm volatile("hlt"); 
 		//asm volatile("rep; vmmcall\n\r");
-		//asm volatile("out %%al, (%%dx)" : : );
 	}
 }
 
@@ -80,8 +140,8 @@ __attribute__((section("guest_without"))) void
 vm_guest_without(void)
 {
 	while (1) {
-		asm volatile("hlt");
-		//asm volatile("out %%al, (%%dx)" : : );
+		//asm volatile("hlt");
+		asm volatile("out %%al, (%%dx)" : : );
 	}
 }
 
@@ -89,12 +149,12 @@ bool
 pin_process(pid_t pid, int cpu, bool assert)
 {
 	cpu_set_t cpuset;
-	int status;
+	int ret;
 
 	CPU_ZERO(&cpuset);
 	CPU_SET(cpu, &cpuset);
-	status = sched_setaffinity(pid, sizeof(cpu_set_t), &cpuset);
-	if (status < 0) {
+	ret = sched_setaffinity(pid, sizeof(cpu_set_t), &cpuset);
+	if (ret < 0) {
 		if (assert) err(1, "sched_setaffinity");
 		return false;
 	}
@@ -130,356 +190,227 @@ read_stat_core(pid_t pid)
 	return cpu;
 }
 
-void
-clear_cores(uint64_t cpu_mask)
+const char *
+sev_fwerr_str(int code)
 {
-	DIR *proc_dir, *task_dir;
-	struct dirent *proc_ent, *task_ent;
-	char taskpath[256];
-	pid_t pid, tid;
-	bool res;
-	int cpu;
+	if (code < 0 || code >= ARRLEN(sev_fwerr_strs))
+		return "Unknown error";
 
-	/* move all processes from the target cpu to secondary */
-
-	proc_dir = opendir("/proc");
-	if (!proc_dir) err(1, "opendir");
-
-	while ((proc_ent = readdir(proc_dir))) {
-		pid = atoi(proc_ent->d_name);
-		if (!pid) continue;
-
-		cpu = read_stat_core(pid);
-		if (cpu >= 0 && (1 << cpu) & cpu_mask) {
-			res = pin_process(pid, SECONDARY_CORE, false);
-			// if (!res) printf("Failed pin %i from %i\n", pid, cpu);
-			if (res) printf("Pinned %i from %i\n", tid, cpu);
-			continue;
-		}
-
-		snprintf(taskpath, sizeof(taskpath), "/proc/%u/task", pid);
-		task_dir = opendir(taskpath);
-		if (!task_dir) err(1, "opendir");
-
-		while ((task_ent = readdir(task_dir))) {
-			tid = atoi(task_ent->d_name);
-			if (!tid || tid == pid) continue;
-
-			cpu = read_stat_core(tid);
-			if (cpu >= 0 && (1 << cpu) & cpu_mask) {
-				res = pin_process(tid, SECONDARY_CORE, false);
-				//if (!res) printf("Failed pin %i from %i\n", tid, cpu);
-				if (res) printf("Pinned thread %i from %i\n", tid, cpu);
-			}
-		}
-
-		closedir(task_dir);
-	}
-
-	closedir(proc_dir);
+	return sev_fwerr_strs[code];
 }
 
-void
-kvm_init(size_t ramsize, void *code_start, void *code_stop)
+const char *
+sev_gstate_str(int code)
 {
-	struct kvm_userspace_memory_region region;
-	struct kvm_regs regs;
-	struct kvm_sregs sregs;
-	int ret;
+	if (code < 0 || code >= ARRLEN(sev_gstate_strs))
+		return "Unknown gstate";
 
-	kvm.fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-	if (kvm.fd < 0) err(1, "/dev/kvm");
-
-	/* Make sure we have the stable version of the API */
-	ret = ioctl(kvm.fd, KVM_GET_API_VERSION, NULL);
-	if (ret == -1) err(1, "KVM_GET_API_VERSION");
-	if (ret != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
-
-	kvm.vmfd = ioctl(kvm.fd, KVM_CREATE_VM, 0);
-	if (kvm.vmfd < 0) err(1, "KVM_CREATE_VM");
-
-	/* Allocate one aligned page of guest memory to hold the code. */
-	kvm.mem = mmap(NULL, ramsize, PROT_READ | PROT_WRITE,
-		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	if (!kvm.mem) err(1, "allocating guest memory");
-	assert(code_stop - code_start <= ramsize);
-	memcpy(kvm.mem, code_start, code_stop - code_start);
-
-	/* Map it into vm memory */
-	memset(&region, 0, sizeof(region));
-	region.slot = 0;
-	region.memory_size = ramsize;
-	region.guest_phys_addr = 0x0000;
-	region.userspace_addr = (uint64_t) kvm.mem;
-
-	ret = ioctl(kvm.vmfd, KVM_SET_USER_MEMORY_REGION, &region);
-	if (ret < 0) err(1, "KVM_SET_USER_MEMORY_REGION");
-
-	kvm.vcpufd = ioctl(kvm.vmfd, KVM_CREATE_VCPU, 0);
-	if (kvm.vcpufd < 0) err(1, "KVM_CREATE_VCPU");
-
-	/* Map the shared kvm_run structure and following data. */
-	ret = ioctl(kvm.fd, KVM_GET_VCPU_MMAP_SIZE, NULL);
-	if (ret < 0) err(1, "KVM_GET_VCPU_MMAP_SIZE");
-
-	if (ret < sizeof(struct kvm_run))
-		errx(1, "KVM_GET_VCPU_MMAP_SIZE too small");
-	kvm_run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
-		MAP_SHARED, kvm.vcpufd, 0);
-	if (!kvm_run) err(1, "mmap vcpu");
-
-	/* Initialize CS to point at 0, via a read-modify-write of sregs. */
-	memset(&sregs, 0, sizeof(sregs));
-	ret = ioctl(kvm.vcpufd, KVM_GET_SREGS, &sregs);
-	if (ret < 0) err(1, "KVM_GET_SREGS");
-	sregs.cs.base = 0;
-	sregs.cs.selector = 0;
-	ret = ioctl(kvm.vcpufd, KVM_SET_SREGS, &sregs);
-	if (ret < 0) err(1, "KVM_SET_SREGS");
-
-	/* Initialize registers: instruction pointer for our code, addends, and
-	 * initial flags required by x86 architecture. */
-	memset(&regs, 0, sizeof(regs));
-	regs.rip = 0x0;
-	regs.rsp = ramsize - 1;
-	regs.rbp = ramsize - 1;
-	regs.rax = 0;
-	regs.rdx = 0;
-	regs.rflags = 0x2;
-	ret = ioctl(kvm.vcpufd, KVM_SET_REGS, &regs);
-	if (ret < 0) err(1, "KVM_SET_REGS");
+	return sev_gstate_strs[code];
 }
-
 
 int
-kvm_vm_ioctl(int vmfd, int type, ...)
-{
-	va_list ap;
-	void *arg;
-	int ret;
-
-	va_start(ap, type);
-	arg = va_arg(ap, void *);
-	va_end(ap);
-	
-	ret = ioctl(vmfd, type, arg);
-	if (ret == -1) {
-		ret = -errno;
-	}
-	return ret;
-}
-
-static int
-sev_ioctl(int fd, int cmd, void *data, int *error)
+sev_ioctl(int vmfd, int cmd, void *data, int *error)
 {	
-	// REF: https://github.dev/OpenChannelSSD/qemu-nvme/blob/master/target/i386/sev.c
 	struct kvm_sev_cmd input;
 	int ret;
 
 	memset(&input, 0, sizeof(input));
 	input.id = cmd;
-	input.sev_fd = fd;
-	input.data = (uint64_t) data;
+	input.sev_fd = sev_dev;
+	input.data = (uintptr_t) data;
 
-	ret = kvm_vm_ioctl(kvm.vmfd, KVM_MEMORY_ENCRYPT_OP, &input);
+	ret = ioctl(vmfd, KVM_MEMORY_ENCRYPT_OP, &input);
 	if (error) *error = input.error;
 
 	return ret;
 }
 
-void vini_hexdump(unsigned char *data, int len)
+uint8_t * 
+sev_get_measure(int vmfd)
 {
-    char *out = (char *)malloc(len * 2 + 1);
-    for (int i = 0; i != len; i++)
-    {
-        sprintf(&out[2 * i], "%02X", data[i]);
-    }
-    out[len * 2] = '\0';
-    printf("###Vincent_hexdump: %s\n", out);
-    free(out);
+	struct kvm_sev_launch_measure msrmt;
+	int ret, fwerr;
+	uint8_t *data;
+
+	memset(&msrmt, 0, sizeof(msrmt));
+	ret = sev_ioctl(vmfd, KVM_SEV_LAUNCH_MEASURE, &msrmt, &fwerr);
+	if (ret < 0 && fwerr != SEV_RET_INVALID_LEN)
+		errx(1, "LAUNCH_MEASURE: (%s) %s", strerror(errno), sev_fwerr_str(fwerr));
+
+	data = malloc(msrmt.len);
+	msrmt.uaddr = (uintptr_t) data;
+
+	ret = sev_ioctl(vmfd, KVM_SEV_LAUNCH_MEASURE, &msrmt, &fwerr);
+	if (ret < 0)
+		errx(1, "LAUNCH_MEASURE: (%s) %s", strerror(errno), sev_fwerr_str(fwerr));
+
+	return data;
 }
 
-
-
-static void
-sev_launch_get_measure(int sev_fd)
+uint8_t
+sev_guest_state(int vmfd, uint32_t handle)
 {
-    int ret, error;
-    struct kvm_sev_launch_measure measurement;
-	memset(&measurement, 0, sizeof(struct kvm_sev_launch_measure));
-    /* query the measurement blob length */
-    ret = sev_ioctl(sev_fd, KVM_SEV_LAUNCH_MEASURE,
-                    &measurement, &error);
-	printf("Measurement len %d\n", measurement.len);
-    if (!measurement.len) {
-        printf("%s: LAUNCH_MEASURE first call ret=%d fw_error=%d",
-                     __func__, ret, error);
-        //goto free_measurement;
-    }
-	printf("Measurement len %d\n", measurement.len);
-	char *data = malloc(measurement.len);
-    //data = g_new0(guchar, measurement->len);
-    measurement.uaddr = (unsigned long)data;
-    /* get the measurement blob */
-    ret = sev_ioctl(sev_fd, KVM_SEV_LAUNCH_MEASURE,
-                    &measurement, &error);
-    if (ret) {
-        printf("%s: LAUNCH_MEASURE second calll ret=%d fw_error=%d ",
-                     __func__, ret, error);
-        goto free_data;
-    }
-	printf("Measurement report \n");
-	printf("######### \n");
-	vini_hexdump(data, measurement.len);
-	printf("############ \n");
+	struct kvm_sev_guest_status status;
+	int ret, fwerr;
 
+	status.handle = handle;
+	ret = sev_ioctl(vmfd, KVM_SEV_GUEST_STATUS, &status, &fwerr);
+	if (ret < 0) {
+		errx(1, "KVM_SEV_GUEST_STATUS: (%s) %s",
+			strerror(errno), sev_fwerr_str(fwerr));
+	}
 
-    //sev_set_guest_state(SEV_STATE_LAUNCH_SECRET);
-
-    /* encode the measurement value and emit the event */
-   //s->measurement = g_base64_encode(data, measurement->len);
-    //trace_kvm_sev_launch_measurement(s->measurement);
-	free_data:
-		free(data);
-}
-
-static const char *const sev_fw_errlist[] = {
-    "",
-    "Platform state is invalid",
-    "Guest state is invalid",
-    "Platform configuration is invalid",
-    "Buffer too small",
-    "Platform is already owned",
-    "Certificate is invalid",
-    "Policy is not allowed",
-    "Guest is not active",
-    "Invalid address",
-    "Bad signature",
-    "Bad measurement",
-    "Asid is already owned",
-    "Invalid ASID",
-    "WBINVD is required",
-    "DF_FLUSH is required",
-    "Guest handle is invalid",
-    "Invalid command",
-    "Guest is active",
-    "Hardware error",
-    "Hardware unsafe",
-    "Feature not supported",
-    "Invalid parameter"
-};
-
-
-#define SEV_FW_MAX_ERROR      23 //TODO VU: Right?
-
-static const char *
-fw_error_to_str(int code)
-{
-    if (code < 0 || code >= SEV_FW_MAX_ERROR) {
-        return "unknown error";
-    }
-
-    return sev_fw_errlist[code];
-}
-
-uint8_t get_guest_state(int sev_fd, uint32_t handle){
-	//See Table 4.3 here
-	//https://www.amd.com/system/files/TechDocs/55766_SEV-KM_API_Specification.pdf
-	struct kvm_sev_guest_status guest_status_data;
-	guest_status_data.handle = 	handle;
-	int fwerror = 0;
-	int ret = sev_ioctl(sev_fd, KVM_SEV_GUEST_STATUS, &guest_status_data, &fwerror);
-	if (ret < 0) errx(1, "KVM_SEV_GUEST_STATUS: (%s) %s", strerror(errno), fw_error_to_str(fwerror));
-	return guest_status_data.state;
-
-
+	return status.state;
 }
 
 void
-kvm_svm_init(size_t ramsize, void *code_start, void *code_stop)
+sev_debug_encrypt(int vmfd, void *src, void *dst, size_t size)
+{
+	struct kvm_sev_dbg enc;
+	int ret, fwerr;
+
+	enc.src_uaddr = (uintptr_t) src;
+	enc.dst_uaddr = (uintptr_t) dst;
+	enc.len = size;
+	ret = sev_ioctl(vmfd, KVM_SEV_DBG_ENCRYPT, &enc, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_DBG_ENCRYPT: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
+}
+
+void
+sev_debug_decrypt(int vmfd, void *src, void *dst, size_t size)
+{
+	struct kvm_sev_dbg enc;
+	int ret, fwerr;
+
+	enc.src_uaddr = (uintptr_t) src;
+	enc.dst_uaddr = (uintptr_t) dst;
+	enc.len = size;
+	ret = sev_ioctl(vmfd, KVM_SEV_DBG_DECRYPT, &enc, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_DBG_DECRYPT: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
+}
+
+void
+sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 {
 	// REF: https://www.amd.com/system/files/TechDocs/55766_SEV-KM_API_Specification.pdf
 	struct kvm_sev_launch_update_data update;
 	struct kvm_sev_launch_start start;
+	struct kvm_userspace_memory_region region;
 	struct kvm_regs regs;
-	uint16_t *counts;
-	int sev_fd;
-	int fwerr;
-	int status;
-	int ret;
+	struct kvm_sregs sregs;
+	uint8_t *msrmt;
+	int ret, fwerr;
 
-	/* using cache size for alignment of kvm memory access */
-	kvm_init(ramsize, code_start, code_stop);
-	//kvm_svm_init(64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
+	/* Create a kvm instance */
+	kvm->vmfd = ioctl(kvm_dev, KVM_CREATE_VM, 0);
+	if (kvm->vmfd < 0) err(1, "KVM_CREATE_VM");
 
-	sev_fd = open("/dev/sev", O_RDWR | O_CLOEXEC);
-	if (sev_fd < 0) err(1, "open /dev/sev");
+	/* Allocate guest memory */
+	kvm->memsize = ramsize;
+	kvm->mem = mmap(NULL, kvm->memsize, PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (!kvm->mem) err(1, "Allocating guest memory");
+	assert(code_stop - code_start <= kvm->memsize);
+	memcpy(kvm->mem, code_start, code_stop - code_start);
 
-	ret = ioctl(kvm.vmfd, KVM_MEMORY_ENCRYPT_OP, NULL);
-	if (ret < 0) errx(1, "KVM_MEMORY_ENCRYPT_OPT: %i %i", ret, fwerr);
+	/* Map it into the vm */
+	memset(&region, 0, sizeof(region));
+	region.slot = 0;
+	region.memory_size = kvm->memsize;
+	region.guest_phys_addr = 0x0000;
+	region.userspace_addr = (uintptr_t) kvm->mem;
+	ret = ioctl(kvm->vmfd, KVM_SET_USER_MEMORY_REGION, &region);
+	if (ret < 0) err(1, "KVM_SET_USER_MEMORY_REGION");
 
-	ret = sev_ioctl(sev_fd, KVM_SEV_INIT, NULL, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_INIT: %i %i", ret, fwerr);
+	/* Enable SEV for vm */
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_INIT, NULL, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_INIT: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
 
-	// REF: https://documentation.suse.com/sles/15-SP1/html/SLES-amd-sev/index.html
+	/* Generate encryption keys and set policy */
 	memset(&start, 0, sizeof(start));
 	start.handle = 0;
 	start.policy = 0;
-	start.policy |= 0 << 2; // disable require sev-es -- we are working with SEV right now
-	// start.policy |= 3 << 32; // minimum fw-version
-	ret = sev_ioctl(sev_fd, KVM_SEV_LAUNCH_START, &start, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_START: (%s) %i", strerror(errno), fwerr);
+	// start.policy |= 1 << 0; // disable debug
+	// start.policy |= 1 << 2; // require sev-es
+	// start.policy |= 3 << 32; // minimum guest fw-version
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_START, &start, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_START: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
 
+	/* Prepare the vm memory (by encrypting it) */
 	memset(&update, 0, sizeof(update));
-	update.uaddr = (uint64_t) kvm.mem;
+	update.uaddr = (uintptr_t) kvm->mem;
 	update.len = ramsize;
-	ret = sev_ioctl(sev_fd, KVM_SEV_LAUNCH_UPDATE_DATA, &update, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: %i %i", ret, fwerr);
-	//Get measurement 
-	sev_launch_get_measure(sev_fd);
-	ret = sev_ioctl(sev_fd, KVM_SEV_LAUNCH_FINISH, 0, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: %i %i", ret, fwerr);
-	//Test that memory encryption and decryption works
-	char *input_data = "VINCENT_ENCRYPTION";
-	int in_len = strlen(input_data)+1;
-	printf("Input length %d \n", in_len);
-	char *output_buffer = malloc(in_len);
-	char *decrypt_buffer = malloc(in_len);
-	struct kvm_sev_dbg dbg_enc_in;
-	dbg_enc_in.src_uaddr = (uint64_t) input_data;
-	dbg_enc_in.dst_uaddr = (uint64_t) output_buffer;
-	dbg_enc_in.len = in_len;
-	ret = sev_ioctl(sev_fd, KVM_SEV_DBG_ENCRYPT, &dbg_enc_in, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_DBG_ENCRYPT: %i %i", ret, fw_error_to_str(fwerr));
-	printf("Encrypted data debug\n");
-	vini_hexdump(output_buffer, in_len);
-	dbg_enc_in.src_uaddr = (uint64_t) output_buffer;
-	dbg_enc_in.dst_uaddr = (uint64_t) decrypt_buffer;
-		ret = sev_ioctl(sev_fd, KVM_SEV_DBG_DECRYPT, &dbg_enc_in, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_DBG_ENCRYPT: %i %i", ret, fw_error_to_str(fwerr));
-	printf("Decrypted data debug\n");
-	vini_hexdump(decrypt_buffer, in_len);
-	printf("%s \n", decrypt_buffer);
-	printf("Guest state after setup %u", get_guest_state(sev_fd, start.handle));
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_DATA, &update, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
 
+	/* Collect a measurement (necessary) */
+	msrmt = sev_get_measure(kvm->vmfd);
+	free(msrmt);
 
+	/* Finalize launch process */
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_FINISH, 0, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_FINISH: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));	
+	ret = sev_guest_state(kvm->vmfd, start.handle);
+	if (ret != GSTATE_RUNNING)
+		errx(1, "Bad guest state: %s", sev_gstate_str(fwerr));
+		
+	/* Create virtual cpu */
+	kvm->vcpufd = ioctl(kvm->vmfd, KVM_CREATE_VCPU, 0);
+	if (kvm->vcpufd < 0) err(1, "KVM_CREATE_VCPU");
 
+	/* Map the shared kvm_run structure and following data */
+	ret = ioctl(kvm_dev, KVM_GET_VCPU_MMAP_SIZE, NULL);
+	if (ret < 0) err(1, "KVM_GET_VCPU_MMAP_SIZE");
+	if (ret < sizeof(struct kvm_run))
+		errx(1, "KVM_GET_VCPU_MMAP_SIZE too small");
+	kvm->run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
+		MAP_SHARED, kvm->vcpufd, 0);
+	if (!kvm->run) err(1, "mmap vcpu");
 
+	/* Initialize segment regs */
+	memset(&sregs, 0, sizeof(sregs));
+	ret = ioctl(kvm->vcpufd, KVM_GET_SREGS, &sregs);
+	if (ret < 0) err(1, "KVM_GET_SREGS");
+	sregs.cs.base = 0;
+	sregs.cs.selector = 0;
+	ret = ioctl(kvm->vcpufd, KVM_SET_SREGS, &sregs);
+	if (ret < 0) err(1, "KVM_SET_SREGS");
 
+	/* Initialize rest of registers */
+	memset(&regs, 0, sizeof(regs));
+	regs.rip = 0x0;
+	regs.rsp = kvm->memsize - 1;
+	regs.rbp = kvm->memsize - 1;
+	regs.rax = 0;
+	regs.rdx = 0;
+	regs.rflags = 0x2;
+	ret = ioctl(kvm->vcpufd, KVM_SET_REGS, &regs);
+	if (ret < 0) err(1, "KVM_SET_REGS");
+}
 
-	
-	//printf("Return code opening /dev/sev %d\n", sev_fd);
-	//printf("Return code 	%d \n", ioctl(sev_fd, KVM_SEV_ES_INIT, NULL));
+void
+sev_kvm_deinit(struct kvm *kvm)
+{
+	close(kvm->vmfd);
+	close(kvm->vcpufd);
+	munmap(kvm->mem, kvm->memsize);
 }
 
 uint16_t *
 read_counts() 
 {
-	uint16_t *counts = (uint16_t *)malloc(64*sizeof(uint16_t));
+	uint16_t *counts;
 	size_t len;
 
-	lseek(cachepc_fd, 0, SEEK_SET);
-	len = read(cachepc_fd, counts, 64 * sizeof(uint16_t));
+	counts = malloc(64 * sizeof(uint16_t));
+	lseek(cachepc_dev, 0, SEEK_SET);
+	len = read(cachepc_dev, counts, 64 * sizeof(uint16_t));
 	assert(len == 64 * sizeof(uint16_t));
 
 	return counts;
@@ -501,7 +432,7 @@ print_counts(uint16_t *counts)
 		if (counts[i] > 0)
 			printf("\x1b[0m");
 	}
-	printf("\n Target Set Count: %d %hu \n", TARGET_SET, counts[TARGET_SET]);
+	printf("\n Target Set %i Count: %hu\n", TARGET_SET, counts[TARGET_SET]);
 	printf("\n");
 }
 
@@ -509,36 +440,31 @@ uint16_t *
 collect(const char *prefix, void *code_start, void *code_stop)
 {
 	struct kvm_regs regs;
+	struct kvm kvm;
 	uint16_t *counts;
 	int ret;
 
-	// using cache size for alignment of kvm memory access
-	//kvm_init(64 * 64 * 8 * 2, code_start, code_stop);
-	kvm_svm_init(64 * 64 * 8 * 2, code_start, code_stop);
-	printf("Vincent: SEV init done done!\n");
-	/* run vm twice, use count without initial stack setup */
-	printf("First ioctl running the VM\n");
-	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
-	printf("Second ioctl call to run the VM\n");
-	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
+	sev_kvm_init(&kvm, 64 * 64 * 8 * 2, code_start, code_stop);
 
-	if (kvm_run->exit_reason == KVM_EXIT_MMIO || kvm_run->exit_reason == KVM_EXIT_HLT) {
+	/* run vm twice, use count without initial stack setup */
+	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
+	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
+	if (ret < 0) err(1, "KVM_RUN");
+
+	if (kvm.run->exit_reason == KVM_EXIT_MMIO) {
 		memset(&regs, 0, sizeof(regs));
 		ret = ioctl(kvm.vcpufd, KVM_GET_REGS, &regs);
 		if (ret < 0) err(1, "KVM_GET_REGS");
-		errx(1, "Victim access OOB: %lu %08llx => %02X\n",
-			kvm_run->mmio.phys_addr, regs.rip,
-			((uint8_t*)kvm.mem)[regs.rip]);
+		errx(1, "Victim access OOB: %llu %08llx => %02X\n",
+			kvm.run->mmio.phys_addr, regs.rip,
+			((uint8_t *)kvm.mem)[regs.rip]);
+	} else if (kvm.run->exit_reason != KVM_EXIT_IO) {
+		errx(1, "KVM died: %i\n", kvm.run->exit_reason);
 	}
-	printf("KVM exit reason %d \n", kvm_run->exit_reason);
-	if (ret < 0 || (kvm_run->exit_reason != KVM_EXIT_IO && kvm_run->exit_reason != KVM_EXIT_HLT))
-		errx(1, "KVM died: %i %i\n", ret, kvm_run->exit_reason);
 
 	counts = read_counts();
 
-	close(kvm.fd);
-	close(kvm.vmfd);
-	close(kvm.vcpufd);
+	sev_kvm_deinit(&kvm);
 
 	return counts;
 }
@@ -554,29 +480,36 @@ main(int argc, const char **argv)
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	clear_cores(1 << TARGET_CORE);
 	pin_process(0, TARGET_CORE, true);
 
-	cachepc_fd = open("/proc/cachepc", O_RDONLY);
-	if (cachepc_fd < 0) err(1, "open /proc/cachepc");
+	cachepc_dev = open("/proc/cachepc", O_RDONLY);
+	if (cachepc_dev < 0) err(1, "open /proc/cachepc");
 
-	/* init L1 miss counter */
+	sev_dev = open("/dev/sev", O_RDWR | O_CLOEXEC);
+	if (sev_dev < 0) err(1, "open /dev/sev");
+
+	kvm_dev = open("/dev/kvm", O_RDWR | O_CLOEXEC);
+	if (kvm_dev < 0) err(1, "open /dev/kvm");
+
+	/* Make sure we have the stable version of the API */
+	ret = ioctl(kvm_dev, KVM_GET_API_VERSION, NULL);
+	if (ret < 0) err(1, "KVM_GET_API_VERSION");
+	if (ret != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
+
+	// Init L1 miss counter
 	arg = 0x000064D8;
-	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
-	if (ret == -1) err(1, "ioctl fail");
+	ret = ioctl(cachepc_dev, CACHEPC_IOCTL_INIT_PMC, &arg);
+	if (ret < 0) err(1, "ioctl fail");
 
 	baseline = calloc(sizeof(uint16_t), 64);
 	if (!baseline) err(1, "counts");
 	for (k = 0; k < 64; k++)
 		baseline[k] = UINT16_MAX;
 
-	//kvm_svm_init(64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
-	//return 0;
-
 	for (i = 0; i < SAMPLE_COUNT; i++) {
-		//counts = collect("without", __start_guest_without, __stop_guest_without);
-		//memcpy(without_access[i], counts, 64 * sizeof(uint16_t));
-		//free(counts);
+		counts = collect("without", __start_guest_without, __stop_guest_without);
+		memcpy(without_access[i], counts, 64 * sizeof(uint16_t));
+		free(counts);
 
 		counts = collect("with", __start_guest_with, __stop_guest_with);
 		memcpy(with_access[i], counts, 64 * sizeof(uint16_t));
@@ -606,6 +539,10 @@ main(int argc, const char **argv)
 		//assert(without_access[i][TARGET_SET] == 0);
 	}
 
-	close(cachepc_fd);
+	free(baseline);
+
+	close(cachepc_dev);
+	close(kvm_dev);
+	close(sev_dev);
 }
 

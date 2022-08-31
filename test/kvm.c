@@ -125,55 +125,6 @@ read_stat_core(pid_t pid)
 }
 
 void
-clear_cores(uint64_t cpu_mask)
-{
-	DIR *proc_dir, *task_dir;
-	struct dirent *proc_ent, *task_ent;
-	char taskpath[256];
-	pid_t pid, tid;
-	bool res;
-	int cpu;
-
-	/* move all processes from the target cpu to secondary */
-
-	proc_dir = opendir("/proc");
-	if (!proc_dir) err(1, "opendir");
-
-	while ((proc_ent = readdir(proc_dir))) {
-		pid = atoi(proc_ent->d_name);
-		if (!pid) continue;
-
-		cpu = read_stat_core(pid);
-		if (cpu >= 0 && (1 << cpu) & cpu_mask) {
-			res = pin_process(pid, SECONDARY_CORE, false);
-			// if (!res) printf("Failed pin %i from %i\n", pid, cpu);
-			if (res) printf("Pinned %i from %i\n", tid, cpu);
-			continue;
-		}
-
-		snprintf(taskpath, sizeof(taskpath), "/proc/%u/task", pid);
-		task_dir = opendir(taskpath);
-		if (!task_dir) err(1, "opendir");
-
-		while ((task_ent = readdir(task_dir))) {
-			tid = atoi(task_ent->d_name);
-			if (!tid || tid == pid) continue;
-
-			cpu = read_stat_core(tid);
-			if (cpu >= 0 && (1 << cpu) & cpu_mask) {
-				res = pin_process(tid, SECONDARY_CORE, false);
-				//if (!res) printf("Failed pin %i from %i\n", tid, cpu);
-				if (res) printf("Pinned thread %i from %i\n", tid, cpu);
-			}
-		}
-
-		closedir(task_dir);
-	}
-
-	closedir(proc_dir);
-}
-
-void
 kvm_init(size_t ramsize, void *code_start, void *code_stop)
 {
 	struct kvm_userspace_memory_region region;
@@ -293,18 +244,18 @@ collect(const char *prefix, void *code_start, void *code_stop)
 	/* run vm twice, use count without initial stack setup */
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
 	ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
+	if (ret == -1) err(1, "KVM_RUN");
 
 	if (kvm_run->exit_reason == KVM_EXIT_MMIO || kvm_run->exit_reason == KVM_EXIT_HLT) {
 		memset(&regs, 0, sizeof(regs));
 		ret = ioctl(kvm.vcpufd, KVM_GET_REGS, &regs);
 		if (ret < 0) err(1, "KVM_GET_REGS");
-		errx(1, "Victim access OOB: %lu %08llx => %02X\n",
+		errx(1, "Victim access OOB: %llu %08llx => %02X\n",
 			kvm_run->mmio.phys_addr, regs.rip,
-			((uint8_t*)kvm.mem)[regs.rip]);
+			((uint8_t *)kvm.mem)[regs.rip]);
+	} else if (kvm_run->exit_reason != KVM_EXIT_IO) {
+		errx(1, "KVM died: %i\n", kvm_run->exit_reason);
 	}
-	printf("KVM exit reason %d \n", kvm_run->exit_reason);
-	if (ret < 0 || (kvm_run->exit_reason != KVM_EXIT_IO && kvm_run->exit_reason != KVM_EXIT_HLT))
-		errx(1, "KVM died: %i %i\n", ret, kvm_run->exit_reason);
 
 	counts = read_counts();
 
@@ -326,7 +277,6 @@ main(int argc, const char **argv)
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	clear_cores(1 << TARGET_CORE);
 	pin_process(0, TARGET_CORE, true);
 
 	cachepc_fd = open("/proc/cachepc", O_RDONLY);
@@ -375,6 +325,7 @@ main(int argc, const char **argv)
 		//assert(without_access[i][TARGET_SET] == 0);
 	}
 
+	free(baseline);
 	close(cachepc_fd);
 }
 

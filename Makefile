@@ -29,7 +29,7 @@ load:
 
 test/%: test/%.c kmod/cachepc_user.h
 #	$(CC) -o $@ $< -I kmod
-	clang -fsanitize=address -o $@ $< -I kmod
+	clang -fsanitize=address -o $@ $< -I kmod -Wunused-variable
 
 update: 
 	git -C $(KERNEL_SOURCE) diff > patch.diff

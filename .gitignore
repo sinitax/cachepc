@@ -4,3 +4,4 @@ push.sh
 *.o.cmd
 *.o
 *.out
+*.swp

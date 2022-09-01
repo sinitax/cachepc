@@ -2,3 +2,5 @@ access
 eviction
 kvm
 sev
+sev-es
+sev-snp

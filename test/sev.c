@@ -357,7 +357,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	if (ret != GSTATE_RUNNING)
 		errx(1, "Bad guest state: %s", sev_gstate_str(fwerr));
 		
-	/* Create virtual cpu */
+	/* Create virtual cpu core */
 	kvm->vcpufd = ioctl(kvm->vmfd, KVM_CREATE_VCPU, 0);
 	if (kvm->vcpufd < 0) err(1, "KVM_CREATE_VCPU");
 

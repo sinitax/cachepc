@@ -319,48 +319,34 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	memset(&region, 0, sizeof(region));
 	region.slot = 0;
 	region.memory_size = kvm->memsize;
-	region.guest_phys_addr = 0x0000;
+	region.guest_phys_addr = 0;
 	region.userspace_addr = (uintptr_t) kvm->mem;
 	ret = ioctl(kvm->vmfd, KVM_SET_USER_MEMORY_REGION, &region);
 	if (ret < 0) err(1, "KVM_SET_USER_MEMORY_REGION");
 
 	/* Enable SEV for vm */
-	ret = sev_ioctl(kvm->vmfd, KVM_SEV_INIT, NULL, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_INIT: (%s) %s",
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_ES_INIT, NULL, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_ES_INIT: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
 
 	/* Generate encryption keys and set policy */
 	memset(&start, 0, sizeof(start));
 	start.handle = 0;
-	start.policy = 0;
+	start.policy = 1 << 2; /* require ES */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_START, &start, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_START: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
 
-	/* Prepare the vm memory (by encrypting it) */
-	memset(&update, 0, sizeof(update));
-	update.uaddr = (uintptr_t) kvm->mem;
-	update.len = ramsize;
-	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_DATA, &update, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: (%s) %s",
-		strerror(errno), sev_fwerr_str(fwerr));
 
-	/* Collect a measurement (necessary) */
-	msrmt = sev_get_measure(kvm->vmfd);
-	free(msrmt);
 
-	/* Finalize launch process */
-	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_FINISH, 0, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_FINISH: (%s) %s",
-		strerror(errno), sev_fwerr_str(fwerr));	
-	ret = sev_guest_state(kvm->vmfd, start.handle);
-	if (ret != GSTATE_RUNNING)
-		errx(1, "Bad guest state: %s", sev_gstate_str(fwerr));
+
+
+	
+	
 		
 	/* Create virtual cpu */
 	kvm->vcpufd = ioctl(kvm->vmfd, KVM_CREATE_VCPU, 0);
 	if (kvm->vcpufd < 0) err(1, "KVM_CREATE_VCPU");
-
 	/* Map the shared kvm_run structure and following data */
 	ret = ioctl(kvm_dev, KVM_GET_VCPU_MMAP_SIZE, NULL);
 	if (ret < 0) err(1, "KVM_GET_VCPU_MMAP_SIZE");
@@ -389,6 +375,35 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	regs.rflags = 0x2;
 	ret = ioctl(kvm->vcpufd, KVM_SET_REGS, &regs);
 	if (ret < 0) err(1, "KVM_SET_REGS");
+		/* Prepare the vm memory (by encrypting it) */
+	memset(&update, 0, sizeof(update));
+	update.uaddr = (uintptr_t) kvm->mem;
+	update.len = ramsize;
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_DATA, &update, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
+
+	/* Prepare the vm save area */
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_VMSA, NULL, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_VMSA: (%s) %s",
+	strerror(errno), sev_fwerr_str(fwerr));
+		/* Collect a measurement (necessary) */
+		msrmt = sev_get_measure(kvm->vmfd);
+	free(msrmt);
+	/* Finalize launch process */
+	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_FINISH, 0, &fwerr);
+	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_FINISH: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));	
+	ret = sev_guest_state(kvm->vmfd, start.handle);
+	if (ret != GSTATE_RUNNING)
+		errx(1, "Bad guest state: %s", sev_gstate_str(fwerr));
+
+	
+
+
+
+	
+
 }
 
 void

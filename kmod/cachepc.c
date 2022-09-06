@@ -16,8 +16,6 @@ static void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cach
 static cacheline **allocate_cache_ds(cache_ctx *ctx);
 static uint16_t get_virt_cache_set(cache_ctx *ctx, void *ptr);
 
-cacheline *cachepc_prime_cl = NULL;
-
 void
 cachepc_prime_vcall(uintptr_t ret, cacheline *cl)
 {

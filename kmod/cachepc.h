@@ -45,6 +45,9 @@ extern size_t cachepc_msrmts_count;
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;
 
+extern uint64_t cachepc_regs_tmp[16];
+extern uint64_t cachepc_regs_vm[16];
+
 /*
  * Prime phase: fill the target cache (encoded in the size of the data structure)
  * with the prepared data structure, i.e. with attacker data.

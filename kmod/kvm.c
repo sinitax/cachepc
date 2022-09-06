@@ -18,6 +18,11 @@ cacheline *cachepc_ds;
 EXPORT_SYMBOL(cachepc_ctx);
 EXPORT_SYMBOL(cachepc_ds);
 
+uint64_t cachepc_regs_tmp[16];
+uint64_t cachepc_regs_vm[16];
+EXPORT_SYMBOL(cachepc_regs_tmp);
+EXPORT_SYMBOL(cachepc_regs_vm);
+
 int
 cachepc_kvm_proc_open(struct inode *inode, struct file *file)
 {

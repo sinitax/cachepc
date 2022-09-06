@@ -270,7 +270,7 @@ cachepc_kvm_ioctl(struct file *file, unsigned int cmd, unsigned long argp)
 {
 	void __user *arg_user;
 	uint32_t u32;
-	int r;
+	int ret;
 
 	arg_user = (void __user *)argp;
 	switch (cmd) {
@@ -279,9 +279,9 @@ cachepc_kvm_ioctl(struct file *file, unsigned int cmd, unsigned long argp)
 		if (!arg_user) return -EINVAL;
 		if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
 			return -EFAULT;
-		r = smp_call_function_single(2,
+		ret = smp_call_function_single(2,
 			cachepc_kvm_single_access_test, &u32, true);
-		WARN_ON(r != 0);
+		WARN_ON(ret != 0);
 		if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
 			return -EFAULT;
 		break;
@@ -290,9 +290,9 @@ cachepc_kvm_ioctl(struct file *file, unsigned int cmd, unsigned long argp)
 		if (!arg_user) return -EINVAL;
 		if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
 			return -EFAULT;
-		r = smp_call_function_single(2,
+		ret = smp_call_function_single(2,
 			cachepc_kvm_single_eviction_test, &u32, true);
-		WARN_ON(r != 0);
+		WARN_ON(ret != 0);
 		if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
 			return -EFAULT;
 		break;
@@ -301,9 +301,9 @@ cachepc_kvm_ioctl(struct file *file, unsigned int cmd, unsigned long argp)
 		if (!arg_user) return -EINVAL;
 		if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
 			return -EFAULT;
-		r = smp_call_function_single(2,
+		ret = smp_call_function_single(2,
 			cachepc_kvm_init_pmc_ioctl, &u32, true);
-		WARN_ON(r != 0);
+		WARN_ON(ret != 0);
 		break;
 	default:
 		return -EINVAL;
@@ -364,5 +364,3 @@ cachepc_kvm_exit(void)
 	cachepc_release_ds(cachepc_ctx, cachepc_ds);
 	cachepc_release_ctx(cachepc_ctx);
 }
-
-

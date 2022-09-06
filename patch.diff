@@ -27,7 +27,7 @@ index b804444e16d4..66a4d56e331a 100644
  			   vmx/evmcs.o vmx/nested.o vmx/posted_intr.o
 -kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o
 +kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o \
-+			   svm/cachepc/cachepc.o svm/cachepc/util.o svm/cachepc/kvm.o
++			   svm/cachepc/cachepc.o svm/cachepc/util.o
  
  obj-$(CONFIG_KVM)	+= kvm.o
  obj-$(CONFIG_KVM_INTEL)	+= kvm-intel.o

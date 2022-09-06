@@ -3,7 +3,7 @@ PWD := $(shell pwd)
 
 .PHONY: all reset clean prepare build
 
-all: reset clean prepare build test/eviction test/access test/kvm test/sev
+all: reset clean prepare build test/eviction test/access test/kvm test/sev test/sev-es
 
 clean:
 	$(MAKE) -C $(KERNEL_SOURCE) SUBDIRS=arch/x86/kvm clean

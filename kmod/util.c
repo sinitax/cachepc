@@ -3,7 +3,7 @@
 void
 random_perm(uint32_t *arr, uint32_t arr_len)
 {
-	uint32_t i, mid;
+	uint32_t i;
 
 	/* no special ordering needed when prefetcher is disabled */
 	for (i = 0; i < arr_len; i++)

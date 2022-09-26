@@ -3,5 +3,6 @@ push.sh
 .vscode
 *.o.cmd
 *.o
+*.o.d
 *.out
 *.swp

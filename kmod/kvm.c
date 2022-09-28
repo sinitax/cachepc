@@ -69,6 +69,26 @@ cachepc_kvm_proc_write(struct file *file, const char *buf, size_t buflen, loff_t
 	return 0;
 }
 
+loff_t
+cachepc_kvm_proc_lseek(struct file *file, loff_t off, int mode)
+{
+	switch (mode) {
+	case SEEK_SET:
+		file->f_pos = off;
+		break;
+	case SEEK_CUR:
+		file->f_pos += off;
+		break;
+	case SEEK_END:
+		file->f_pos = cachepc_msrmts_count * sizeof(uint16_t) + off;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return file->f_pos;
+}
+
 void
 cachepc_kvm_prime_probe_test(void *p)
 {
@@ -355,6 +375,7 @@ cachepc_kvm_init(void)
 	cachepc_proc_ops.proc_open = cachepc_kvm_proc_open;
 	cachepc_proc_ops.proc_read = cachepc_kvm_proc_read;
 	cachepc_proc_ops.proc_write = cachepc_kvm_proc_write;
+	cachepc_proc_ops.proc_lseek = cachepc_kvm_proc_lseek;
 	cachepc_proc_ops.proc_release = cachepc_kvm_proc_close;
 	cachepc_proc_ops.proc_ioctl = cachepc_kvm_ioctl;
 	proc_create("cachepc", 0644, NULL, &cachepc_proc_ops);

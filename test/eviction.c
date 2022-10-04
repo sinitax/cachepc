@@ -1,13 +1,13 @@
 #include "cachepc_user.h"
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <err.h>
+#include <sys/ioctl.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <assert.h>
 #include <unistd.h>
-#include <stropts.h>
+#include <err.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 int
 main(int argc, const char **argv)
@@ -33,7 +33,7 @@ main(int argc, const char **argv)
 			printf("\n");
 		if (counts[i] > 0)
 			printf("\x1b[91m");
-		printf("%2i ", i);
+		printf("%2lu ", i);
 		if (counts[i] > 0)
 			printf("\x1b[0m");
 	}

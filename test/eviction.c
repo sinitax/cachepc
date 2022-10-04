@@ -18,15 +18,17 @@ main(int argc, const char **argv)
 	int fd, ret;
 
 	fd = open("/proc/cachepc", O_RDONLY);
+	if (fd < 0) err(1, "open");
 
 	arg = 48;
 	if (argc == 2) arg = atoi(argv[1]);
 
 	ret = ioctl(fd, CACHEPC_IOCTL_TEST_EVICTION, &arg);
-	if (ret == -1) err(1, "ioctl fail");
+	if (ret == -1) err(1, "ioctl");
 
 	len = read(fd, counts, sizeof(counts));
-	assert(len == sizeof(counts));
+	if (len != sizeof(counts))
+		errx(1, "invalid count read");
 
 	for (i = 0; i < 64; i++) {
 		if (i % 16 == 0 && i)

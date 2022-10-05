@@ -3,7 +3,7 @@
 #include "asm.h"
 #include "cache_types.h"
 #include "util.h"
-#include "cachepc_user.h"
+#include "uapi.h"
 
 void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask);
 

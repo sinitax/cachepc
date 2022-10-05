@@ -1,7 +1,6 @@
-/* for CPU_ZERO macros.. */
 #define _GNU_SOURCE
 
-#include "cachepc_user.h"
+#include "cachepc/uapi.h"
 
 #include <linux/psp-sev.h>
 #include <linux/kvm.h>

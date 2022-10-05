@@ -1,4 +1,4 @@
-#include "cachepc_user.h"
+#include "cachepc/uapi.h"
 
 #include <sys/ioctl.h>
 #include <stdlib.h>

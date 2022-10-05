@@ -1,7 +1,5 @@
 diff --git a/arch/x86/include/asm/kvm_page_track.h b/arch/x86/include/asm/kvm_page_track.h
-old mode 100644
-new mode 100755
-index eb186bc57f6a..cefc1589e398
+index eb186bc57f6a..cefc1589e398 100644
 --- a/arch/x86/include/asm/kvm_page_track.h
 +++ b/arch/x86/include/asm/kvm_page_track.h
 @@ -2,8 +2,14 @@
@@ -19,267 +17,8 @@ index eb186bc57f6a..cefc1589e398
  	KVM_PAGE_TRACK_MAX,
  };
  
-diff --git a/arch/x86/include/asm/sev-step.c b/arch/x86/include/asm/sev-step.c
-new file mode 100755
-index 000000000000..489583f33342
---- /dev/null
-+++ b/arch/x86/include/asm/sev-step.c
-@@ -0,0 +1,250 @@
-+
-+#include <linux/sev-step.h>
-+#include <linux/smp.h>
-+#include <linux/vmalloc.h>
-+#include <linux/slab.h>
-+#include <linux/sched.h>
-+
-+#include "kvm_cache_regs.h"
-+#include "svm/svm.h"
-+
-+
-+
-+struct kvm* main_vm;
-+EXPORT_SYMBOL(main_vm);
-+
-+//used to store performance counter values; 6 counters, 2 readings per counter
-+uint64_t perf_reads[6][2];
-+perf_ctl_config_t perf_configs[6];
-+int perf_cpu;
-+
-+
-+uint64_t perf_ctl_to_u64(perf_ctl_config_t * config) {
-+
-+	uint64_t result = 0;
-+	result |= (  config->EventSelect & 0xffULL); //[7:0] in result and  [7:0] in EventSelect
-+	result |= ( (config->UintMask & 0xffULL) << 8 ); //[15:8]
-+	result |= ( (config->OsUserMode & 0x3ULL) << 16); //[17:16]
-+	result |= ( (config->Edge & 0x1ULL ) << 18 ); // 18
-+	result |= ( (config->Int & 0x1ULL ) << 20 ); // 20
-+	result |= ( (config->En & 0x1ULL ) << 22 ); //22
-+	result |= ( (config->Inv & 0x1ULL ) << 23); //23
-+	result |= ( (config->CntMask & 0xffULL) << 24); //[31:24]
-+	result |= ( ( (config->EventSelect & 0xf00ULL) >> 8 ) << 32); //[35:32] in result and [11:8] in EventSelect
-+	result |= ( (config->HostGuestOnly & 0x3ULL) << 40); // [41:40]
-+
-+	return result;
-+
-+}
-+
-+void write_ctl(perf_ctl_config_t * config, int cpu, uint64_t ctl_msr){
-+	wrmsrl_on_cpu(cpu, ctl_msr, perf_ctl_to_u64(config)); //always returns zero
-+}
-+
-+void read_ctr(uint64_t ctr_msr, int cpu, uint64_t* result) {
-+    uint64_t tmp;
-+	rdmsrl_on_cpu(cpu, ctr_msr, &tmp); //always returns zero
-+	*result = tmp & ( (0x1ULL << 48) - 1);
-+}
-+
-+void setup_perfs() {
-+    int i;
-+
-+    perf_cpu = smp_processor_id();
-+
-+    for( i = 0; i < 6; i++) {
-+        perf_configs[i].HostGuestOnly = 0x1; //0x1 means: count only guest
-+        perf_configs[i].CntMask = 0x0;
-+        perf_configs[i].Inv = 0x0;
-+        perf_configs[i].En = 0x0;
-+        perf_configs[i].Int = 0x0;
-+        perf_configs[i].Edge = 0x0;
-+        perf_configs[i].OsUserMode = 0x3; //0x3 means: count userland and kernel events
-+    }
-+
-+    //remember to set .En to enable the individual counter
-+
-+    perf_configs[0].EventSelect = 0x0c0;
-+	perf_configs[0].UintMask = 0x0;
-+    perf_configs[0].En = 0x1;
-+	write_ctl(&perf_configs[0],perf_cpu, CTL_MSR_0);
-+
-+    /*programm l2d hit from data cache miss perf for
-+    cpu_probe_pointer_chasing_inplace without counting thread.
-+    N.B. that this time we count host events
-+    */
-+    perf_configs[1].EventSelect = 0x064;
-+    perf_configs[1].UintMask = 0x70;
-+    perf_configs[1].En = 0x1;
-+    perf_configs[1].HostGuestOnly = 0x2; //0x2 means: count only host events, as we do the chase here
-+    write_ctl(&perf_configs[1],perf_cpu,CTL_MSR_1);
-+}
-+EXPORT_SYMBOL(setup_perfs);
-+
-+
-+/*
-+static int __my_sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
-+			       unsigned long dst, int size,
-+			       int *error);
-+
-+int my_sev_decrypt(struct kvm* kvm, void* dst_vaddr, void* src_vaddr, uint64_t dst_paddr, uint64_t src_paddr, uint64_t len, int* api_res) {
-+
-+	int call_res;
-+	call_res  = 0x1337;
-+	*api_res = 0x1337;
-+
-+
-+	if( dst_paddr % PAGE_SIZE != 0 || src_paddr % PAGE_SIZE != 0) {
-+		printk("decrypt: for now, src_paddr, and dst_paddr must be page aligned");
-+		return -1;
-+	}
-+
-+	if( len > PAGE_SIZE ) {
-+		printk("decrypt: for now, can be at most 4096 byte");
-+		return -1;
-+	}
-+
-+	memset(dst_vaddr,0,PAGE_SIZE);
-+
-+	//clflush_cache_range(src_vaddr, PAGE_SIZE);
-+	//clflush_cache_range(dst_vaddr, PAGE_SIZE);
-+	wbinvd_on_all_cpus();
-+
-+	call_res = __my_sev_issue_dbg_cmd(kvm, __sme_set(src_paddr),
-+		__sme_set(dst_paddr), len, api_res);
-+
-+	return call_res;
-+
-+}
-+EXPORT_SYMBOL(my_sev_decrypt);
-+
-+static int __my_sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
-+			       unsigned long dst, int size,
-+			       int *error)
-+{
-+	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
-+	struct sev_data_dbg *data;
-+	int ret;
-+
-+	data = kzalloc(sizeof(*data), GFP_KERNEL_ACCOUNT);
-+	if (!data)
-+		return -ENOMEM;
-+
-+	data->handle = sev->handle;
-+	data->dst_addr = dst;
-+	data->src_addr = src;
-+	data->len = size;
-+
-+	//ret = sev_issue_cmd(kvm,
-+	//		     SEV_CMD_DBG_DECRYPT,
-+	//		    data, error);
-+	ret = sev_do_cmd(SEV_CMD_DBG_DECRYPT, data, error);
-+	kfree(data);
-+	return ret;
-+}
-+
-+int decrypt_vmsa(struct vcpu_svm* svm, struct vmcb_save_area* save_area) {
-+
-+	uint64_t src_paddr, dst_paddr;
-+	void * dst_vaddr;
-+	void * src_vaddr;
-+	struct page * dst_page;
-+	int call_res,api_res;
-+	call_res = 1337;
-+	api_res = 1337;
-+
-+	src_vaddr = svm->vmsa;
-+	src_paddr = svm->vmcb->control.vmsa_pa;
-+
-+	if( src_paddr % 16 != 0) {
-+		printk("decrypt_vmsa: src_paddr was not 16b aligned");
-+	}
-+
-+	if( sizeof( struct vmcb_save_area) % 16 != 0 ) {
-+		printk("decrypt_vmsa: size of vmcb_save_area is not 16 b aligned\n");
-+	}
-+
-+	dst_page = alloc_page(GFP_KERNEL);
-+	dst_vaddr =  vmap(&dst_page, 1, 0, PAGE_KERNEL);
-+	dst_paddr = page_to_pfn(dst_page) << PAGE_SHIFT;
-+	memset(dst_vaddr,0,PAGE_SIZE);
-+
-+
-+
-+	if( dst_paddr % 16 != 0 ) {
-+		printk("decrypt_vmsa: dst_paddr was not 16 byte aligned");
-+	}
-+
-+	//printk("src_paddr = 0x%llx dst_paddr = 0x%llx\n", __sme_clr(src_paddr), __sme_clr(dst_paddr));
-+	//printk("Sizeof vmcb_save_area is: 0x%lx\n", sizeof( struct vmcb_save_area) );
-+
-+
-+	call_res = __my_sev_issue_dbg_cmd(svm->vcpu.kvm, __sme_set(src_paddr), __sme_set(dst_paddr), sizeof(struct vmcb_save_area), &api_res);
-+
-+
-+	//printk("decrypt_vmsa: result of call was %d, result of api command was %d\n",call_res, api_res);
-+
-+	//todo error handling
-+	if( api_res != 0 ) {
-+		__free_page(dst_page);
-+		return -1;
-+	}
-+
-+	memcpy(save_area, dst_vaddr, sizeof( struct vmcb_save_area) );
-+
-+
-+	__free_page(dst_page);
-+
-+	return 0;
-+
-+
-+}
-+
-+
-+//
-+// Contains a switch to work  SEV and SEV-ES
-+ //
-+uint64_t sev_step_get_rip(struct vcpu_svm* svm) {
-+	struct vmcb_save_area* save_area;
-+	struct kvm * kvm;
-+	struct kvm_sev_info *sev;
-+	uint64_t rip;
-+
-+
-+	kvm = svm->vcpu.kvm;
-+	sev = &to_kvm_svm(kvm)->sev_info;
-+
-+	//for sev-es we need to use the debug api, to decrypt the vmsa
-+	if( sev->active && sev->es_active) {
-+		int res;
-+		save_area = vmalloc(sizeof(struct vmcb_save_area) );
-+		memset(save_area,0, sizeof(struct vmcb_save_area));
-+
-+		res = decrypt_vmsa(svm, save_area);
-+		if( res != 0) {
-+			printk("sev_step_get_rip failed to decrypt\n");
-+			return 0;
-+		}
-+
-+		rip =  save_area->rip;
-+
-+		vfree(save_area);
-+	} else { //otherwise we can just access as plaintexts
-+		rip = svm->vmcb->save.rip;
-+	}
-+	return rip;
-+
-+}
-+EXPORT_SYMBOL(sev_step_get_rip);
-+*/
-+
-+int sev_step_get_rip_kvm_vcpu(struct kvm_vcpu* vcpu,uint64_t *rip) {
-+	/*
-+	struct vcpu_svm *svm = container_of(vcpu, struct vcpu_svm, vcpu);
-+	if( svm == NULL ) {
-+		return 1;
-+	}
-+	(*rip) = sev_step_get_rip(svm);
-+	*/
-+	return 0;
-+}
-\ No newline at end of file
 diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
-old mode 100644
-new mode 100755
-index 30f244b64523..6d4a2a6530b6
+index 30f244b64523..7992f8cce838 100644
 --- a/arch/x86/kvm/Makefile
 +++ b/arch/x86/kvm/Makefile
 @@ -1,8 +1,10 @@
@@ -294,18 +33,19 @@ index 30f244b64523..6d4a2a6530b6
  ifeq ($(CONFIG_FRAME_POINTER),y)
  OBJECT_FILES_NON_STANDARD_vmenter.o := y
  endif
-@@ -11,8 +13,8 @@ include $(srctree)/virt/kvm/Makefile.kvm
+@@ -11,8 +13,9 @@ include $(srctree)/virt/kvm/Makefile.kvm
  
  kvm-y			+= x86.o emulate.o i8259.o irq.o lapic.o \
  			   i8254.o ioapic.o irq_comm.o cpuid.o pmu.o mtrr.o \
 -			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o \
 -			   mmu/spte.o
 +			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o mmu/spte.o \
-+			   sev-step.o userspace_page_track_signals.o svm/cachepc/cachepc.o svm/cachepc/util.o svm/cachepc/kvm.o
++			   svm/cachepc/cachepc.o svm/cachepc/util.o svm/cachepc/kvm.o \
++			   sevstep/sevstep.o sevstep/uspt.o sevstep/kvm.o
  
  ifdef CONFIG_HYPERV
  kvm-y			+= kvm_onhyperv.o
-@@ -25,7 +27,8 @@ kvm-intel-y		+= vmx/vmx.o vmx/vmenter.o vmx/pmu_intel.o vmx/vmcs12.o \
+@@ -25,7 +28,8 @@ kvm-intel-y		+= vmx/vmx.o vmx/vmenter.o vmx/pmu_intel.o vmx/vmcs12.o \
  			   vmx/evmcs.o vmx/nested.o vmx/posted_intr.o
  kvm-intel-$(CONFIG_X86_SGX_KVM)	+= vmx/sgx.o
  
@@ -316,529 +56,150 @@ index 30f244b64523..6d4a2a6530b6
  ifdef CONFIG_HYPERV
  kvm-amd-y		+= svm/svm_onhyperv.o
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-old mode 100644
-new mode 100755
-index d871b8dee7b3..b6e1dc265cac
+index d871b8dee7b3..32900ef5ee0b 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
-@@ -56,6 +56,9 @@
- 
- #include "paging.h"
- 
-+#include <linux/sev-step.h>
-+#include <linux/userspace_page_track_signals.h>
-+
- extern bool itlb_multihit_kvm_mitigation;
- 
- int __read_mostly nx_huge_pages = -1;
-@@ -1152,8 +1155,8 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
+@@ -1152,6 +1152,8 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
  	}
  }
  
--/*
-- * Write-protect on the specified @sptep, @pt_protect indicates whether
-+/* Apply the protection mode specified in @mode to the specified @sptep,
-+ * @pt_protect indicates whether
++#include "../sevstep/mmu.c"
++
+ /*
+  * Write-protect on the specified @sptep, @pt_protect indicates whether
   * spte write-protection is caused by protecting shadow page table.
-  *
-  * Note: write protection is difference between dirty logging and spte
-@@ -1165,9 +1168,10 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
+@@ -1165,34 +1167,15 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
   *
   * Return true if tlb need be flushed.
   */
 -static bool spte_write_protect(u64 *sptep, bool pt_protect)
-+static bool spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
- {
- 	u64 spte = *sptep;
-+	bool shouldFlush = false;
- 
- 	if (!is_writable_pte(spte) &&
- 	    !(pt_protect && is_mmu_writable_spte(spte)))
-@@ -1175,22 +1179,45 @@ static bool spte_write_protect(u64 *sptep, bool pt_protect)
- 
- 	rmap_printk("spte %p %llx\n", sptep, *sptep);
- 
+-{
+-	u64 spte = *sptep;
+-
+-	if (!is_writable_pte(spte) &&
+-	    !(pt_protect && is_mmu_writable_spte(spte)))
+-		return false;
+-
+-	rmap_printk("spte %p %llx\n", sptep, *sptep);
+-
 -	if (pt_protect)
 -		spte &= ~shadow_mmu_writable_mask;
 -	spte = spte & ~PT_WRITABLE_MASK;
 -
 -	return mmu_spte_update(sptep, spte);
-+	if (pt_protect){
-+		//spte &= ~shadow_mmu_writable_mask;
-+		spte &= ~EPT_SPTE_MMU_WRITABLE;
-+	}
-+	//spte = spte & ~PT_WRITABLE_MASK;
-+	if(mode == KVM_PAGE_TRACK_WRITE) {
-+		spte = spte & ~PT_WRITABLE_MASK;
-+		shouldFlush = true;
-+	} else if( mode == KVM_PAGE_TRACK_RESET_ACCESSED) {
-+		spte = spte & ~PT_ACCESSED_MASK;
-+	} else if(mode == KVM_PAGE_TRACK_ACCESS) {
-+		spte = spte & ~PT_PRESENT_MASK;
-+		spte = spte & ~PT_WRITABLE_MASK;
-+		spte = spte & ~PT_USER_MASK;
-+		spte = spte | (0x1ULL << PT64_NX_SHIFT);
-+		shouldFlush = true;
-+	} else if( mode == KVM_PAGE_TRACK_EXEC) {
-+		spte = spte | (0x1ULL << PT64_NX_SHIFT); //nx bit is set, to prevent execution, not removed
-+		shouldFlush = true;
-+	} else if (mode == KVM_PAGE_TRACK_RESET_EXEC) {
-+		spte = spte & (~(0x1ULL << PT64_NX_SHIFT));
-+		shouldFlush = true;
-+	} else {
-+		printk(KERN_WARNING "spte_protect was called with invalid mode"
-+		"parameter %d\n",mode);
-+	}
-+	shouldFlush |= mmu_spte_update(sptep, spte);
-+	return shouldFlush;
- }
+-}
++// static bool spte_write_protect(u64 *sptep, bool pt_protect)
++// {
++// 	return sevstep_spte_protect(sptep, pt_protect, KVM_PAGE_TRACK_WRITE);
++// }
  
--static bool rmap_write_protect(struct kvm_rmap_head *rmap_head,
--			       bool pt_protect)
-+static bool rmap_protect(struct kvm_rmap_head *rmap_head, bool pt_protect, enum kvm_page_track_mode mode)
+ static bool rmap_write_protect(struct kvm_rmap_head *rmap_head,
+ 			       bool pt_protect)
  {
- 	u64 *sptep;
- 	struct rmap_iterator iter;
- 	bool flush = false;
- 
+-	u64 *sptep;
+-	struct rmap_iterator iter;
+-	bool flush = false;
+-
 -	for_each_rmap_spte(rmap_head, &iter, sptep)
 -		flush |= spte_write_protect(sptep, pt_protect);
-+	for_each_rmap_spte(rmap_head, &iter, sptep) {
-+		flush |= spte_protect(sptep, pt_protect, mode);
-+	}
- 
- 	return flush;
- }
-@@ -1263,7 +1290,7 @@ static void kvm_mmu_write_protect_pt_masked(struct kvm *kvm,
- 	while (mask) {
- 		rmap_head = gfn_to_rmap(slot->base_gfn + gfn_offset + __ffs(mask),
- 					PG_LEVEL_4K, slot);
--		rmap_write_protect(rmap_head, false);
-+		rmap_protect(rmap_head, false, KVM_PAGE_TRACK_WRITE);
- 
- 		/* clear the first set bit */
- 		mask &= mask - 1;
-@@ -1333,13 +1360,13 @@ void kvm_arch_mmu_enable_log_dirty_pt_masked(struct kvm *kvm,
- 		if (READ_ONCE(eager_page_split))
- 			kvm_mmu_try_split_huge_pages(kvm, slot, start, end, PG_LEVEL_4K);
- 
--		kvm_mmu_slot_gfn_write_protect(kvm, slot, start, PG_LEVEL_2M);
-+		kvm_mmu_slot_gfn_protect(kvm, slot, start, PG_LEVEL_2M, KVM_PAGE_TRACK_WRITE);
- 
- 		/* Cross two large pages? */
- 		if (ALIGN(start << PAGE_SHIFT, PMD_SIZE) !=
- 		    ALIGN(end << PAGE_SHIFT, PMD_SIZE))
--			kvm_mmu_slot_gfn_write_protect(kvm, slot, end,
--						       PG_LEVEL_2M);
-+			kvm_mmu_slot_gfn_protect(kvm, slot, end,
-+						       PG_LEVEL_2M, KVM_PAGE_TRACK_WRITE);
- 	}
- 
- 	/* Now handle 4K PTEs.  */
-@@ -1354,26 +1381,29 @@ int kvm_cpu_dirty_log_size(void)
- 	return kvm_x86_ops.cpu_dirty_log_size;
+-
+-	return flush;
++	return sevstep_rmap_protect(rmap_head, pt_protect, KVM_PAGE_TRACK_WRITE);
  }
  
--bool kvm_mmu_slot_gfn_write_protect(struct kvm *kvm,
-+bool kvm_mmu_slot_gfn_protect(struct kvm *kvm,
+ static bool spte_clear_dirty(u64 *sptep)
+@@ -1358,22 +1341,8 @@ bool kvm_mmu_slot_gfn_write_protect(struct kvm *kvm,
  				    struct kvm_memory_slot *slot, u64 gfn,
--				    int min_level)
-+				    int min_level, enum kvm_page_track_mode mode)
+ 				    int min_level)
  {
- 	struct kvm_rmap_head *rmap_head;
- 	int i;
+-	struct kvm_rmap_head *rmap_head;
+-	int i;
 -	bool write_protected = false;
-+	//bool write_protected = false;
-+	bool protected = false;
- 
- 	if (kvm_memslots_have_rmaps(kvm)) {
- 		for (i = min_level; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
- 			rmap_head = gfn_to_rmap(gfn, i, slot);
+-
+-	if (kvm_memslots_have_rmaps(kvm)) {
+-		for (i = min_level; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
+-			rmap_head = gfn_to_rmap(gfn, i, slot);
 -			write_protected |= rmap_write_protect(rmap_head, true);
-+			//write_protected |= rmap_write_protect(rmap_head, true);
-+			protected |= rmap_protect(rmap_head, true, mode);
- 		}
- 	}
- 
- 	if (is_tdp_mmu_enabled(kvm))
+-		}
+-	}
+-
+-	if (is_tdp_mmu_enabled(kvm))
 -		write_protected |=
-+		//write_protected |=
-+		protected |=
- 			kvm_tdp_mmu_write_protect_gfn(kvm, slot, gfn, min_level);
- 
+-			kvm_tdp_mmu_write_protect_gfn(kvm, slot, gfn, min_level);
+-
 -	return write_protected;
-+	return protected;
++	return sevstep_kvm_mmu_slot_gfn_protect(kvm, slot,
++		gfn, min_level, KVM_PAGE_TRACK_WRITE);
  }
  
  static bool kvm_vcpu_write_protect_gfn(struct kvm_vcpu *vcpu, u64 gfn)
-@@ -1381,7 +1411,7 @@ static bool kvm_vcpu_write_protect_gfn(struct kvm_vcpu *vcpu, u64 gfn)
- 	struct kvm_memory_slot *slot;
- 
- 	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
--	return kvm_mmu_slot_gfn_write_protect(vcpu->kvm, slot, gfn, PG_LEVEL_4K);
-+	return kvm_mmu_slot_gfn_protect(vcpu->kvm, slot, gfn, PG_LEVEL_4K, KVM_PAGE_TRACK_WRITE);
- }
- 
- static bool kvm_zap_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
-@@ -3901,6 +3931,38 @@ static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr, bool direct)
+@@ -3901,6 +3870,10 @@ static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr, bool direct)
  static bool page_fault_handle_page_track(struct kvm_vcpu *vcpu,
  					 struct kvm_page_fault *fault)
  {
-+	int send_err;
-+	uint64_t current_rip;
-+	int have_rip;
-+	int i;
-+	bool was_tracked;
-+	int modes[] = {KVM_PAGE_TRACK_WRITE,KVM_PAGE_TRACK_ACCESS,KVM_PAGE_TRACK_EXEC};
-+	was_tracked = false;
-+	for( i = 0; i < sizeof(modes) / sizeof(modes[0]); i++ ) {
-+		if(kvm_slot_page_track_is_active(vcpu->kvm, fault->slot, fault->gfn,modes[i])) {
-+			__untrack_single_page(vcpu, fault->gfn, modes[i]);
-+			was_tracked = true;
-+		}
-+	}
-+	if( was_tracked ) {
-+		have_rip = false;
-+		if( uspt_should_get_rip() ) {
-+			//! because 0 indicates "no error" but have_rip should be one if successfull
-+			have_rip = (!sev_step_get_rip_kvm_vcpu(vcpu,&current_rip));
-+		}
-+		if( uspt_batch_tracking_in_progress() ) {
-+			if( (send_err = uspt_batch_tracking_save(fault->gfn << PAGE_SHIFT,fault->error_code,have_rip,current_rip)) ) {
-+				printk_ratelimited("uspt_batch_tracking_save failed with %d\n##########################\n",send_err);
-+			}
-+			uspt_batch_tracking_handle_retrack(vcpu,fault->gfn);
-+			uspt_batch_tracking_inc_event_idx();
-+		} else {
-+			if( (send_err = uspt_send_and_block(fault->gfn << PAGE_SHIFT,fault->error_code,have_rip,current_rip)) ) {
-+				printk("uspt_send_and_block failed with %d\n##########################\n",send_err);
-+			}
-+		}
-+	}
++	int active;
++
++	sevstep_uspt_page_fault_handle(vcpu, fault);
 +
  	if (unlikely(fault->rsvd))
  		return false;
  
-@@ -3911,7 +3973,7 @@ static bool page_fault_handle_page_track(struct kvm_vcpu *vcpu,
+@@ -3911,8 +3884,11 @@ static bool page_fault_handle_page_track(struct kvm_vcpu *vcpu,
  	 * guest is writing the page which is write tracked which can
  	 * not be fixed by page fault handler.
  	 */
 -	if (kvm_slot_page_track_is_active(vcpu->kvm, fault->slot, fault->gfn, KVM_PAGE_TRACK_WRITE))
-+	if (kvm_slot_page_track_is_active(vcpu->kvm, fault->slot, fault->gfn, KVM_PAGE_TRACK_WRITE) || kvm_slot_page_track_is_active(vcpu->kvm, fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS))
- 		return true;
+-		return true;
++	active = kvm_slot_page_track_is_active(vcpu->kvm,
++		fault->slot, fault->gfn, KVM_PAGE_TRACK_WRITE);
++	active |= kvm_slot_page_track_is_active(vcpu->kvm,
++		fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS);
++	if (active) return true;
  
  	return false;
-@@ -5991,7 +6053,7 @@ static bool slot_rmap_write_protect(struct kvm *kvm,
- 				    struct kvm_rmap_head *rmap_head,
- 				    const struct kvm_memory_slot *slot)
- {
--	return rmap_write_protect(rmap_head, false);
-+	return rmap_protect(rmap_head, false, KVM_PAGE_TRACK_WRITE);
  }
- 
- void kvm_mmu_slot_remove_write_access(struct kvm *kvm,
-diff --git a/arch/x86/kvm/mmu/mmu_internal.h b/arch/x86/kvm/mmu/mmu_internal.h
-old mode 100644
-new mode 100755
-index bd2a26897b97..aa57ab1b4c89
---- a/arch/x86/kvm/mmu/mmu_internal.h
-+++ b/arch/x86/kvm/mmu/mmu_internal.h
-@@ -133,9 +133,9 @@ int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
- 
- void kvm_mmu_gfn_disallow_lpage(const struct kvm_memory_slot *slot, gfn_t gfn);
- void kvm_mmu_gfn_allow_lpage(const struct kvm_memory_slot *slot, gfn_t gfn);
--bool kvm_mmu_slot_gfn_write_protect(struct kvm *kvm,
-+bool kvm_mmu_slot_gfn_protect(struct kvm *kvm,
- 				    struct kvm_memory_slot *slot, u64 gfn,
--				    int min_level);
-+				    int min_level, enum kvm_page_track_mode mode);
- void kvm_flush_remote_tlbs_with_address(struct kvm *kvm,
- 					u64 start_gfn, u64 pages);
- unsigned int pte_list_count(struct kvm_rmap_head *rmap_head);
 diff --git a/arch/x86/kvm/mmu/page_track.c b/arch/x86/kvm/mmu/page_track.c
-old mode 100644
-new mode 100755
-index 2e09d1b6249f..22b631351673
+index 2e09d1b6249f..17b69a1f2b40 100644
 --- a/arch/x86/kvm/mmu/page_track.c
 +++ b/arch/x86/kvm/mmu/page_track.c
-@@ -131,9 +131,11 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+@@ -19,6 +19,8 @@
+ #include "mmu.h"
+ #include "mmu_internal.h"
+ 
++#include "../sevstep/sevstep.h"
++
+ bool kvm_page_track_write_tracking_enabled(struct kvm *kvm)
+ {
+ 	return IS_ENABLED(CONFIG_KVM_EXTERNAL_WRITE_TRACKING) ||
+@@ -131,9 +133,10 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
  	 */
  	kvm_mmu_gfn_disallow_lpage(slot, gfn);
  
 -	if (mode == KVM_PAGE_TRACK_WRITE)
 -		if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn, PG_LEVEL_4K))
-+	//if (mode == KVM_PAGE_TRACK_WRITE)
-+	//	if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn, PG_LEVEL_4K))
-+	if (kvm_mmu_slot_gfn_protect(kvm, slot, gfn, PG_LEVEL_4K, mode)) {
- 			kvm_flush_remote_tlbs(kvm);
+-			kvm_flush_remote_tlbs(kvm);
++	if (sevstep_kvm_mmu_slot_gfn_protect(kvm,
++			slot, gfn, PG_LEVEL_4K, mode)) {
++		kvm_flush_remote_tlbs(kvm);
 +	}
  }
  EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
  
-diff --git a/arch/x86/kvm/sev-step.c b/arch/x86/kvm/sev-step.c
-new file mode 100755
-index 000000000000..489583f33342
+diff --git a/arch/x86/kvm/sevstep b/arch/x86/kvm/sevstep
+new file mode 120000
+index 000000000000..642ea24bf098
 --- /dev/null
-+++ b/arch/x86/kvm/sev-step.c
-@@ -0,0 +1,250 @@
-+
-+#include <linux/sev-step.h>
-+#include <linux/smp.h>
-+#include <linux/vmalloc.h>
-+#include <linux/slab.h>
-+#include <linux/sched.h>
-+
-+#include "kvm_cache_regs.h"
-+#include "svm/svm.h"
-+
-+
-+
-+struct kvm* main_vm;
-+EXPORT_SYMBOL(main_vm);
-+
-+//used to store performance counter values; 6 counters, 2 readings per counter
-+uint64_t perf_reads[6][2];
-+perf_ctl_config_t perf_configs[6];
-+int perf_cpu;
-+
-+
-+uint64_t perf_ctl_to_u64(perf_ctl_config_t * config) {
-+
-+	uint64_t result = 0;
-+	result |= (  config->EventSelect & 0xffULL); //[7:0] in result and  [7:0] in EventSelect
-+	result |= ( (config->UintMask & 0xffULL) << 8 ); //[15:8]
-+	result |= ( (config->OsUserMode & 0x3ULL) << 16); //[17:16]
-+	result |= ( (config->Edge & 0x1ULL ) << 18 ); // 18
-+	result |= ( (config->Int & 0x1ULL ) << 20 ); // 20
-+	result |= ( (config->En & 0x1ULL ) << 22 ); //22
-+	result |= ( (config->Inv & 0x1ULL ) << 23); //23
-+	result |= ( (config->CntMask & 0xffULL) << 24); //[31:24]
-+	result |= ( ( (config->EventSelect & 0xf00ULL) >> 8 ) << 32); //[35:32] in result and [11:8] in EventSelect
-+	result |= ( (config->HostGuestOnly & 0x3ULL) << 40); // [41:40]
-+
-+	return result;
-+
-+}
-+
-+void write_ctl(perf_ctl_config_t * config, int cpu, uint64_t ctl_msr){
-+	wrmsrl_on_cpu(cpu, ctl_msr, perf_ctl_to_u64(config)); //always returns zero
-+}
-+
-+void read_ctr(uint64_t ctr_msr, int cpu, uint64_t* result) {
-+    uint64_t tmp;
-+	rdmsrl_on_cpu(cpu, ctr_msr, &tmp); //always returns zero
-+	*result = tmp & ( (0x1ULL << 48) - 1);
-+}
-+
-+void setup_perfs() {
-+    int i;
-+
-+    perf_cpu = smp_processor_id();
-+
-+    for( i = 0; i < 6; i++) {
-+        perf_configs[i].HostGuestOnly = 0x1; //0x1 means: count only guest
-+        perf_configs[i].CntMask = 0x0;
-+        perf_configs[i].Inv = 0x0;
-+        perf_configs[i].En = 0x0;
-+        perf_configs[i].Int = 0x0;
-+        perf_configs[i].Edge = 0x0;
-+        perf_configs[i].OsUserMode = 0x3; //0x3 means: count userland and kernel events
-+    }
-+
-+    //remember to set .En to enable the individual counter
-+
-+    perf_configs[0].EventSelect = 0x0c0;
-+	perf_configs[0].UintMask = 0x0;
-+    perf_configs[0].En = 0x1;
-+	write_ctl(&perf_configs[0],perf_cpu, CTL_MSR_0);
-+
-+    /*programm l2d hit from data cache miss perf for
-+    cpu_probe_pointer_chasing_inplace without counting thread.
-+    N.B. that this time we count host events
-+    */
-+    perf_configs[1].EventSelect = 0x064;
-+    perf_configs[1].UintMask = 0x70;
-+    perf_configs[1].En = 0x1;
-+    perf_configs[1].HostGuestOnly = 0x2; //0x2 means: count only host events, as we do the chase here
-+    write_ctl(&perf_configs[1],perf_cpu,CTL_MSR_1);
-+}
-+EXPORT_SYMBOL(setup_perfs);
-+
-+
-+/*
-+static int __my_sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
-+			       unsigned long dst, int size,
-+			       int *error);
-+
-+int my_sev_decrypt(struct kvm* kvm, void* dst_vaddr, void* src_vaddr, uint64_t dst_paddr, uint64_t src_paddr, uint64_t len, int* api_res) {
-+
-+	int call_res;
-+	call_res  = 0x1337;
-+	*api_res = 0x1337;
-+
-+
-+	if( dst_paddr % PAGE_SIZE != 0 || src_paddr % PAGE_SIZE != 0) {
-+		printk("decrypt: for now, src_paddr, and dst_paddr must be page aligned");
-+		return -1;
-+	}
-+
-+	if( len > PAGE_SIZE ) {
-+		printk("decrypt: for now, can be at most 4096 byte");
-+		return -1;
-+	}
-+
-+	memset(dst_vaddr,0,PAGE_SIZE);
-+
-+	//clflush_cache_range(src_vaddr, PAGE_SIZE);
-+	//clflush_cache_range(dst_vaddr, PAGE_SIZE);
-+	wbinvd_on_all_cpus();
-+
-+	call_res = __my_sev_issue_dbg_cmd(kvm, __sme_set(src_paddr),
-+		__sme_set(dst_paddr), len, api_res);
-+
-+	return call_res;
-+
-+}
-+EXPORT_SYMBOL(my_sev_decrypt);
-+
-+static int __my_sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
-+			       unsigned long dst, int size,
-+			       int *error)
-+{
-+	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
-+	struct sev_data_dbg *data;
-+	int ret;
-+
-+	data = kzalloc(sizeof(*data), GFP_KERNEL_ACCOUNT);
-+	if (!data)
-+		return -ENOMEM;
-+
-+	data->handle = sev->handle;
-+	data->dst_addr = dst;
-+	data->src_addr = src;
-+	data->len = size;
-+
-+	//ret = sev_issue_cmd(kvm,
-+	//		     SEV_CMD_DBG_DECRYPT,
-+	//		    data, error);
-+	ret = sev_do_cmd(SEV_CMD_DBG_DECRYPT, data, error);
-+	kfree(data);
-+	return ret;
-+}
-+
-+int decrypt_vmsa(struct vcpu_svm* svm, struct vmcb_save_area* save_area) {
-+
-+	uint64_t src_paddr, dst_paddr;
-+	void * dst_vaddr;
-+	void * src_vaddr;
-+	struct page * dst_page;
-+	int call_res,api_res;
-+	call_res = 1337;
-+	api_res = 1337;
-+
-+	src_vaddr = svm->vmsa;
-+	src_paddr = svm->vmcb->control.vmsa_pa;
-+
-+	if( src_paddr % 16 != 0) {
-+		printk("decrypt_vmsa: src_paddr was not 16b aligned");
-+	}
-+
-+	if( sizeof( struct vmcb_save_area) % 16 != 0 ) {
-+		printk("decrypt_vmsa: size of vmcb_save_area is not 16 b aligned\n");
-+	}
-+
-+	dst_page = alloc_page(GFP_KERNEL);
-+	dst_vaddr =  vmap(&dst_page, 1, 0, PAGE_KERNEL);
-+	dst_paddr = page_to_pfn(dst_page) << PAGE_SHIFT;
-+	memset(dst_vaddr,0,PAGE_SIZE);
-+
-+
-+
-+	if( dst_paddr % 16 != 0 ) {
-+		printk("decrypt_vmsa: dst_paddr was not 16 byte aligned");
-+	}
-+
-+	//printk("src_paddr = 0x%llx dst_paddr = 0x%llx\n", __sme_clr(src_paddr), __sme_clr(dst_paddr));
-+	//printk("Sizeof vmcb_save_area is: 0x%lx\n", sizeof( struct vmcb_save_area) );
-+
-+
-+	call_res = __my_sev_issue_dbg_cmd(svm->vcpu.kvm, __sme_set(src_paddr), __sme_set(dst_paddr), sizeof(struct vmcb_save_area), &api_res);
-+
-+
-+	//printk("decrypt_vmsa: result of call was %d, result of api command was %d\n",call_res, api_res);
-+
-+	//todo error handling
-+	if( api_res != 0 ) {
-+		__free_page(dst_page);
-+		return -1;
-+	}
-+
-+	memcpy(save_area, dst_vaddr, sizeof( struct vmcb_save_area) );
-+
-+
-+	__free_page(dst_page);
-+
-+	return 0;
-+
-+
-+}
-+
-+
-+//
-+// Contains a switch to work  SEV and SEV-ES
-+ //
-+uint64_t sev_step_get_rip(struct vcpu_svm* svm) {
-+	struct vmcb_save_area* save_area;
-+	struct kvm * kvm;
-+	struct kvm_sev_info *sev;
-+	uint64_t rip;
-+
-+
-+	kvm = svm->vcpu.kvm;
-+	sev = &to_kvm_svm(kvm)->sev_info;
-+
-+	//for sev-es we need to use the debug api, to decrypt the vmsa
-+	if( sev->active && sev->es_active) {
-+		int res;
-+		save_area = vmalloc(sizeof(struct vmcb_save_area) );
-+		memset(save_area,0, sizeof(struct vmcb_save_area));
-+
-+		res = decrypt_vmsa(svm, save_area);
-+		if( res != 0) {
-+			printk("sev_step_get_rip failed to decrypt\n");
-+			return 0;
-+		}
-+
-+		rip =  save_area->rip;
-+
-+		vfree(save_area);
-+	} else { //otherwise we can just access as plaintexts
-+		rip = svm->vmcb->save.rip;
-+	}
-+	return rip;
-+
-+}
-+EXPORT_SYMBOL(sev_step_get_rip);
-+*/
-+
-+int sev_step_get_rip_kvm_vcpu(struct kvm_vcpu* vcpu,uint64_t *rip) {
-+	/*
-+	struct vcpu_svm *svm = container_of(vcpu, struct vcpu_svm, vcpu);
-+	if( svm == NULL ) {
-+		return 1;
-+	}
-+	(*rip) = sev_step_get_rip(svm);
-+	*/
-+	return 0;
-+}
++++ b/arch/x86/kvm/sevstep
+@@ -0,0 +1 @@
++/home/louis/kvm-prime-count/sevstep
 \ No newline at end of file
 diff --git a/arch/x86/kvm/svm/cachepc b/arch/x86/kvm/svm/cachepc
 new file mode 120000
-index 000000000000..7bef8c5db46c
+index 000000000000..9119e44af1f0
 --- /dev/null
 +++ b/arch/x86/kvm/svm/cachepc
 @@ -0,0 +1 @@
-+/home/louis/kvm-prime-count/kmod
++/home/louis/kvm-prime-count/cachepc
 \ No newline at end of file
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
 index cf0bf456d520..4dbb8041541f 100644
@@ -894,9 +255,7 @@ index cf0bf456d520..4dbb8041541f 100644
  
  	guest_state_exit_irqoff();
 diff --git a/arch/x86/kvm/svm/vmenter.S b/arch/x86/kvm/svm/vmenter.S
-old mode 100644
-new mode 100755
-index dfaeb47fcf2a..0626f3fdddfd
+index dfaeb47fcf2a..0626f3fdddfd 100644
 --- a/arch/x86/kvm/svm/vmenter.S
 +++ b/arch/x86/kvm/svm/vmenter.S
 @@ -29,12 +29,59 @@
@@ -1027,677 +386,21 @@ index dfaeb47fcf2a..0626f3fdddfd
  
  2:	cli
  
-diff --git a/arch/x86/kvm/userspace_page_track_signals.c b/arch/x86/kvm/userspace_page_track_signals.c
-new file mode 100755
-index 000000000000..7f37c9c7e4cd
---- /dev/null
-+++ b/arch/x86/kvm/userspace_page_track_signals.c
-@@ -0,0 +1,445 @@
-+#include <linux/userspace_page_track_signals.h>
-+#include <linux/kvm.h>
-+#include <linux/timekeeping.h>
-+#include <linux/uaccess.h>
-+#include <linux/types.h>
-+#include <linux/vmalloc.h>
-+#include <linux/sev-step.h>
-+#include <linux/printk.h>
-+#include <linux/ratelimit.h>
-+
-+
-+
-+//crude sync mechanism. don't know a good way to act on errors yet.
-+uint64_t last_sent_event_id = 1;
-+uint64_t last_acked_event_id = 1;
-+DEFINE_RWLOCK(event_lock);
-+
-+page_fault_event_t sent_event;
-+static int have_event = 0;
-+
-+static bool get_rip = true;
-+
-+static int inited = 0;
-+
-+
-+
-+
-+
-+void uspt_clear(void) {
-+    write_lock(&event_lock);
-+    inited = 0;
-+    last_sent_event_id = 1;
-+    last_acked_event_id = 1;
-+    have_event = 0;
-+    get_rip = false;
-+    write_unlock(&event_lock);
-+}
-+
-+int uspt_initialize(int pid,bool should_get_rip) {
-+    write_lock(&event_lock);
-+
-+    inited = 1;
-+    last_sent_event_id = 1;
-+    last_acked_event_id = 1;
-+    have_event = 0;
-+    get_rip = should_get_rip;
-+    write_unlock(&event_lock);
-+    return 0;
-+}
-+
-+int uspt_is_initialiized() {
-+    return inited;
-+}
-+
-+bool uspt_should_get_rip() {
-+    bool tmp;
-+    read_lock(&event_lock);
-+    tmp = get_rip;
-+    read_unlock(&event_lock);
-+    return tmp;
-+}
-+
-+int uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,bool have_rip,uint64_t rip) {
-+	ktime_t abort_after;
-+    page_fault_event_t message_for_user;
-+
-+    read_lock(&event_lock);
-+    if( !uspt_is_initialiized() ) {
-+        printk("userspace_page_track_signals: uspt_send_and_block : ctx not initialized!\n");
-+        read_unlock(&event_lock);
-+        return 1;
-+    }
-+    read_unlock(&event_lock);
-+
-+    write_lock(&event_lock);
-+     if( last_sent_event_id != last_acked_event_id ) {
-+        printk("event id_s out of sync, aborting. Fix this later\n");
-+        write_unlock(&event_lock);
-+        return 1;
-+    } else {
-+        //TODO: handle overflow
-+        last_sent_event_id++;
-+    }
-+    message_for_user.id = last_sent_event_id;
-+    message_for_user.faulted_gpa = faulted_gpa;
-+    message_for_user.error_code = error_code;
-+    message_for_user.have_rip_info = have_rip;
-+    message_for_user.rip = rip;
-+    message_for_user.ns_timestamp = ktime_get_real_ns();
-+    message_for_user.have_retired_instructions = false;
-+
-+    //for poll based system;
-+    have_event = 1;
-+    sent_event = message_for_user;
-+    //printk("uspt_send_and_block sending event %llu\n",sent_event.id);
-+
-+    write_unlock(&event_lock);
-+
-+
-+    //wait for ack, but with tiemout. Otherwise small bugs in userland easily lead
-+    //to a kernel hang
-+    abort_after = ktime_get() + 1000000000ULL; //1 sec in nanosecond
-+    while( !uspt_is_event_done(sent_event.id) ) {
-+        if( ktime_get() > abort_after ) {
-+            printk("Waiting for ack of event %llu timed out, continuing\n",sent_event.id);
-+            return 3;
-+        }
-+    }
-+    return 0;
-+}
-+
-+int uspt_is_event_done(uint64_t id) {
-+    int res;
-+    read_lock(&event_lock);
-+    res = last_acked_event_id >= id;
-+    read_unlock(&event_lock);
-+    return res;
-+
-+}
-+
-+int uspt_handle_poll_event(page_fault_event_t* userpace_mem) {
-+    int err;
-+
-+    //most of the time we won't have an event
-+    read_lock(&event_lock);
-+    if( !have_event) {
-+        read_unlock(&event_lock);
-+        return KVM_USPT_POLL_EVENT_NO_EVENT;
-+    }
-+    read_unlock(&event_lock);
-+
-+    write_lock(&event_lock);
-+    if( have_event) {
-+        err = copy_to_user(userpace_mem, &sent_event, sizeof(page_fault_event_t));
-+        have_event = 0;
-+    } else {
-+        err = KVM_USPT_POLL_EVENT_NO_EVENT;
-+    }
-+    write_unlock(&event_lock);
-+    return err;
-+
-+}
-+
-+static int _uspt_handle_ack_event(uint64_t id) {
-+    int err = 0;
-+    write_lock(&event_lock);
-+    if( id == last_sent_event_id) {
-+        last_acked_event_id = last_sent_event_id;
-+        //printk("successfull ack\n");
-+    } else  {
-+        err = 1;
-+        printk("last sent event id is %llu but received ack for %llu\n",last_sent_event_id,id);
-+    }
-+    write_unlock(&event_lock);
-+    return err;
-+
-+
-+}
-+
-+int uspt_handle_ack_event_ioctl(ack_event_t event) {
-+    return _uspt_handle_ack_event(event.id);
-+}
-+
-+
-+
-+typedef struct {
-+    bool is_active;
-+    int tracking_type;
-+    bool retrack;
-+
-+    int perf_cpu;
-+
-+    uint64_t gfn_retrack_backlog[10];
-+    int gfn_retrack_backlog_next_idx;
-+
-+    page_fault_event_t * events;
-+    uint64_t event_next_idx;
-+    uint64_t events_size;
-+
-+    bool error_occured;
-+
-+
-+} batch_track_state_t;
-+
-+DEFINE_SPINLOCK(batch_track_state_lock);
-+static batch_track_state_t batch_track_state;
-+
-+typedef struct {
-+    uint64_t idx_for_last_perf_reading;
-+    uint64_t last_perf_reading;
-+    uint64_t delta_valid_idx;
-+    uint64_t delta;
-+} perf_state_t;
-+
-+perf_state_t perf_state;
-+
-+//setup perf_state and program retired instruction performance counter
-+void _perf_state_setup_retired_instructions(void) {
-+	perf_ctl_config_t retired_instructions_perf_config;
-+    retired_instructions_perf_config.HostGuestOnly = 0x1; //0x1 means: count only guest
-+    retired_instructions_perf_config.CntMask = 0x0;
-+    retired_instructions_perf_config.Inv = 0x0;
-+    retired_instructions_perf_config.Int = 0x0;
-+    retired_instructions_perf_config.Edge = 0x0;
-+    retired_instructions_perf_config.OsUserMode = 0x3; //0x3 means: count kern and user events
-+    retired_instructions_perf_config.EventSelect = 0x0c0;
-+    retired_instructions_perf_config.UintMask = 0x0;
-+    retired_instructions_perf_config.En = 0x1;
-+    write_ctl(&retired_instructions_perf_config,batch_track_state.perf_cpu, CTL_MSR_0);
-+}
-+
-+
-+//get retired instructions between current_event_idx-1 and current_event_idx
-+//value is cached for multiple calls to the same current_event_idx
-+uint64_t _perf_state_update_and_get_delta(uint64_t current_event_idx) {
-+    uint64_t current_value;
-+
-+    //check if value is "cached"
-+    if( perf_state.delta_valid_idx == current_event_idx) {
-+        if( current_event_idx == 0) {
-+            read_ctr(CTR_MSR_0, batch_track_state.perf_cpu, &current_value);
-+            perf_state.idx_for_last_perf_reading = current_event_idx;
-+            perf_state.last_perf_reading = current_event_idx;
-+        }
-+        return perf_state.delta;
-+    }
-+
-+    //otherwise update, but logic is only valid for two consecutive events
-+    if (current_event_idx != perf_state.idx_for_last_perf_reading+1) {
-+        printk_ratelimited(KERN_CRIT "_perf_state_update_and_get_delta: last reading was for idx %llu but was queried for %llu\n",perf_state.idx_for_last_perf_reading,current_event_idx);
-+    }
-+
-+    read_ctr(CTR_MSR_0, batch_track_state.perf_cpu, &current_value);
-+    perf_state.delta = (current_value - perf_state.last_perf_reading);
-+    perf_state.delta_valid_idx = current_event_idx;
-+
-+    perf_state.idx_for_last_perf_reading = current_event_idx;
-+    perf_state.last_perf_reading = current_value;
-+
-+    return perf_state.delta;
-+}
-+
-+void uspt_batch_tracking_inc_event_idx(void) {
-+    spin_lock(&batch_track_state_lock);
-+    batch_track_state.event_next_idx++;
-+    spin_unlock(&batch_track_state_lock);
-+}
-+
-+int uspt_batch_tracking_start(int tracking_type,uint64_t expected_events, int perf_cpu,bool retrack) {
-+    page_fault_event_t* events;
-+    uint64_t buffer_size;
-+    uint64_t idx = 0;
-+    spin_lock(&batch_track_state_lock);
-+    if( batch_track_state.is_active ) {
-+        printk("userspace_page_track_signals: overwriting active batch track config!\n");
-+        if( batch_track_state.events != NULL ) {
-+            vfree(batch_track_state.events);
-+        }
-+    }
-+    batch_track_state.is_active = false;
-+    spin_unlock(&batch_track_state_lock);
-+
-+    buffer_size = expected_events*sizeof(page_fault_event_t);
-+    printk("uspt_batch_tracking_start trying to alloc %llu bytes buffer for events\n",buffer_size);
-+    events = vmalloc(buffer_size);
-+    if( events  == NULL) {
-+        printk("userspace_page_track_signals: faperf_cpuiled to alloc %llu bytes for event buffer\n",buffer_size);
-+        return 1; //note: lock not held here
-+    }
-+
-+    //access each element once to force them into memory, improving performance
-+    //during tracking
-+    for( idx = 0; idx < expected_events*sizeof(page_fault_event_t);idx++) {
-+        ((volatile uint8_t*)events)[idx] = 0;
-+    }
-+
-+    perf_state.idx_for_last_perf_reading = 0;
-+    perf_state.last_perf_reading = 0;
-+    perf_state.delta_valid_idx = 0;
-+    perf_state.delta = 0;
-+    _perf_state_setup_retired_instructions();
-+
-+
-+    spin_lock(&batch_track_state_lock);
-+
-+    batch_track_state.perf_cpu = perf_cpu;
-+    batch_track_state.retrack = retrack;
-+
-+    batch_track_state.events = events;
-+    batch_track_state.event_next_idx = 0;
-+    batch_track_state.events_size = expected_events;
-+
-+    batch_track_state.gfn_retrack_backlog_next_idx = 0;
-+    batch_track_state.tracking_type = tracking_type;
-+    batch_track_state.error_occured = false;
-+
-+    batch_track_state.is_active = true;
-+
-+    spin_unlock(&batch_track_state_lock);
-+
-+    return 0;
-+
-+
-+}
-+
-+void uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu, uint64_t current_fault_gfn) {
-+    int i;
-+    uint64_t ret_instr_delta;
-+
-+    spin_lock(&batch_track_state_lock);
-+
-+    if( !batch_track_state.retrack ) {
-+        spin_unlock(&batch_track_state_lock);
-+        return;
-+    }
-+
-+    if( smp_processor_id() != batch_track_state.perf_cpu) {
-+        printk("uspt_batch_tracking_handle_retrack: perf was programmed on logical cpu %d but handler was called on %d. Did you forget to pin the vcpu thread?\n",batch_track_state.perf_cpu,smp_processor_id());
-+    }
-+    ret_instr_delta = _perf_state_update_and_get_delta(batch_track_state.event_next_idx);
-+
-+
-+    //faulting instructions is probably the same as on last fault
-+    //try to add current fault to retrack log and return
-+    //for first event idx we do not have a valid ret_instr_delta. Retracking for the frist time is fine, if we loop, we end up here again but with a valid delta on one of the next event
-+    if( (ret_instr_delta < 2) && ( batch_track_state.event_next_idx != 0) ) {
-+        int next_idx = batch_track_state.gfn_retrack_backlog_next_idx;
-+        if( next_idx >= sizeof(batch_track_state.gfn_retrack_backlog)/sizeof(batch_track_state.gfn_retrack_backlog[0])) {
-+            printk("uspt_batch_tracking_handle_retrack: retrack backlog full, dropping retrack for fault at 0x%llx\n",current_fault_gfn);
-+        } else {
-+            batch_track_state.gfn_retrack_backlog[next_idx] = current_fault_gfn;
-+            batch_track_state.gfn_retrack_backlog_next_idx++;
-+        }
-+
-+        spin_unlock(&batch_track_state_lock);
-+        return;
-+    }
-+
-+    //made progress, retrack everything in backlog and reset idx
-+    for( i = 0; i < batch_track_state.gfn_retrack_backlog_next_idx;i++) {
-+        __track_single_page(vcpu,batch_track_state.gfn_retrack_backlog[i],batch_track_state.tracking_type);
-+    }
-+
-+    //add current fault to list
-+    batch_track_state.gfn_retrack_backlog[0] = current_fault_gfn;
-+    batch_track_state.gfn_retrack_backlog_next_idx = 1;
-+
-+    spin_unlock(&batch_track_state_lock);
-+
-+}
-+
-+int uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code, bool have_rip,uint64_t rip) {
-+    uint64_t ret_instr_delta;
-+    page_fault_event_t* event;
-+
-+    spin_lock(&batch_track_state_lock);
-+
-+   if( !batch_track_state.is_active ) {
-+        printk_ratelimited("userspace_page_track_signals: got save but batch tracking is not active!\n");
-+        batch_track_state.error_occured = true;
-+        spin_unlock(&batch_track_state_lock);
-+        return 1;
-+   }
-+
-+
-+    if( batch_track_state.event_next_idx >= batch_track_state.events_size) {
-+        printk_ratelimited("userspace_page_track_signals: events buffer is full!\n");
-+        batch_track_state.error_occured = true;
-+        spin_unlock(&batch_track_state_lock);
-+        return 1;
-+    }
-+
-+    if( smp_processor_id() != batch_track_state.perf_cpu) {
-+        printk("uspt_batch_tracking_handle_retrack: perf was programmed on logical cpu %d but handler was called on %d. Did you forget to pin the vcpu thread?\n",batch_track_state.perf_cpu,smp_processor_id());
-+    }
-+    ret_instr_delta = _perf_state_update_and_get_delta(batch_track_state.event_next_idx);
-+
-+
-+    if( batch_track_state.events == NULL ) {
-+        printk(KERN_CRIT "userspace_page_track_signals: events buf was NULL but \"is_active\" was set! This should never happen!!!\n");
-+        spin_unlock(&batch_track_state_lock);
-+        return 1;
-+    }
-+
-+    event = &batch_track_state.events[batch_track_state.event_next_idx];
-+    event->id = batch_track_state.event_next_idx;
-+    event->faulted_gpa = faulted_gpa;
-+    event->error_code = error_code;
-+    event->have_rip_info = have_rip;
-+    event->rip = rip;
-+    event->ns_timestamp = ktime_get_real_ns();
-+    event->have_retired_instructions = true;
-+    event->retired_instructions = ret_instr_delta;
-+
-+//old inc was here
-+
-+    if(batch_track_state.gfn_retrack_backlog_next_idx > (sizeof(batch_track_state.gfn_retrack_backlog)/sizeof(batch_track_state.gfn_retrack_backlog[0])) ) {
-+        printk_ratelimited("userspace_page_track_signals: gfn retrack backlog overflow!\n");
-+        batch_track_state.error_occured = true;
-+        spin_unlock(&batch_track_state_lock);
-+        return 1;
-+    }
-+
-+    spin_unlock(&batch_track_state_lock);
-+    return 0;
-+}
-+
-+int uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len, bool* error_occured) {
-+    spin_lock(&batch_track_state_lock);
-+    if( !batch_track_state.is_active ) {
-+        printk("userspace_page_track_signals: batch tracking not active\n");
-+        spin_unlock(&batch_track_state_lock);
-+        return 1;
-+
-+    }
-+    batch_track_state.is_active = false;
-+
-+    if( len > batch_track_state.event_next_idx) {
-+        printk("userspace_page_track_signals: requested %llu events but got only %llu\n",len,batch_track_state.event_next_idx );
-+        spin_unlock(&batch_track_state_lock);
-+        return 1;
-+    }
-+
-+    memcpy(results,batch_track_state.events, len*sizeof(page_fault_event_t));
-+    vfree(batch_track_state.events);
-+
-+    (*error_occured) = batch_track_state.error_occured;
-+
-+    spin_unlock(&batch_track_state_lock);
-+
-+    return 0;
-+}
-+
-+uint64_t uspt_batch_tracking_get_events_count() {
-+    uint64_t buf;
-+    spin_lock(&batch_track_state_lock);
-+    buf = batch_track_state.event_next_idx;
-+    spin_unlock(&batch_track_state_lock);
-+
-+    return buf;
-+}
-+
-+bool uspt_batch_tracking_in_progress() {
-+    return batch_track_state.is_active;
-+}
-\ No newline at end of file
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-old mode 100644
-new mode 100755
-index d9adf79124f9..0003b96f8565
+index d9adf79124f9..1809b79cb6cd 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -82,6 +82,9 @@
+@@ -82,6 +82,8 @@
  #include <asm/sgx.h>
  #include <clocksource/hyperv_timer.h>
  
-+#include <linux/sev-step.h>
-+#include "mmu/mmu_internal.h"
++#include "sevstep/kvm.h"
 +
  #define CREATE_TRACE_POINTS
  #include "trace.h"
  
-@@ -13083,6 +13086,198 @@ int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
- 		  : kvm_sev_es_outs(vcpu, size, port);
- }
- EXPORT_SYMBOL_GPL(kvm_sev_es_string_io);
-+bool __untrack_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
-+                           enum kvm_page_track_mode mode) {
-+  int idx;
-+  bool ret;
-+  struct kvm_memory_slot *slot;
-+
-+  ret = false;
-+  idx = srcu_read_lock(&vcpu->kvm->srcu);
-+  if (mode == KVM_PAGE_TRACK_ACCESS) {
-+    //printk("Removing gfn: %016llx from acess page track pool\n", gfn);
-+  }
-+  if (mode == KVM_PAGE_TRACK_WRITE) {
-+    //printk("Removing gfn: %016llx from write page track pool\n", gfn);
-+  }
-+  slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-+
-+  if (slot != NULL && kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
-+
-+    write_lock(&vcpu->kvm->mmu_lock);
-+    kvm_slot_page_track_remove_page(vcpu->kvm, slot, gfn, mode);
-+    write_unlock(&vcpu->kvm->mmu_lock);
-+    ret = true;
-+
-+  } else {
-+
-+    printk("Failed to untrack %016llx because ", gfn);
-+    if (slot == NULL) {
-+      printk(KERN_CONT "slot was  null");
-+    } else if (!kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
-+      printk(KERN_CONT "page track was not active");
-+    }
-+    printk(KERN_CONT "\n");
-+  }
-+  srcu_read_unlock(&vcpu->kvm->srcu, idx);
-+  return ret;
-+}
-+EXPORT_SYMBOL(__untrack_single_page);
-+
-+bool __reset_accessed_on_page(struct kvm_vcpu *vcpu, gfn_t gfn) {
-+	int idx;
-+	bool ret;
-+	struct kvm_memory_slot *slot;
-+
-+	ret = false;
-+	idx = srcu_read_lock(&vcpu->kvm->srcu);
-+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-+	if( slot != NULL ) {
-+		write_lock(&vcpu->kvm->mmu_lock);
-+		//Vincent: The kvm mmu function now requires min_level
-+		//We want all pages to protected so we do PG_LEVEL_4K
-+		//https://patchwork.kernel.org/project/kvm/patch/20210416082511.2856-2-zhukeqian1@huawei.com/
-+		kvm_mmu_slot_gfn_protect(vcpu->kvm,slot,gfn,PG_LEVEL_4K,KVM_PAGE_TRACK_RESET_ACCESSED);
-+		write_unlock(&vcpu->kvm->mmu_lock);
-+		ret = true;
-+	}
-+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
-+	return ret;
-+}
-+EXPORT_SYMBOL(__reset_accessed_on_page);
-+
-+bool __clear_nx_on_page(struct kvm_vcpu *vcpu, gfn_t gfn) {
-+	int idx;
-+	bool ret;
-+	struct kvm_memory_slot *slot;
-+
-+	ret = false;
-+	idx = srcu_read_lock(&vcpu->kvm->srcu);
-+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-+	if( slot != NULL ) {
-+		write_lock(&vcpu->kvm->mmu_lock);
-+		//Vincent: The kvm mmu function now requires min_level
-+		//We want all pages to protected so we do PG_LEVEL_4K
-+		//https://patchwork.kernel.org/project/kvm/patch/20210416082511.2856-2-zhukeqian1@huawei.com/
-+		kvm_mmu_slot_gfn_protect(vcpu->kvm,slot,gfn,PG_LEVEL_4K,KVM_PAGE_TRACK_RESET_EXEC);
-+		write_unlock(&vcpu->kvm->mmu_lock);
-+		ret = true;
-+	}
-+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
-+	return ret;
-+}
-+EXPORT_SYMBOL(__clear_nx_on_page);
-+
-+bool __track_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
-+                         enum kvm_page_track_mode mode) {
-+  int idx;
-+  bool ret;
-+  struct kvm_memory_slot *slot;
-+
-+  ret = false;
-+  idx = srcu_read_lock(&vcpu->kvm->srcu);
-+  if (mode == KVM_PAGE_TRACK_ACCESS) {
-+    //printk_ratelimited("Adding gfn: %016llx to acess page track pool\n", gfn);
-+    //printk("Adding gfn: %016llx to acess page track pool\n", gfn);
-+  }
-+  if (mode == KVM_PAGE_TRACK_WRITE) {
-+    //printk_ratelimited("Adding gfn: %016llx to write page track pool\n", gfn);
-+  }
-+  slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-+  if (slot != NULL && !kvm_slot_page_track_is_active(vcpu->kvm,slot, gfn, mode)) {
-+
-+    write_lock(&vcpu->kvm->mmu_lock);
-+    kvm_slot_page_track_add_page(vcpu->kvm, slot, gfn, mode);
-+    write_unlock(&vcpu->kvm->mmu_lock);
-+    ret = true;
-+
-+  } else {
-+
-+    printk("Failed to track %016llx because ", gfn);
-+    if (slot == NULL) {
-+      printk(KERN_CONT "slot was  null");
-+    }
-+    if (kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
-+      printk(KERN_CONT "page is already tracked");
-+    }
-+    printk(KERN_CONT "\n");
-+  }
-+  srcu_read_unlock(&vcpu->kvm->srcu, idx);
-+  return ret;
-+}
-+EXPORT_SYMBOL(__track_single_page);
-+
-+//track all pages; taken from severed repo
-+long kvm_start_tracking(struct kvm_vcpu *vcpu,enum kvm_page_track_mode mode ) {
-+        long count = 0;
-+        u64 iterator, iterat_max;
-+        struct kvm_memory_slot *slot;
-+        int idx;
-+
-+	//Vincent: Memslots interface changed into a rb tree, see
-+	//here: https://lwn.net/Articles/856392/
-+	//and here: https://lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
-+	//Thus we use instead of
-+        //iterat_max = vcpu->kvm->memslots[0]->memslots[0].base_gfn
-+	//	     + vcpu->kvm->memslots[0]->memslots[0].npages;
-+	struct rb_node *node;
-+	struct kvm_memory_slot *first_memslot;
-+	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
-+	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
-+	iterat_max = first_memslot->base_gfn + first_memslot->npages;
-+        for (iterator=0; iterator < iterat_max; iterator++)
-+        {
-+                idx = srcu_read_lock(&vcpu->kvm->srcu);
-+                slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
-+                if ( slot != NULL  && !kvm_slot_page_track_is_active(vcpu->kvm, slot, iterator, mode)) {
-+                        write_lock(&vcpu->kvm->mmu_lock);
-+                        kvm_slot_page_track_add_page(vcpu->kvm, slot, iterator, mode);
-+                        write_unlock(&vcpu->kvm->mmu_lock);
-+                        count++;
-+                }
-+                srcu_read_unlock(&vcpu->kvm->srcu, idx);
-+        }
-+
-+        return count;
-+}
-+EXPORT_SYMBOL(kvm_start_tracking);
-+
-+//track all pages; taken from severed repo
-+long kvm_stop_tracking(struct kvm_vcpu *vcpu,enum kvm_page_track_mode mode ) {
-+		long count = 0;
-+		u64 iterator, iterat_max;
-+		struct kvm_memory_slot *slot;
-+		int idx;
-+
-+
-+	//Vincent: Memslots interface changed into a rb tree, see
-+	//here: https://lwn.net/Articles/856392/
-+	//and here: https://lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
-+	//Thus we use instead of
-+        //iterat_max = vcpu->kvm->memslots[0]->memslots[0].base_gfn
-+	//	     + vcpu->kvm->memslots[0]->memslots[0].npages;
-+	struct rb_node *node;
-+	struct kvm_memory_slot *first_memslot;
-+	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
-+	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
-+	iterat_max = first_memslot->base_gfn + first_memslot->npages;
-+        for (iterator=0; iterator < iterat_max; iterator++)
-+        {
-+        	idx = srcu_read_lock(&vcpu->kvm->srcu);
-+		slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
-+			//Vincent: I think see here https://patchwork.kernel.org/project/kvm/patch/20210924163152.289027-22-pbonzini@redhat.com/
-+			if ( slot != NULL && kvm_slot_page_track_is_active(vcpu->kvm, slot, iterator, mode)) {
-+				write_lock(&vcpu->kvm->mmu_lock);
-+				kvm_slot_page_track_remove_page(vcpu->kvm, slot, iterator, mode);
-+				write_unlock(&vcpu->kvm->mmu_lock);
-+				count++;
-+            	}
-+		srcu_read_unlock(&vcpu->kvm->srcu, idx);
-+        }
-+
-+        return count;
-+}
-+EXPORT_SYMBOL(kvm_stop_tracking);
- 
- EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
- EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 diff --git a/drivers/crypto/ccp/sev-dev.c b/drivers/crypto/ccp/sev-dev.c
-old mode 100644
-new mode 100755
-index e089fbf9017f..7899e1efe852
+index e089fbf9017f..7899e1efe852 100644
 --- a/drivers/crypto/ccp/sev-dev.c
 +++ b/drivers/crypto/ccp/sev-dev.c
 @@ -87,7 +87,7 @@ static void *sev_init_ex_buffer;
@@ -1726,391 +429,22 @@ index e089fbf9017f..7899e1efe852
  
  static int __sev_init_locked(int *error)
  {
-diff --git a/include/linux/sev-step.h b/include/linux/sev-step.h
-new file mode 100755
-index 000000000000..ec49e5526edd
---- /dev/null
-+++ b/include/linux/sev-step.h
-@@ -0,0 +1,68 @@
-+#ifndef SEV_STEP_H
-+#define SEV_STEP_H
-+
-+#include <linux/types.h>
-+#include <linux/spinlock_types.h>
-+#include <asm/atomic.h>
-+#include <linux/kvm_types.h>
-+#include <asm/kvm_page_track.h>
-+
-+#include <linux/kvm_host.h> //struct kvm
-+#include <linux/pid.h>
-+#include <linux/psp-sev.h>
-+
-+
-+
-+
-+
-+#define CTL_MSR_0  0xc0010200ULL
-+#define CTL_MSR_1  0xc0010202ULL
-+#define CTL_MSR_2  0xc0010204ULL
-+#define CTL_MSR_3  0xc0010206ULL
-+#define CTL_MSR_4  0xc0010208ULL
-+#define CTL_MSR_5  0xc001020aULL
-+
-+#define CTR_MSR_0  0xc0010201ULL
-+#define CTR_MSR_1  0xc0010203ULL
-+#define CTR_MSR_2  0xc0010205ULL
-+#define CTR_MSR_3  0xc0010207ULL
-+#define CTR_MSR_4  0xc0010209ULL
-+#define CTR_MSR_5  0xc001020bULL
-+
-+typedef struct {
-+	uint64_t HostGuestOnly;
-+	uint64_t CntMask;
-+	uint64_t Inv;
-+	uint64_t En;
-+	uint64_t Int;
-+	uint64_t Edge;
-+	uint64_t OsUserMode;
-+	uint64_t UintMask;
-+	uint64_t EventSelect; //12 bits in total split in [11:8] and [7:0]
-+
-+} perf_ctl_config_t;
-+
-+
-+extern struct kvm* main_vm;
-+
-+
-+bool __untrack_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
-+                           enum kvm_page_track_mode mode);//defined in x86.c
-+
-+bool __track_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
-+                         enum kvm_page_track_mode mode); //defined in x86.c
-+bool __reset_accessed_on_page(struct kvm_vcpu *vcpu, gfn_t gfn); //defined in x86.c
-+bool __clear_nx_on_page(struct kvm_vcpu *vcpu, gfn_t gfn); //defined in x86.c
-+long kvm_start_tracking(struct kvm_vcpu *vcpu,enum kvm_page_track_mode mode );
-+long kvm_stop_tracking(struct kvm_vcpu *vcpu,enum kvm_page_track_mode mode );
-+void sev_step_handle_callback(void);
-+
-+uint64_t perf_ctl_to_u64(perf_ctl_config_t * config);
-+void write_ctl(perf_ctl_config_t * config, int cpu, uint64_t ctl_msr);
-+void read_ctr(uint64_t ctr_msr, int cpu, uint64_t* result);
-+void setup_perfs(void);
-+
-+
-+int sev_step_get_rip_kvm_vcpu(struct kvm_vcpu* vcpu,uint64_t *rip);
-+
-+#endif
-diff --git a/include/linux/userspace_page_track_signals.h b/include/linux/userspace_page_track_signals.h
-new file mode 100755
-index 000000000000..dc3fea4a9af7
---- /dev/null
-+++ b/include/linux/userspace_page_track_signals.h
-@@ -0,0 +1,59 @@
-+#ifndef USERSPACE_PAGE_TRACK_SIGNALS
-+#define USERSPACE_PAGE_TRACK_SIGNALS
-+
-+#include<linux/kvm.h>
-+#include<linux/kvm_host.h>
-+#include<linux/types.h>
-+
-+
-+//
-+// User space signaling
-+//
-+
-+int uspt_initialize(int pid,bool should_get_rip);
-+int uspt_is_initialiized(void);
-+void uspt_clear(void);
-+
-+bool uspt_should_get_rip(void);
-+
-+
-+int uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code, bool have_rip,uint64_t rip);
-+
-+int uspt_is_event_done(uint64_t id);
-+
-+//prepare next event based on faulted_gpa and error_code. Notify process behind pid_number. Event must be polled
-+//id is result param with the id used for the event. Can be used to call uspt_is_event_done
-+int uspt_send_notification(int pid_number, uint64_t faulted_gpa, uint32_t error_code,uint64_t* id);
-+
-+//copy next event to userpace_mem
-+int uspt_handle_poll_event(page_fault_event_t* userpace_mem);
-+
-+//acknowledge receival of event to event handling logic
-+int uspt_handle_ack_event_ioctl(ack_event_t event);
-+
-+//
-+// Batch Tracking
-+//
-+
-+//should be called after "uspt_batch_tracking_save", "uspt_batch_tracking_handle_retrack" and any future custom logic
-+//for an event is processed
-+void uspt_batch_tracking_inc_event_idx(void);
-+
-+int uspt_batch_tracking_start(int tracking_type,uint64_t expected_events, int perf_cpu,bool retrack);
-+
-+int uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code, bool have_rip,uint64_t rip);
-+
-+uint64_t uspt_batch_tracking_get_events_count(void);
-+
-+//Stops batch tracking on copies the first @len events into @result. If an error occured at some point
-+//during the batch tracking, error_occured is set(there should also be a dmesg, but this allows programatic access);
-+//Caller can use uspt_batch_tracking_get_events_count() to determine the amount of memory they should allocate for
-+//@results
-+int uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len,bool* error_occured);
-+
-+void uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,uint64_t current_fault_gfn);
-+
-+void uspt_batch_tracking_get_retrack_gfns(uint64_t** gfns, uint64_t* len,int * tracking_type);
-+
-+bool uspt_batch_tracking_in_progress(void);
-+#endif
-diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-old mode 100644
-new mode 100755
-index f288b421b603..81b232132f66
---- a/include/uapi/linux/kvm.h
-+++ b/include/uapi/linux/kvm.h
-@@ -16,6 +16,78 @@
- 
- #define KVM_API_VERSION 12
- 
-+#define KVM_USPT_POLL_EVENT_NO_EVENT 1000
-+#define KVM_USPT_POLL_EVENT_GOT_EVENT 0
-+
-+
-+typedef struct {
-+    uint64_t id; //filled automatically
-+    uint64_t faulted_gpa;
-+    uint32_t error_code;
-+	bool have_rip_info;
-+	uint64_t rip;
-+	uint64_t ns_timestamp;
-+	bool have_retired_instructions;
-+	uint64_t retired_instructions;
-+} page_fault_event_t;
-+
-+typedef struct {
-+	int tracking_type;
-+	uint64_t expected_events;
-+	int perf_cpu;
-+	bool retrack;
-+} batch_track_config_t;
-+
-+typedef struct {
-+	uint64_t event_count;
-+} batch_track_event_count_t;
-+
-+typedef struct {
-+	page_fault_event_t* out_buf;
-+	uint64_t len;
-+	bool error_during_batch;
-+} batch_track_stop_and_get_t;
-+
-+typedef struct {
-+	int cpu; //cpu on which we want to read the counter
-+	uint64_t retired_instruction_count; //result param
-+} retired_instr_perf_t;
-+
-+typedef struct {
-+	int cpu; //cpu on which counter should be programmed
-+} retired_instr_perf_config_t;
-+
-+typedef struct {
-+	uint64_t gpa;
-+	uint64_t len;
-+	bool decrypt_with_host_key;
-+	int wbinvd_cpu; //-1: do not flush; else logical cpu on which we flush
-+	void* output_buffer;
-+}read_guest_memory_t;
-+
-+typedef struct {
-+    int pid;
-+	bool get_rip;
-+} userspace_ctx_t;
-+
-+
-+typedef struct {
-+    uint64_t id;
-+} ack_event_t;
-+
-+
-+typedef struct {
-+	uint64_t gpa;
-+	int track_mode;
-+} track_page_param_t;
-+
-+
-+typedef struct {
-+	int track_mode;
-+} track_all_pages_t;
-+
-+
-+
- /* *** Deprecated interfaces *** */
- 
- #define KVM_TRC_SHIFT           16
-@@ -921,6 +993,29 @@ struct kvm_ppc_resize_hpt {
- #define KVM_GET_EMULATED_CPUID	  _IOWR(KVMIO, 0x09, struct kvm_cpuid2)
- #define KVM_GET_MSR_FEATURE_INDEX_LIST    _IOWR(KVMIO, 0x0a, struct kvm_msr_list)
- 
-+
-+//
-+// SNP ATTACK IOCTLS
-+//
-+
-+#define KVM_TRACK_PAGE _IOWR(KVMIO, 0x20, track_page_param_t)
-+#define KVM_USPT_REGISTER_PID _IOWR(KVMIO, 0x21, userspace_ctx_t)
-+#define KVM_USPT_WAIT_AND_SEND _IO(KVMIO, 0x22)
-+#define KVM_USPT_POLL_EVENT _IOWR(KVMIO, 0x23, page_fault_event_t)
-+#define KVM_USPT_ACK_EVENT _IOWR(KVMIO, 0x24, ack_event_t)
-+#define KVM_READ_GUEST_MEMORY _IOWR(KVMIO, 0x25, read_guest_memory_t)
-+#define KVM_USPT_RESET _IO(KVMIO, 0x26)
-+#define KVM_USPT_TRACK_ALL _IOWR(KVMIO, 0x27, track_all_pages_t)
-+#define KVM_USPT_UNTRACK_ALL _IOWR(KVMIO, 0x28, track_all_pages_t)
-+#define KVM_USPT_SETUP_RETINSTR_PERF _IOWR(KVMIO, 0x30,retired_instr_perf_config_t)
-+#define KVM_USPT_READ_RETINSTR_PERF _IOWR(KVMIO,0x31, retired_instr_perf_t)
-+#define KVM_USPT_BATCH_TRACK_START _IOWR(KVMIO,0x32,batch_track_config_t)
-+#define KVM_USPT_BATCH_TRACK_STOP _IOWR(KVMIO,0x33,batch_track_stop_and_get_t)
-+#define KVM_USPT_BATCH_TRACK_EVENT_COUNT _IOWR(KVMIO,0x34,batch_track_event_count_t)
-+
-+
-+
-+
- /*
-  * Extension capability list.
-  */
-diff --git a/my-make-ccp-modules.sh b/my-make-ccp-modules.sh
-new file mode 100755
-index 000000000000..b5068c264ed0
---- /dev/null
-+++ b/my-make-ccp-modules.sh
-@@ -0,0 +1,24 @@
-+#/bin/sh
-+cores=$(nproc --all)
-+#sudo -u luca make distclean &&
-+#./my-configure-sev.sh &&
-+EXTRAVERSION=""
-+MODPATH="drivers/crypto/ccp"
-+make clean M="$MODPATH" &&
-+make -j $cores scripts &&
-+make -j $cores prepare &&
-+make -j $cores modules_prepare &&
-+cp /usr/src/linux-headers-`uname -r`/Module.symvers "$MODPATH"/Module.symvers  &&
-+cp /usr/src/linux-headers-`uname -r`/Module.symvers Module.symvers  &&
-+chown luca:luca "$MODPATH"/Module.symvers
-+cp "/boot/System.map-$(uname -r)" .
-+cp "/boot/System.map-$(uname -r)" "$MODPATH"
-+touch .scmversion &&
-+make -j $cores modules M="$MODPATH" LOCALVERSION= &&
-+make modules_install M="$MODPATH" LOCALVERSION=
-+
-+exit
-+
-+echo "Installing module file"
-+cp ./drivers/crypto/ccp/ccp.ko "/lib/modules/$(uname -r)/kernel/drivers/crypto/ccp/ccp.ko"
-+cp ./drivers/crypto/ccp/ccp-crypto.ko "/lib/modules/$(uname -r)/kernel/drivers/crypto/ccp/ccp-crypto.ko"
-diff --git a/my-make-kernel.sh b/my-make-kernel.sh
-new file mode 100755
-index 000000000000..0418f607cb43
---- /dev/null
-+++ b/my-make-kernel.sh
-@@ -0,0 +1,38 @@
-+#!/bin/bash
-+
-+run_cmd()
-+{
-+   echo "$*"
-+
-+   eval "$*" || {
-+      echo "ERROR: $*"
-+      exit 1
-+   }
-+}
-+
-+
-+[ -d linux-patches ] && {
-+
-+	for P in linux-patches/*.patch; do
-+		run_cmd patch -p1 -d linux < $P
-+	done
-+}
-+
-+MAKE="make -j $(getconf _NPROCESSORS_ONLN) LOCALVERSION="
-+
-+run_cmd $MAKE distclean
-+
-+	run_cmd cp /boot/config-$(uname -r) .config
-+	run_cmd ./scripts/config --set-str LOCALVERSION "-sev-step-snp"
-+	run_cmd ./scripts/config --disable LOCALVERSION_AUTO
-+	run_cmd ./scripts/config --disable CONFIG_DEBUG_INFO
-+#	run_cmd ./scripts/config --undefine CONFIG_SYSTEM_TRUSTED_KEYS
-+#	run_cmd ./scripts/config --undefine CONFIG_MODULE_SIG_KEY
-+
-+run_cmd $MAKE olddefconfig
-+
-+# Build
-+run_cmd $MAKE >/dev/null
-+
-+run_cmd $MAKE bindeb-pkg
-+
-diff --git a/my-make-kvm-modules.sh b/my-make-kvm-modules.sh
-new file mode 100755
-index 000000000000..22f1f95b063f
---- /dev/null
-+++ b/my-make-kvm-modules.sh
-@@ -0,0 +1,29 @@
-+#/bin/sh
-+cores=$(nproc --all)
-+#sudo -u luca make distclean &&
-+#./my-configure-sev.sh &&
-+EXTRAVERSION=""
-+make clean M=arch/x86/kvm/ &&
-+make -j $cores scripts &&
-+make -j $cores prepare &&
-+make -j $cores modules_prepare &&
-+cp /usr/src/linux-headers-`uname -r`/Module.symvers arch/x86/kvm/Module.symvers  &&
-+cp /usr/src/linux-headers-`uname -r`/Module.symvers Module.symvers  &&
-+chown luca:luca arch/x86/kvm/Module.symvers
-+cp "/boot/System.map-$(uname -r)" .
-+cp "/boot/System.map-$(uname -r)" arch/x86/kvm/
-+touch .scmversion &&
-+make -j $cores modules M=arch/x86/kvm/ LOCALVERSION= &&
-+make modules_install M=arch/x86/kvm/ LOCALVERSION= &&
-+
-+echo "Unload old modules"
-+modprobe -r kvm_amd kvm
-+cp ./arch/x86/kvm/kvm.ko "/lib/modules/$(uname -r)/kernel/arch/x86/kvm/"
-+cp ./arch/x86/kvm/kvm-amd.ko "/lib/modules/$(uname -r)/kernel/arch/x86/kvm/"
-+echo "Load new modules"
-+modprobe kvm
-+modprobe kvm-amd sev-snp=1 sev=1 sev-es=1
-+#insmod "/lib/modules/$(uname -r)/kernel/virt/lib/irqbypass.ko"
-+#insmod ./arch/x86/kvm/kvm.ko
-+#insmod "/lib/modules/$(uname -r)/kernel/drivers/crypto/ccp/ccp.ko"
-+#insmod ./arch/x86/kvm/kvm-amd.ko sev=1
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-old mode 100644
-new mode 100755
-index f2a63cb2658b..ac5fc6c64b7e
+index f2a63cb2658b..bfe4a57bcc10 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -67,9 +67,14 @@
- 
- #include <linux/kvm_dirty_ring.h>
- 
-+#include <linux/sev-step.h>
-+#include <linux/userspace_page_track_signals.h>
-+
+@@ -70,6 +70,10 @@
  /* Worst case buffer size needed for holding an integer. */
  #define ITOA_MAX_LEN 12
  
 +#include "../../arch/x86/kvm/svm/cachepc/kvm.h"
++#include "../../arch/x86/kvm/sevstep/sevstep.h"
++#include "../../arch/x86/kvm/sevstep/uspt.h"
 +
  MODULE_AUTHOR("Qumranet");
  MODULE_LICENSE("GPL");
  
-@@ -5792,6 +5797,8 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -5792,6 +5796,8 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -2119,7 +453,7 @@ index f2a63cb2658b..ac5fc6c64b7e
  	return 0;
  
  out_unreg:
-@@ -5821,6 +5828,8 @@ void kvm_exit(void)
+@@ -5821,6 +5827,8 @@ void kvm_exit(void)
  {
  	int cpu;
  

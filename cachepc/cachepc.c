@@ -16,22 +16,13 @@ static void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cach
 static cacheline **allocate_cache_ds(cache_ctx *ctx);
 static uint16_t get_virt_cache_set(cache_ctx *ctx, void *ptr);
 
-void __attribute__((optimize(1))) // prevent instruction reordering
-cachepc_prime_vcall(uintptr_t ret, cacheline *cl)
-{
-	cachepc_prime(cl);
-	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
-}
-
-void __attribute__((optimize(1))) // prevent instruction reordering
-cachepc_probe_vcall(uintptr_t ret, cacheline *cl)
-{
-	cachepc_probe(cl);
-	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
-}
+static void random_perm(uint32_t *arr, uint32_t arr_len);
+static void gen_random_indices(uint32_t *arr, uint32_t arr_len);
+static bool is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len);
 
 void
-cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask)
+cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
+	bool host, bool guest, bool kernel, bool user)
 {
 	uint64_t event;
 	uint64_t reg_addr;
@@ -47,9 +38,9 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask)
 
 	reg_addr = 0xc0010200 + index * 2;
 	event = event_no | (event_mask << 8);
-	event |= (1ULL << 17); /* OS (kernel) events only */
 	event |= (1ULL << 22); /* enable performance counter */
-	event |= (1ULL << 40); /* Host events only */
+	event |= ((kernel * 2ULL + user * 1ULL) << 16);
+	event |= ((host * 2ULL + guest * 1ULL) << 40);
 	printk(KERN_WARNING "CachePC: Initialized %i. PMC %02X:%02X\n",
 		index, event_no, event_mask);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
@@ -149,6 +140,19 @@ cachepc_release_victim(cache_ctx *ctx, cacheline *victim)
 	kfree(remove_cache_set(ctx, victim));
 }
 
+void *
+cachepc_aligned_alloc(size_t alignment, size_t size)
+{
+	void *p;
+
+	if (size % alignment != 0)
+		size = size - (size % alignment) + alignment;
+	p = kzalloc(size, GFP_KERNEL);
+	BUG_ON(((uintptr_t) p) % alignment != 0);
+
+	return p;
+}
+
 void
 cachepc_save_msrmts(cacheline *head)
 {
@@ -183,6 +187,19 @@ cachepc_print_msrmts(cacheline *head)
 	} while (curr_cl != head);
 }
 
+void __attribute__((optimize(1))) // prevent instruction reordering
+cachepc_prime_vcall(uintptr_t ret, cacheline *cl)
+{
+	cachepc_prime(cl);
+	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
+}
+
+void __attribute__((optimize(1))) // prevent instruction reordering
+cachepc_probe_vcall(uintptr_t ret, cacheline *cl)
+{
+	cachepc_probe(cl);
+	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
+}
 
 cacheline *
 prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
@@ -430,16 +447,39 @@ get_virt_cache_set(cache_ctx *ctx, void *ptr)
 	return (uint16_t) ((((uintptr_t) ptr) & SET_MASK(ctx->sets)) / CACHELINE_SIZE);
 }
 
-void *
-cachepc_aligned_alloc(size_t alignment, size_t size)
+void
+random_perm(uint32_t *arr, uint32_t arr_len)
 {
-	void *p;
+	uint32_t i;
 
-	if (size % alignment != 0)
-		size = size - (size % alignment) + alignment;
-	p = kzalloc(size, GFP_KERNEL);
-	BUG_ON(((uintptr_t) p) % alignment != 0);
+	/* no special ordering needed when prefetcher is disabled */
+	for (i = 0; i < arr_len; i++)
+		arr[i] = i;
 
-	return p;
+	// /* prevent stream prefetching by alternating access direction */
+	// mid = arr_len / 2;
+	// for (i = 0; i < arr_len; i++)
+	// 	arr[i] = mid + (i % 2 ? -1 : 1) * ((i + 1) / 2);
 }
 
+void
+gen_random_indices(uint32_t *arr, uint32_t arr_len)
+{
+	uint32_t i;
+
+	for (i = 0; i < arr_len; ++i)
+		arr[i] = i;
+	random_perm(arr, arr_len);
+}
+
+
+bool is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len) {
+	uint32_t i;
+
+	for (i = 0; i < arr_len; ++i) {
+		if (arr[i] == elem)
+			return true;
+	}
+
+	return false;
+}

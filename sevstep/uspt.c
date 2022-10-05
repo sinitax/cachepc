@@ -225,7 +225,7 @@ _perf_state_setup_retired_instructions(void)
 	retired_instructions_perf_config.EventSelect = 0x0c0;
 	retired_instructions_perf_config.UintMask = 0x0;
 	retired_instructions_perf_config.En = 0x1;
-	write_ctl(&retired_instructions_perf_config,batch_track_state.perf_cpu, CTL_MSR_0);
+	write_ctl(&retired_instructions_perf_config, batch_track_state.perf_cpu, CTL_MSR_0);
 }
 
 
@@ -236,17 +236,17 @@ _perf_state_update_and_get_delta(uint64_t current_event_idx)
 {
 	uint64_t current_value;
 
-	// check if value is "cached"
+	/* check if value is "cached" */
 	if (perf_state.delta_valid_idx == current_event_idx) {
 		if (current_event_idx == 0) {
 			read_ctr(CTR_MSR_0, batch_track_state.perf_cpu, &current_value);
 			perf_state.idx_for_last_perf_reading = current_event_idx;
-			perf_state.last_perf_reading = current_event_idx;
+			perf_state.last_perf_reading = current_value;
 		}
 		return perf_state.delta;
 	}
 
-	// otherwise update, but logic is only valid for two consecutive events
+	/* otherwise update, but logic is only valid for two consecutive events */
 	if (current_event_idx != perf_state.idx_for_last_perf_reading+1) {
 		printk_ratelimited(KERN_CRIT "_perf_state_update_and_get_delta: "
 			"last reading was for idx %llu but was queried for %llu\n",
@@ -377,7 +377,7 @@ uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 
 	/* made progress, retrack everything in backlog and reset idx */
 	for (i = 0; i < batch_track_state.gfn_retrack_backlog_next_idx; i++) {
-		__track_single_page(vcpu,
+		sevstep_track_single_page(vcpu,
 			batch_track_state.gfn_retrack_backlog[i],
 			batch_track_state.tracking_type);
 	}

@@ -1,7 +1,7 @@
 #include "../sevstep/sevstep.h"
 #include "../sevstep/uspt.h"
 
-void
+static void
 sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	struct kvm_page_fault *fault)
 {
@@ -19,7 +19,7 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
 		if (kvm_slot_page_track_is_active(vcpu->kvm,
 				fault->slot, fault->gfn, modes[i])) {
-			__untrack_single_page(vcpu, fault->gfn, modes[i]);
+			sevstep_untrack_single_page(vcpu, fault->gfn, modes[i]);
 			was_tracked = true;
 		}
 	}
@@ -27,7 +27,7 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	if (was_tracked) {
 		have_rip = false;
 		if (uspt_should_get_rip())
-			have_rip = sev_step_get_rip_kvm_vcpu(vcpu,&current_rip) == 0;
+			have_rip = sevstep_get_rip_kvm_vcpu(vcpu, &current_rip) == 0;
 		if (uspt_batch_tracking_in_progress()) {
 			send_err = uspt_batch_tracking_save(fault->gfn << PAGE_SHIFT,
 				fault->error_code, have_rip, current_rip);

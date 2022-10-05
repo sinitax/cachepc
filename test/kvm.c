@@ -276,7 +276,7 @@ main(int argc, const char **argv)
 	if (cachepc_fd < 0) err(1, "open");
 
 	/* init L1 miss counter */
-	arg = 0x000064D8;
+	arg = 0x002264D8;
 	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
 	if (ret == -1) err(1, "ioctl fail");
 

@@ -493,7 +493,7 @@ main(int argc, const char **argv)
 	if (ret != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
 
 	// Init L1 miss counter
-	arg = 0x000064D8;
+	arg = 0x002264D8;
 	ret = ioctl(cachepc_dev, CACHEPC_IOCTL_INIT_PMC, &arg);
 	if (ret < 0) err(1, "ioctl fail");
 

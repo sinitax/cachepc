@@ -17,7 +17,7 @@ index eb186bc57f6a..3f767a27045e 100644
  /*
   * The notifier represented by @kvm_page_track_notifier_node is linked into
 diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
-index 30f244b64523..ddfd48fbd8ca 100644
+index 30f244b64523..3c5f65040878 100644
 --- a/arch/x86/kvm/Makefile
 +++ b/arch/x86/kvm/Makefile
 @@ -1,6 +1,6 @@
@@ -35,8 +35,8 @@ index 30f244b64523..ddfd48fbd8ca 100644
 -			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o \
 -			   mmu/spte.o
 +			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o mmu/spte.o \
-+			   svm/cachepc/cachepc.o svm/cachepc/util.o svm/cachepc/kvm.o \
-+			   sevstep/sevstep.o sevstep/uspt.o sevstep/kvm.o
++			   svm/cachepc/cachepc.o svm/cachepc/kvm.o \
++			   sevstep/sevstep.o sevstep/uspt.o
  
  ifdef CONFIG_HYPERV
  kvm-y			+= kvm_onhyperv.o
@@ -46,7 +46,7 @@ index 30f244b64523..ddfd48fbd8ca 100644
  
 -kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o
 +kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o \
-+                           svm/cachepc/cachepc.o svm/cachepc/util.o
++                           svm/cachepc/cachepc.o
  
  ifdef CONFIG_HYPERV
  kvm-amd-y		+= svm/svm_onhyperv.o
@@ -382,14 +382,14 @@ index dfaeb47fcf2a..0626f3fdddfd 100644
  2:	cli
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index d9adf79124f9..1809b79cb6cd 100644
+index d9adf79124f9..082dc8553566 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -82,6 +82,8 @@
  #include <asm/sgx.h>
  #include <clocksource/hyperv_timer.h>
  
-+#include "sevstep/kvm.h"
++#include "sevstep/sevstep.h"
 +
  #define CREATE_TRACE_POINTS
  #include "trace.h"

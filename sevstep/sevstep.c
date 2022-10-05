@@ -13,7 +13,6 @@
 #include "cpuid.h"
 #include "mmu/spte.h"
 
-
 #include <linux/kvm_host.h>
 #include <linux/types.h>
 #include <linux/string.h>
@@ -44,12 +43,7 @@
 struct kvm* main_vm;
 EXPORT_SYMBOL(main_vm);
 
-// used to store performance counter values; 6 counters, 2 readings per counter
-// TODO: static!
-uint64_t perf_reads[6][2];
-perf_ctl_config_t perf_configs[6];
-int perf_cpu;
-
+static perf_ctl_config_t perf_configs[6];
 
 uint64_t
 perf_ctl_to_u64(perf_ctl_config_t * config)
@@ -60,10 +54,10 @@ perf_ctl_to_u64(perf_ctl_config_t * config)
 	result |= config->EventSelect & 0xffULL;
 	result |= (config->UintMask & 0xffULL) << 8;
 	result |= (config->OsUserMode & 0x3ULL) << 16;
-	result |= (config->Edge & 0x1ULL ) << 18;
-	result |= (config->Int & 0x1ULL ) << 20;
-	result |= (config->En & 0x1ULL ) << 22;
-	result |= (config->Inv & 0x1ULL ) << 23;
+	result |= (config->Edge & 0x1ULL) << 18;
+	result |= (config->Int & 0x1ULL) << 20;
+	result |= (config->En & 0x1ULL) << 22;
+	result |= (config->Inv & 0x1ULL) << 23;
 	result |= (config->CntMask & 0xffULL) << 24;
 	result |= ((config->EventSelect & 0xf00ULL) >> 8) << 32;
 	result |= (config->HostGuestOnly & 0x3ULL) << 40;
@@ -88,8 +82,9 @@ read_ctr(uint64_t ctr_msr, int cpu, uint64_t* result)
 }
 
 void
-setup_perfs()
+sevstep_setup_pmcs(void)
 {
+	int perf_cpu;
 	int i;
 
 	perf_cpu = smp_processor_id();
@@ -107,7 +102,7 @@ setup_perfs()
 	perf_configs[0].EventSelect = 0x0c0;
 	perf_configs[0].UintMask = 0x0;
 	perf_configs[0].En = 0x1;
-	write_ctl(&perf_configs[0],perf_cpu, CTL_MSR_0);
+	write_ctl(&perf_configs[0], perf_cpu, CTL_MSR_0);
 
 	/*
 	 * programm l2d hit from data cache miss perf for
@@ -118,12 +113,213 @@ setup_perfs()
 	perf_configs[1].UintMask = 0x70;
 	perf_configs[1].En = 0x1;
 	perf_configs[1].HostGuestOnly = 0x2; /* count only host events */
-	write_ctl(&perf_configs[1],perf_cpu,CTL_MSR_1);
+	write_ctl(&perf_configs[1], perf_cpu, CTL_MSR_1);
 }
-EXPORT_SYMBOL(setup_perfs);
+EXPORT_SYMBOL(sevstep_setup_pmcs);
+
+bool
+sevstep_untrack_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
+	enum kvm_page_track_mode mode)
+{
+	int idx;
+	bool ret;
+	struct kvm_memory_slot *slot;
+
+	ret = false;
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	if (mode == KVM_PAGE_TRACK_ACCESS) {
+		//printk("Removing gfn: %016llx from acess page track pool\n", gfn);
+	}
+	if (mode == KVM_PAGE_TRACK_WRITE) {
+		//printk("Removing gfn: %016llx from write page track pool\n", gfn);
+	}
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+
+	if (slot != NULL && kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
+		write_lock(&vcpu->kvm->mmu_lock);
+		kvm_slot_page_track_remove_page(vcpu->kvm, slot, gfn, mode);
+		write_unlock(&vcpu->kvm->mmu_lock);
+		ret = true;
+	} else {
+		printk("Failed to untrack %016llx because ", gfn);
+		if (slot == NULL) {
+			printk(KERN_CONT "slot was	null");
+		} else if (!kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
+			printk(KERN_CONT "page track was not active");
+		}
+		printk(KERN_CONT "\n");
+	}
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	return ret;
+}
+EXPORT_SYMBOL(sevstep_untrack_single_page);
+
+bool
+sevstep_reset_accessed_on_page(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	int idx;
+	bool ret;
+	struct kvm_memory_slot *slot;
+
+	ret = false;
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	if( slot != NULL ) {
+		write_lock(&vcpu->kvm->mmu_lock);
+		//Vincent: The kvm mmu function now requires min_level
+		//We want all pages to protected so we do PG_LEVEL_4K
+		//https://patchwork.kernel.org/project/kvm/patch/20210416082511.2856-2-zhukeqian1@huawei.com/
+		sevstep_kvm_mmu_slot_gfn_protect(vcpu->kvm,slot,gfn,PG_LEVEL_4K,KVM_PAGE_TRACK_RESET_ACCESSED);
+		write_unlock(&vcpu->kvm->mmu_lock);
+		ret = true;
+	}
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	return ret;
+}
+EXPORT_SYMBOL(sevstep_reset_accessed_on_page);
+
+bool
+sevstep_clear_nx_on_page(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	int idx;
+	bool ret;
+	struct kvm_memory_slot *slot;
+
+	ret = false;
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	if( slot != NULL ) {
+		write_lock(&vcpu->kvm->mmu_lock);
+		//Vincent: The kvm mmu function now requires min_level
+		//We want all pages to protected so we do PG_LEVEL_4K
+		//https://patchwork.kernel.org/project/kvm/patch/20210416082511.2856-2-zhukeqian1@huawei.com/
+		sevstep_kvm_mmu_slot_gfn_protect(vcpu->kvm, slot, gfn,
+			PG_LEVEL_4K, KVM_PAGE_TRACK_RESET_EXEC);
+		write_unlock(&vcpu->kvm->mmu_lock);
+		ret = true;
+	}
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	return ret;
+}
+EXPORT_SYMBOL(sevstep_clear_nx_on_page);
+
+bool
+sevstep_track_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
+	enum kvm_page_track_mode mode)
+{
+	int idx;
+	bool ret;
+	struct kvm_memory_slot *slot;
+
+	ret = false;
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	if (mode == KVM_PAGE_TRACK_ACCESS) {
+		//printk_ratelimited("Adding gfn: %016llx to acess page track pool\n", gfn);
+		//printk("Adding gfn: %016llx to acess page track pool\n", gfn);
+	}
+	if (mode == KVM_PAGE_TRACK_WRITE) {
+		//printk_ratelimited("Adding gfn: %016llx to write page track pool\n", gfn);
+	}
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	if (slot != NULL && !kvm_slot_page_track_is_active(vcpu->kvm,slot, gfn, mode)) {
+
+		write_lock(&vcpu->kvm->mmu_lock);
+		kvm_slot_page_track_add_page(vcpu->kvm, slot, gfn, mode);
+		write_unlock(&vcpu->kvm->mmu_lock);
+		ret = true;
+
+	} else {
+
+		printk("Failed to track %016llx because ", gfn);
+		if (slot == NULL) {
+			printk(KERN_CONT "slot was	null");
+		}
+		if (kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
+			printk(KERN_CONT "page is already tracked");
+		}
+		printk(KERN_CONT "\n");
+	}
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	return ret;
+}
+EXPORT_SYMBOL(sevstep_track_single_page);
+
+long
+sevstep_start_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
+{
+	long count = 0;
+	u64 iterator, iterat_max;
+	struct kvm_memory_slot *slot;
+	int idx;
+
+	//Vincent: Memslots interface changed into a rb tree, see
+	//here: https://lwn.net/Articles/856392/
+	//and here: https://lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
+	//Thus we use instead of
+	//iterat_max = vcpu->kvm->memslots[0]->memslots[0].base_gfn
+	//	     + vcpu->kvm->memslots[0]->memslots[0].npages;
+	struct rb_node *node;
+	struct kvm_memory_slot *first_memslot;
+	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
+	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
+	iterat_max = first_memslot->base_gfn + first_memslot->npages;
+	for (iterator = 0; iterator < iterat_max; iterator++)
+	{
+		idx = srcu_read_lock(&vcpu->kvm->srcu);
+		slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
+		if (slot != NULL && !kvm_slot_page_track_is_active(vcpu->kvm, slot, iterator, mode)) {
+			write_lock(&vcpu->kvm->mmu_lock);
+			kvm_slot_page_track_add_page(vcpu->kvm, slot, iterator, mode);
+			write_unlock(&vcpu->kvm->mmu_lock);
+			count++;
+		}
+		srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	}
+
+	return count;
+}
+EXPORT_SYMBOL(sevstep_start_tracking);
+
+long
+sevstep_stop_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
+{
+	long count = 0;
+	u64 iterator, iterat_max;
+	struct kvm_memory_slot *slot;
+	int idx;
+
+
+	//Vincent: Memslots interface changed into a rb tree, see
+	//here: https://lwn.net/Articles/856392/
+	//and here: https://lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
+	//Thus we use instead of
+	//iterat_max = vcpu->kvm->memslots[0]->memslots[0].base_gfn
+	//	     + vcpu->kvm->memslots[0]->memslots[0].npages;
+	struct rb_node *node;
+	struct kvm_memory_slot *first_memslot;
+	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
+	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
+	iterat_max = first_memslot->base_gfn + first_memslot->npages;
+	for (iterator=0; iterator < iterat_max; iterator++)
+	{
+		idx = srcu_read_lock(&vcpu->kvm->srcu);
+		slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
+			//Vincent: I think see here https://patchwork.kernel.org/project/kvm/patch/20210924163152.289027-22-pbonzini@redhat.com/
+			if ( slot != NULL && kvm_slot_page_track_is_active(vcpu->kvm, slot, iterator, mode)) {
+				write_lock(&vcpu->kvm->mmu_lock);
+				kvm_slot_page_track_remove_page(vcpu->kvm, slot, iterator, mode);
+				write_unlock(&vcpu->kvm->mmu_lock);
+				count++;
+		}
+		srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	}
+
+	return count;
+}
+EXPORT_SYMBOL(sevstep_stop_tracking);
 
 int
-sev_step_get_rip_kvm_vcpu(struct kvm_vcpu* vcpu,uint64_t *rip)
+sevstep_get_rip_kvm_vcpu(struct kvm_vcpu *vcpu, uint64_t *rip)
 {
 	return 0;
 }

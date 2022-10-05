@@ -2,10 +2,10 @@
 
 #include "asm.h"
 #include "cache_types.h"
-#include "util.h"
 #include "uapi.h"
 
-void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask);
+void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
+	bool host, bool guest, bool kernel, bool user);
 
 cache_ctx *cachepc_get_ctx(cache_level cl);
 void cachepc_release_ctx(cache_ctx *ctx);

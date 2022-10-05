@@ -72,7 +72,7 @@ typedef struct {
 	__u64 len;
 	__u8 decrypt_with_host_key;
 	__s32 wbinvd_cpu; // -1: do not flush; else logical cpu on which we flush
-	__u64 output_buffer;
+	void *output_buffer;
 } read_guest_memory_t;
 
 typedef struct {

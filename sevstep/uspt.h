@@ -7,7 +7,7 @@
 #include <linux/types.h>
 
 
-int sevstep_uspt_initialize(int pid,bool should_get_rip);
+int sevstep_uspt_initialize(int pid, bool should_get_rip);
 int sevstep_uspt_is_initialiized(void);
 void sevstep_uspt_clear(void);
 
@@ -43,7 +43,7 @@ uint64_t sevstep_uspt_batch_tracking_get_events_count(void);
  * error_occured is set(there should also be a dmesg, but this allows programatic access);
  * Caller can use sevstep_uspt_batch_tracking_get_events_count() to determine the amount
  * of memory they should allocate for @results */
-int sevstep_uspt_batch_tracking_stop(page_fault_event_t *results, uint64_t len, bool *error_occured);
+int sevstep_uspt_batch_tracking_stop(page_fault_event_t *results, uint64_t len, __u8 *error_occured);
 void sevstep_uspt_batch_tracking_handle_retrack(struct kvm_vcpu *vcpu, uint64_t current_fault_gfn);
 void sevstep_uspt_batch_tracking_get_retrack_gfns(uint64_t **gfns, uint64_t *len, int *tracking_type);
 bool sevstep_uspt_batch_tracking_in_progress(void);

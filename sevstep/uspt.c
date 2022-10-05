@@ -440,7 +440,8 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 }
 
 int
-sevstep_uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len, bool* error_occured)
+sevstep_uspt_batch_tracking_stop(page_fault_event_t* results,
+	uint64_t len, __u8* error_occured)
 {
 	spin_lock(&batch_track_state_lock);
 	if (!batch_track_state.is_active) {

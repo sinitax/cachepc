@@ -4,6 +4,8 @@
 #include <sys/ioctl.h>
 
 #include <err.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -13,7 +15,7 @@ main(int argc, const char **argv)
 	track_all_pages_t tracking;
 	int ret, fd;
 
-	fd = open("/proc/cachepc");
+	fd = open("/proc/cachepc", O_RDONLY);
 	if (!fd) err(1, "open");
 
 	tracking.track_mode = KVM_PAGE_TRACK_ACCESS;

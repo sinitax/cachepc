@@ -1,4 +1,4 @@
 #pragma once
 
-#include "sev-step.h"
+#include "sevstep.h"
 #include "uapi.h"

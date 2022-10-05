@@ -21,7 +21,7 @@ load:
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm.ko
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm-amd.ko
 
-test/%: test/%.c cachepc/cachepc_user.h
+test/%: test/%.c cachepc/uapi.h sevstep/uapi.h
 	clang -o $@ $< -fsanitize=address -I . -Wunused-variable
 
 

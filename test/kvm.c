@@ -46,12 +46,6 @@ extern uint8_t __stop_guest_with[];
 extern uint8_t __start_guest_without[];
 extern uint8_t __stop_guest_without[];
 
-static bool ready = false;
-static bool processed = false;
-
-static ssize_t sysret;
-static pid_t victim_pid;
-
 static struct kvm kvm;
 static struct kvm_run *kvm_run;
 

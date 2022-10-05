@@ -39,8 +39,8 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	reg_addr = 0xc0010200 + index * 2;
 	event = event_no | (event_mask << 8);
 	event |= (1ULL << 22); /* enable performance counter */
-	event |= (kernel_user * 1ULL) << 16;
-	event |= (host_guest * 1ULL) << 40;
+	event |= ((kernel_user & 0b11) * 1ULL) << 16;
+	event |= ((host_guest & 0b11) * 1ULL) << 40;
 	printk(KERN_WARNING "CachePC: Initialized %i. PMC %02X:%02X\n",
 		index, event_no, event_mask);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));

@@ -52,9 +52,10 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 bool
 sevstep_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 {
-	u64 spte = *sptep;
-	bool shouldFlush = false;
+	u64 spte;
+	bool flush;
 
+	spte = *sptep;
 	if (!is_writable_pte(spte) && !(pt_protect && is_mmu_writable_spte(spte)))
 		return false;
 
@@ -63,9 +64,10 @@ sevstep_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	if (pt_protect)
 		spte &= ~EPT_SPTE_MMU_WRITABLE;
 
+	flush = false;
 	if (mode == KVM_PAGE_TRACK_WRITE) {
 		spte = spte & ~PT_WRITABLE_MASK;
-		shouldFlush = true;
+		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_RESET_ACCESSED) {
 		spte = spte & ~PT_ACCESSED_MASK;
 	} else if (mode == KVM_PAGE_TRACK_ACCESS) {
@@ -73,19 +75,20 @@ sevstep_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 		spte = spte & ~PT_WRITABLE_MASK;
 		spte = spte & ~PT_USER_MASK;
 		spte = spte | (0x1ULL << PT64_NX_SHIFT);
-		shouldFlush = true;
+		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_EXEC) {
 		spte = spte | (0x1ULL << PT64_NX_SHIFT);
-		shouldFlush = true;
+		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_RESET_EXEC) {
 		spte = spte & ~(0x1ULL << PT64_NX_SHIFT);
-		shouldFlush = true;
+		flush = true;
 	} else {
 		printk(KERN_WARNING "spte_protect was called with invalid mode"
 			"parameter %d\n",mode);
 	}
-	shouldFlush |= mmu_spte_update(sptep, spte);
-	return shouldFlush;
+	flush |= mmu_spte_update(sptep, spte);
+
+	return flush;
 }
 EXPORT_SYMBOL(sevstep_spte_protect);
 

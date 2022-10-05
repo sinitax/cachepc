@@ -285,8 +285,8 @@ cachepc_kvm_init_pmc_ioctl(void *p)
 	event = *(uint32_t *)p;
 
 	index       = (event & 0xFF000000) >> 24;
-	host_guest  = (event & 0x00F00000) >> 20;
-	kernel_user = (event & 0x000F0000) >> 16;
+	host_guest  = (event & 0x00300000) >> 20;
+	kernel_user = (event & 0x00030000) >> 16;
 	event_no    = (event & 0x0000FF00) >> 8;
 	event_mask  = (event & 0x000000FF) >> 0;
 

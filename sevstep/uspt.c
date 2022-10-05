@@ -30,12 +30,19 @@ typedef struct {
 	bool error_occured;
 } batch_track_state_t;
 
+typedef struct {
+	uint64_t idx_for_last_perf_reading;
+	uint64_t last_perf_reading;
+	uint64_t delta_valid_idx;
+	uint64_t delta;
+} perf_state_t;
+
 // crude sync mechanism. don't know a good way to act on errors yet.
-uint64_t last_sent_event_id = 1;
-uint64_t last_acked_event_id = 1;
+static uint64_t last_sent_event_id = 1;
+static uint64_t last_acked_event_id = 1;
 DEFINE_RWLOCK(event_lock);
 
-page_fault_event_t sent_event;
+static page_fault_event_t sent_event;
 static int have_event = 0;
 
 static bool get_rip = true;
@@ -45,14 +52,7 @@ static int inited = 0;
 DEFINE_SPINLOCK(batch_track_state_lock);
 static batch_track_state_t batch_track_state;
 
-typedef struct {
-	uint64_t idx_for_last_perf_reading;
-	uint64_t last_perf_reading;
-	uint64_t delta_valid_idx;
-	uint64_t delta;
-} perf_state_t;
-
-perf_state_t perf_state;
+static perf_state_t perf_state;
 
 static uint64_t perf_state_update_and_get_delta(uint64_t current_event_idx);
 
@@ -69,7 +69,7 @@ sevstep_uspt_clear(void)
 }
 
 int
-sevstep_uspt_initialize(int pid,bool should_get_rip)
+sevstep_uspt_initialize(int pid, bool should_get_rip)
 {
 	write_lock(&event_lock);
 	inited = 1;
@@ -109,8 +109,7 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 
 	read_lock(&event_lock);
 	if (!sevstep_uspt_is_initialiized()) {
-		printk("userspace_page_track_signals: "
-			"sevstep_uspt_send_and_block : ctx not initialized!\n");
+		pr_warn("sevstep_uspt_send_and_block: ctx not initialized!\n");
 		read_unlock(&event_lock);
 		return 1;
 	}
@@ -118,7 +117,8 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 
 	write_lock(&event_lock);
 	 if (last_sent_event_id != last_acked_event_id) {
-		printk("event id_s out of sync, aborting. Fix this later\n");
+		pr_warn("sevstep_uspt_send_and_block: "
+			"event id_s out of sync, aborting. Fix this later\n");
 		write_unlock(&event_lock);
 		return 1;
 	} else {
@@ -136,7 +136,7 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 	// for poll based system;
 	have_event = 1;
 	sent_event = message_for_user;
-	// printk("sevstep_uspt_send_and_block sending event %llu\n",sent_event.id);
+	// printk("sevstep_uspt_send_and_block sending event %llu\n", sent_event.id);
 
 	write_unlock(&event_lock);
 
@@ -145,7 +145,9 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 	abort_after = ktime_get() + 1000000000ULL; // 1 sec in nanosecond
 	while (!sevstep_uspt_is_event_done(sent_event.id)) {
 		if (ktime_get() > abort_after) {
-			printk("Waiting for ack of event %llu timed out, continuing\n",sent_event.id);
+			pr_warn("sevstep_uspt_send_and_block: "
+				"Waiting for ack of event %llu timed out, "
+				"continuing\n",sent_event.id);
 			return 3;
 		}
 	}
@@ -201,7 +203,8 @@ sevstep_uspt_handle_ack_event_ioctl(ack_event_t event)
 		last_acked_event_id = last_sent_event_id;
 	} else {
 		err = 1;
-		printk("last sent event id is %llu but received ack for %llu\n",
+		pr_warn("sevstep_uspt_handle_ack_event_ioctl: "
+			"last sent event id is %llu but received ack for %llu\n",
 			last_sent_event_id, event.id);
 	}
 	write_unlock(&event_lock);
@@ -227,7 +230,7 @@ perf_state_update_and_get_delta(uint64_t current_event_idx)
 
 	/* otherwise update, but logic is only valid for two consecutive events */
 	if (current_event_idx != perf_state.idx_for_last_perf_reading+1) {
-		printk_ratelimited(KERN_CRIT "perf_state_update_and_get_delta: "
+		pr_warn("perf_state_update_and_get_delta: "
 			"last reading was for idx %llu but was queried for %llu\n",
 			perf_state.idx_for_last_perf_reading, current_event_idx);
 	}
@@ -259,8 +262,8 @@ sevstep_uspt_batch_tracking_start(int tracking_type,uint64_t expected_events,
 
 	spin_lock(&batch_track_state_lock);
 	if (batch_track_state.is_active) {
-		printk("userspace_page_track_signals: overwriting "
-			"active batch track config!\n");
+		pr_warn("sevstep_uspt_batch_tracking_start: "
+			"overwriting active batch track config!\n");
 		if (batch_track_state.events != NULL ) {
 			vfree(batch_track_state.events);
 		}
@@ -269,11 +272,12 @@ sevstep_uspt_batch_tracking_start(int tracking_type,uint64_t expected_events,
 	spin_unlock(&batch_track_state_lock);
 
 	buffer_size = expected_events * sizeof(page_fault_event_t);
-	printk("sevstep_uspt_batch_tracking_start trying to alloc %llu "
-		"bytes buffer for events\n", buffer_size);
+	pr_warn("sevstep_uspt_batch_tracking_start: "
+		"trying to alloc %llu bytes buffer for events\n",
+		buffer_size);
 	events = vmalloc(buffer_size);
 	if (events  == NULL) {
-		printk("userspace_page_track_signals: "
+		pr_warn("sevstep_uspt_batch_tracking_start: "
 			"faperf_cpuiled to alloc %llu bytes for event buffer\n",
 			buffer_size);
 		return 1; // note: lock not held here
@@ -326,24 +330,23 @@ sevstep_uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 	}
 
 	if (smp_processor_id() != batch_track_state.perf_cpu) {
-		printk("sevstep_uspt_batch_tracking_handle_retrack: perf was "
+		pr_warn("sevstep_uspt_batch_tracking_handle_retrack: perf was "
 			"programmed on logical cpu %d but handler was called "
 			"on %d. Did you forget to pin the vcpu thread?\n",
 			batch_track_state.perf_cpu, smp_processor_id());
 	}
 	ret_instr_delta = perf_state_update_and_get_delta(batch_track_state.event_next_idx);
 
-
 	// faulting instructions is probably the same as on last fault
 	// try to add current fault to retrack log and return
 	// for first event idx we do not have a valid ret_instr_delta.
 	// Retracking for the frist time is fine, if we loop, we end up here
 	// again but with a valid delta on one of the next event
-	if( (ret_instr_delta < 2) && ( batch_track_state.event_next_idx != 0) ) {
+	if ((ret_instr_delta < 2) && ( batch_track_state.event_next_idx != 0)) {
 		next_idx = batch_track_state.gfn_retrack_backlog_next_idx;
 		if (next_idx >= ARRLEN(batch_track_state.gfn_retrack_backlog)) {
-			printk("sevstep_uspt_batch_tracking_handle_retrack: retrack "
-				"backlog full, dropping retrack for fault "
+			pr_warn("sevstep_uspt_batch_tracking_handle_retrack: "
+				"retrack backlog full, dropping retrack for fault "
 				"at 0x%llx\n", current_fault_gfn);
 		} else {
 			batch_track_state.gfn_retrack_backlog[next_idx] = current_fault_gfn;
@@ -379,7 +382,8 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 	spin_lock(&batch_track_state_lock);
 
 	if (!batch_track_state.is_active) {
-		printk_ratelimited("userspace_page_track_signals: got save but batch tracking is not active!\n");
+		pr_warn("sevstep_uspt_batch_tracking_save: "
+			"got save but batch tracking is not active!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
 		return 1;
@@ -387,14 +391,14 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 
 
 	if (batch_track_state.event_next_idx >= batch_track_state.events_size) {
-		printk_ratelimited("userspace_page_track_signals: events buffer is full!\n");
+		pr_warn("sevstep_uspt_batch_tracking_save: events buffer is full!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
 		return 1;
 	}
 
 	if (smp_processor_id() != batch_track_state.perf_cpu) {
-		printk("sevstep_uspt_batch_tracking_handle_retrack: perf was "
+		pr_warn("sevstep_uspt_batch_tracking_save: perf was "
 			"programmed on logical cpu %d but handler was called "
 			"on %d. Did you forget to pin the vcpu thread?\n",
 			batch_track_state.perf_cpu, smp_processor_id());
@@ -403,7 +407,7 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 
 
 	if (batch_track_state.events == NULL) {
-		printk(KERN_CRIT "userspace_page_track_signals: events buf was "
+		pr_warn("sevstep_uspt_batch_tracking_save: events buf was "
 			"NULL but \"is_active\" was set! This should never happen!!!\n");
 		spin_unlock(&batch_track_state_lock);
 		return 1;
@@ -423,7 +427,7 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 
 	if (batch_track_state.gfn_retrack_backlog_next_idx
 			> ARRLEN(batch_track_state.gfn_retrack_backlog)) {
-		printk_ratelimited("userspace_page_track_signals: "
+		pr_warn("sevstep_uspt_batch_tracking_save: "
 			"gfn retrack backlog overflow!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
@@ -431,6 +435,7 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 	}
 
 	spin_unlock(&batch_track_state_lock);
+
 	return 0;
 }
 
@@ -439,7 +444,7 @@ sevstep_uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len, bool
 {
 	spin_lock(&batch_track_state_lock);
 	if (!batch_track_state.is_active) {
-		printk("userspace_page_track_signals: batch tracking not active\n");
+		pr_warn("sevstep_uspt: batch tracking not active\n");
 		spin_unlock(&batch_track_state_lock);
 		return 1;
 
@@ -447,8 +452,8 @@ sevstep_uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len, bool
 	batch_track_state.is_active = false;
 
 	if (len > batch_track_state.event_next_idx) {
-		printk("userspace_page_track_signals: requested %llu "
-			"events but got only %llu\n",
+		pr_warn("sevstep_uspt_batch_tracking_stop: "
+			"requested %llu events but got only %llu\n",
 			len, batch_track_state.event_next_idx);
 		spin_unlock(&batch_track_state_lock);
 		return 1;

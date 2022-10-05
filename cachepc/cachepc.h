@@ -4,8 +4,14 @@
 #include "cache_types.h"
 #include "uapi.h"
 
+#define PMC_KERNEL 2
+#define PMC_USER   1
+
+#define PMC_HOST  2
+#define PMC_GUEST 1
+
 void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
-	bool host, bool guest, bool kernel, bool user);
+	int host_guest, int kernel_user);
 
 cache_ctx *cachepc_get_ctx(cache_level cl);
 void cachepc_release_ctx(cache_ctx *ctx);

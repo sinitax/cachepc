@@ -1,6 +1,8 @@
 #include "uspt.h"
 #include "sevstep.h"
 
+#include "svm/cachepc/cachepc.h"
+
 #include <linux/kvm.h>
 #include <linux/timekeeping.h>
 #include <linux/uaccess.h>
@@ -211,24 +213,6 @@ uspt_handle_ack_event_ioctl(ack_event_t event)
 	return _uspt_handle_ack_event(event.id);
 }
 
-// setup perf_state and program retired instruction performance counter
-void
-_perf_state_setup_retired_instructions(void)
-{
-	perf_ctl_config_t retired_instructions_perf_config;
-	retired_instructions_perf_config.HostGuestOnly = 0x1; // 0x1 means: count only guest
-	retired_instructions_perf_config.CntMask = 0x0;
-	retired_instructions_perf_config.Inv = 0x0;
-	retired_instructions_perf_config.Int = 0x0;
-	retired_instructions_perf_config.Edge = 0x0;
-	retired_instructions_perf_config.OsUserMode = 0x3; // 0x3 means: count kern and user events
-	retired_instructions_perf_config.EventSelect = 0x0c0;
-	retired_instructions_perf_config.UintMask = 0x0;
-	retired_instructions_perf_config.En = 0x1;
-	write_ctl(&retired_instructions_perf_config, batch_track_state.perf_cpu, CTL_MSR_0);
-}
-
-
 // get retired instructions between current_event_idx-1 and current_event_idx
 // value is cached for multiple calls to the same current_event_idx
 uint64_t
@@ -239,9 +223,8 @@ _perf_state_update_and_get_delta(uint64_t current_event_idx)
 	/* check if value is "cached" */
 	if (perf_state.delta_valid_idx == current_event_idx) {
 		if (current_event_idx == 0) {
-			read_ctr(CTR_MSR_0, batch_track_state.perf_cpu, &current_value);
 			perf_state.idx_for_last_perf_reading = current_event_idx;
-			perf_state.last_perf_reading = current_value;
+			perf_state.last_perf_reading = cachepc_read_pmc(0);
 		}
 		return perf_state.delta;
 	}
@@ -253,7 +236,7 @@ _perf_state_update_and_get_delta(uint64_t current_event_idx)
 			perf_state.idx_for_last_perf_reading, current_event_idx);
 	}
 
-	read_ctr(CTR_MSR_0, batch_track_state.perf_cpu, &current_value);
+	current_value = cachepc_read_pmc(0);
 	perf_state.delta = (current_value - perf_state.last_perf_reading);
 	perf_state.delta_valid_idx = current_event_idx;
 
@@ -310,7 +293,7 @@ uspt_batch_tracking_start(int tracking_type,uint64_t expected_events,
 	perf_state.last_perf_reading = 0;
 	perf_state.delta_valid_idx = 0;
 	perf_state.delta = 0;
-	_perf_state_setup_retired_instructions();
+	cachepc_init_pmc(0, 0xc0, 0x00, PMC_GUEST, PMC_KERNEL | PMC_USER);
 
 	spin_lock(&batch_track_state_lock);
 

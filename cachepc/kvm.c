@@ -100,8 +100,8 @@ cachepc_kvm_prime_probe_test(void *p)
 
 	arg = p;
 
-	/* l2 data cache, hit or miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, true, false, true, false);
+	/* l2 data cache hit & miss */
+	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
 	BUG_ON(lines == NULL);
@@ -144,8 +144,8 @@ cachepc_kvm_stream_hwpf_test(void *p)
 
 	/* TODO: improve detection */
 
-	/* l2 data cache, hit or miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, true, false, true, false);
+	/* l2 data cache hit & miss */
+	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
 	BUG_ON(lines == NULL);
@@ -174,8 +174,8 @@ cachepc_kvm_single_access_test(void *p)
 	uint64_t pre, post;
 	uint32_t *arg;
 
-	/* l2 data cache, hit or miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, true, false, true, false);
+	/* l2 data cache hit & miss */
+	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	arg = p;
 	
@@ -208,8 +208,8 @@ cachepc_kvm_single_eviction_test(void *p)
 
 	arg = p;
 
-	/* l2 data cache, hit or miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, true, false, true, false);
+	/* l2 data cache hit & miss */
+	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	WARN_ON(arg && *arg >= L1_SETS);
 	if (arg && *arg >= L1_SETS) return;	
@@ -291,8 +291,7 @@ cachepc_kvm_init_pmc_ioctl(void *p)
 	event_mask  = (event & 0x000000FF) >> 0;
 
 	cachepc_init_pmc(index, event_no, event_mask,
-		host_guest >> 1, host_guest & 1,
-		kernel_user >> 1, kernel_user & 1);
+		host_guest, kernel_user);
 }
 
 long

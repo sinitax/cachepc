@@ -22,7 +22,7 @@ static bool is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len);
 
 void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
-	bool host, bool guest, bool kernel, bool user)
+	int host_guest, int kernel_user)
 {
 	uint64_t event;
 	uint64_t reg_addr;
@@ -39,8 +39,8 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	reg_addr = 0xc0010200 + index * 2;
 	event = event_no | (event_mask << 8);
 	event |= (1ULL << 22); /* enable performance counter */
-	event |= ((kernel * 2ULL + user * 1ULL) << 16);
-	event |= ((host * 2ULL + guest * 1ULL) << 40);
+	event |= (kernel_user * 1ULL) << 16;
+	event |= (host_guest * 1ULL) << 40;
 	printk(KERN_WARNING "CachePC: Initialized %i. PMC %02X:%02X\n",
 		index, event_no, event_mask);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));

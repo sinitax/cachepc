@@ -54,9 +54,10 @@ typedef struct {
 
 perf_state_t perf_state;
 
+static uint64_t perf_state_update_and_get_delta(uint64_t current_event_idx);
 
 void
-uspt_clear(void)
+sevstep_uspt_clear(void)
 {
 	write_lock(&event_lock);
 	inited = 0;
@@ -68,7 +69,7 @@ uspt_clear(void)
 }
 
 int
-uspt_initialize(int pid,bool should_get_rip)
+sevstep_uspt_initialize(int pid,bool should_get_rip)
 {
 	write_lock(&event_lock);
 	inited = 1;
@@ -82,13 +83,13 @@ uspt_initialize(int pid,bool should_get_rip)
 }
 
 int
-uspt_is_initialiized()
+sevstep_uspt_is_initialiized()
 {
 	return inited;
 }
 
 bool
-uspt_should_get_rip()
+sevstep_uspt_should_get_rip()
 {
 	bool tmp;
 
@@ -100,16 +101,16 @@ uspt_should_get_rip()
 }
 
 int
-uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
+sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 	bool have_rip, uint64_t rip)
 {
 	ktime_t abort_after;
 	page_fault_event_t message_for_user;
 
 	read_lock(&event_lock);
-	if (!uspt_is_initialiized()) {
+	if (!sevstep_uspt_is_initialiized()) {
 		printk("userspace_page_track_signals: "
-			"uspt_send_and_block : ctx not initialized!\n");
+			"sevstep_uspt_send_and_block : ctx not initialized!\n");
 		read_unlock(&event_lock);
 		return 1;
 	}
@@ -135,14 +136,14 @@ uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 	// for poll based system;
 	have_event = 1;
 	sent_event = message_for_user;
-	// printk("uspt_send_and_block sending event %llu\n",sent_event.id);
+	// printk("sevstep_uspt_send_and_block sending event %llu\n",sent_event.id);
 
 	write_unlock(&event_lock);
 
 	// wait for ack, but with timeout. Otherwise small bugs in userland
 	// easily lead to a kernel hang
 	abort_after = ktime_get() + 1000000000ULL; // 1 sec in nanosecond
-	while (!uspt_is_event_done(sent_event.id)) {
+	while (!sevstep_uspt_is_event_done(sent_event.id)) {
 		if (ktime_get() > abort_after) {
 			printk("Waiting for ack of event %llu timed out, continuing\n",sent_event.id);
 			return 3;
@@ -153,7 +154,7 @@ uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 }
 
 int
-uspt_is_event_done(uint64_t id)
+sevstep_uspt_is_event_done(uint64_t id)
 {
 	int res;
 
@@ -165,7 +166,7 @@ uspt_is_event_done(uint64_t id)
 }
 
 int
-uspt_handle_poll_event(page_fault_event_t* userpace_mem)
+sevstep_uspt_handle_poll_event(page_fault_event_t* userpace_mem)
 {
 	int err;
 
@@ -190,33 +191,28 @@ uspt_handle_poll_event(page_fault_event_t* userpace_mem)
 	return err;
 }
 
-static int
-_uspt_handle_ack_event(uint64_t id)
+int
+sevstep_uspt_handle_ack_event_ioctl(ack_event_t event)
 {
 	int err = 0;
 
 	write_lock(&event_lock);
-	if (id == last_sent_event_id) {
+	if (event.id == last_sent_event_id) {
 		last_acked_event_id = last_sent_event_id;
 	} else {
 		err = 1;
-		printk("last sent event id is %llu but received ack for %llu\n",last_sent_event_id,id);
+		printk("last sent event id is %llu but received ack for %llu\n",
+			last_sent_event_id, event.id);
 	}
 	write_unlock(&event_lock);
 
 	return err;
 }
 
-int
-uspt_handle_ack_event_ioctl(ack_event_t event)
-{
-	return _uspt_handle_ack_event(event.id);
-}
-
 // get retired instructions between current_event_idx-1 and current_event_idx
 // value is cached for multiple calls to the same current_event_idx
 uint64_t
-_perf_state_update_and_get_delta(uint64_t current_event_idx)
+perf_state_update_and_get_delta(uint64_t current_event_idx)
 {
 	uint64_t current_value;
 
@@ -231,7 +227,7 @@ _perf_state_update_and_get_delta(uint64_t current_event_idx)
 
 	/* otherwise update, but logic is only valid for two consecutive events */
 	if (current_event_idx != perf_state.idx_for_last_perf_reading+1) {
-		printk_ratelimited(KERN_CRIT "_perf_state_update_and_get_delta: "
+		printk_ratelimited(KERN_CRIT "perf_state_update_and_get_delta: "
 			"last reading was for idx %llu but was queried for %llu\n",
 			perf_state.idx_for_last_perf_reading, current_event_idx);
 	}
@@ -247,7 +243,7 @@ _perf_state_update_and_get_delta(uint64_t current_event_idx)
 }
 
 void
-uspt_batch_tracking_inc_event_idx(void)
+sevstep_uspt_batch_tracking_inc_event_idx(void)
 {
 	spin_lock(&batch_track_state_lock);
 	batch_track_state.event_next_idx++;
@@ -255,7 +251,7 @@ uspt_batch_tracking_inc_event_idx(void)
 }
 
 int
-uspt_batch_tracking_start(int tracking_type,uint64_t expected_events,
+sevstep_uspt_batch_tracking_start(int tracking_type,uint64_t expected_events,
 	int perf_cpu, bool retrack)
 {
 	page_fault_event_t* events;
@@ -273,7 +269,7 @@ uspt_batch_tracking_start(int tracking_type,uint64_t expected_events,
 	spin_unlock(&batch_track_state_lock);
 
 	buffer_size = expected_events * sizeof(page_fault_event_t);
-	printk("uspt_batch_tracking_start trying to alloc %llu "
+	printk("sevstep_uspt_batch_tracking_start trying to alloc %llu "
 		"bytes buffer for events\n", buffer_size);
 	events = vmalloc(buffer_size);
 	if (events  == NULL) {
@@ -316,7 +312,7 @@ uspt_batch_tracking_start(int tracking_type,uint64_t expected_events,
 }
 
 void
-uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
+sevstep_uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 	uint64_t current_fault_gfn)
 {
 	uint64_t ret_instr_delta;
@@ -330,12 +326,12 @@ uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 	}
 
 	if (smp_processor_id() != batch_track_state.perf_cpu) {
-		printk("uspt_batch_tracking_handle_retrack: perf was "
+		printk("sevstep_uspt_batch_tracking_handle_retrack: perf was "
 			"programmed on logical cpu %d but handler was called "
 			"on %d. Did you forget to pin the vcpu thread?\n",
 			batch_track_state.perf_cpu, smp_processor_id());
 	}
-	ret_instr_delta = _perf_state_update_and_get_delta(batch_track_state.event_next_idx);
+	ret_instr_delta = perf_state_update_and_get_delta(batch_track_state.event_next_idx);
 
 
 	// faulting instructions is probably the same as on last fault
@@ -346,7 +342,7 @@ uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 	if( (ret_instr_delta < 2) && ( batch_track_state.event_next_idx != 0) ) {
 		next_idx = batch_track_state.gfn_retrack_backlog_next_idx;
 		if (next_idx >= ARRLEN(batch_track_state.gfn_retrack_backlog)) {
-			printk("uspt_batch_tracking_handle_retrack: retrack "
+			printk("sevstep_uspt_batch_tracking_handle_retrack: retrack "
 				"backlog full, dropping retrack for fault "
 				"at 0x%llx\n", current_fault_gfn);
 		} else {
@@ -374,7 +370,7 @@ uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 }
 
 int
-uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
+sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 	bool have_rip, uint64_t rip)
 {
 	uint64_t ret_instr_delta;
@@ -398,12 +394,12 @@ uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 	}
 
 	if (smp_processor_id() != batch_track_state.perf_cpu) {
-		printk("uspt_batch_tracking_handle_retrack: perf was "
+		printk("sevstep_uspt_batch_tracking_handle_retrack: perf was "
 			"programmed on logical cpu %d but handler was called "
 			"on %d. Did you forget to pin the vcpu thread?\n",
 			batch_track_state.perf_cpu, smp_processor_id());
 	}
-	ret_instr_delta = _perf_state_update_and_get_delta(batch_track_state.event_next_idx);
+	ret_instr_delta = perf_state_update_and_get_delta(batch_track_state.event_next_idx);
 
 
 	if (batch_track_state.events == NULL) {
@@ -439,7 +435,7 @@ uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 }
 
 int
-uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len, bool* error_occured)
+sevstep_uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len, bool* error_occured)
 {
 	spin_lock(&batch_track_state_lock);
 	if (!batch_track_state.is_active) {
@@ -469,9 +465,10 @@ uspt_batch_tracking_stop(page_fault_event_t* results, uint64_t len, bool* error_
 }
 
 uint64_t
-uspt_batch_tracking_get_events_count()
+sevstep_uspt_batch_tracking_get_events_count()
 {
 	uint64_t buf;
+
 	spin_lock(&batch_track_state_lock);
 	buf = batch_track_state.event_next_idx;
 	spin_unlock(&batch_track_state_lock);
@@ -480,7 +477,7 @@ uspt_batch_tracking_get_events_count()
 }
 
 bool
-uspt_batch_tracking_in_progress()
+sevstep_uspt_batch_tracking_in_progress()
 {
 	return batch_track_state.is_active;
 }

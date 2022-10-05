@@ -26,23 +26,23 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 
 	if (was_tracked) {
 		have_rip = false;
-		if (uspt_should_get_rip())
+		if (sevstep_uspt_should_get_rip())
 			have_rip = sevstep_get_rip_kvm_vcpu(vcpu, &current_rip) == 0;
-		if (uspt_batch_tracking_in_progress()) {
-			send_err = uspt_batch_tracking_save(fault->gfn << PAGE_SHIFT,
+		if (sevstep_uspt_batch_tracking_in_progress()) {
+			send_err = sevstep_uspt_batch_tracking_save(fault->gfn << PAGE_SHIFT,
 				fault->error_code, have_rip, current_rip);
 			if (send_err) {
 				printk_ratelimited(
-					"uspt_batch_tracking_save failed with %d\n"
+					"sevstep_uspt_batch_tracking_save failed with %d\n"
 					"##########################\n", send_err);
 			}
-			uspt_batch_tracking_handle_retrack(vcpu, fault->gfn);
-			uspt_batch_tracking_inc_event_idx();
+			sevstep_uspt_batch_tracking_handle_retrack(vcpu, fault->gfn);
+			sevstep_uspt_batch_tracking_inc_event_idx();
 		} else {
-			send_err = uspt_send_and_block(fault->gfn << PAGE_SHIFT,
+			send_err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
 				fault->error_code, have_rip, current_rip);
 			if (send_err) {
-				printk("uspt_send_and_block failed with %d\n"
+				printk("sevstep_uspt_send_and_block failed with %d\n"
 					"##########################\n", send_err);
 			}
 		}

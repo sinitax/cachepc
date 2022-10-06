@@ -1,27 +1,29 @@
 #pragma once
 
+#include <linux/kvm.h>
 #include <linux/types.h>
 #include <linux/ioctl.h>
 
-#define CACHEPC_IOCTL_MAGIC 0xBF
-#define CACHEPC_IOCTL_TEST_ACCESS _IOWR(CACHEPC_IOCTL_MAGIC, 0, __u32)
-#define CACHEPC_IOCTL_TEST_EVICTION _IOWR(CACHEPC_IOCTL_MAGIC, 1, __u32)
-#define CACHEPC_IOCTL_INIT_PMC _IOW(CACHEPC_IOCTL_MAGIC, 2, __u32)
+#define KVM_CPC_TEST_ACCESS _IOWR(KVMIO, 0x20, __u32)
+#define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x21, __u32)
+#define KVM_CPC_INIT_PMC _IOW(KVMIO, 0x22, __u32)
+#define KVM_CPC_READ_PMC _IOWR(KVMIO, 0x23, __u32)
+#define KVM_CPC_READ_COUNTS _IOR(KVMIO, 0x24, __u64)
 
-#define KVM_TRACK_PAGE _IOWR(KVMIO, 0x20, track_page_param_t)
-#define KVM_USPT_REGISTER_PID _IOWR(KVMIO, 0x21, userspace_ctx_t)
-#define KVM_USPT_WAIT_AND_SEND _IO(KVMIO, 0x22)
-#define KVM_USPT_POLL_EVENT _IOWR(KVMIO, 0x23, page_fault_event_t)
-#define KVM_USPT_ACK_EVENT _IOWR(KVMIO, 0x24, ack_event_t)
-#define KVM_READ_GUEST_MEMORY _IOWR(KVMIO, 0x25, read_guest_memory_t)
-#define KVM_USPT_RESET _IO(KVMIO, 0x26)
-#define KVM_USPT_TRACK_ALL _IOWR(KVMIO, 0x27, track_all_pages_t)
-#define KVM_USPT_UNTRACK_ALL _IOWR(KVMIO, 0x28, track_all_pages_t)
-#define KVM_USPT_SETUP_RETINSTR_PERF _IOWR(KVMIO, 0x30, retired_instr_perf_config_t)
-#define KVM_USPT_READ_RETINSTR_PERF _IOWR(KVMIO, 0x31, retired_instr_perf_t)
-#define KVM_USPT_BATCH_TRACK_START _IOWR(KVMIO, 0x32, batch_track_config_t)
-#define KVM_USPT_BATCH_TRACK_STOP _IOWR(KVMIO, 0x33, batch_track_stop_and_get_t)
-#define KVM_USPT_BATCH_TRACK_EVENT_COUNT _IOWR(KVMIO, 0x34, batch_track_event_count_t)
+#define KVM_TRACK_PAGE _IOWR(KVMIO, 0x30, track_page_param_t)
+#define KVM_USPT_REGISTER_PID _IOWR(KVMIO, 0x31, userspace_ctx_t)
+#define KVM_USPT_WAIT_AND_SEND _IO(KVMIO, 0x32)
+#define KVM_USPT_POLL_EVENT _IOWR(KVMIO, 0x33, page_fault_event_t)
+#define KVM_USPT_ACK_EVENT _IOWR(KVMIO, 0x34, ack_event_t)
+#define KVM_READ_GUEST_MEMORY _IOWR(KVMIO, 0x35, read_guest_memory_t)
+#define KVM_USPT_RESET _IO(KVMIO, 0x36)
+#define KVM_USPT_TRACK_ALL _IOWR(KVMIO, 0x37, track_all_pages_t)
+#define KVM_USPT_UNTRACK_ALL _IOWR(KVMIO, 0x38, track_all_pages_t)
+#define KVM_USPT_SETUP_RETINSTR_PERF _IOWR(KVMIO, 0x39, retired_instr_perf_config_t)
+#define KVM_USPT_READ_RETINSTR_PERF _IOWR(KVMIO, 0x3A, retired_instr_perf_t)
+#define KVM_USPT_BATCH_TRACK_START _IOWR(KVMIO, 0x3B, batch_track_config_t)
+#define KVM_USPT_BATCH_TRACK_STOP _IOWR(KVMIO, 0x3C, batch_track_stop_and_get_t)
+#define KVM_USPT_BATCH_TRACK_EVENT_COUNT _IOWR(KVMIO, 0x3D, batch_track_event_count_t)
 
 #define KVM_USPT_POLL_EVENT_NO_EVENT 1000
 #define KVM_USPT_POLL_EVENT_GOT_EVENT 0

@@ -49,7 +49,7 @@ extern uint8_t __stop_guest_without[];
 static struct kvm kvm;
 static struct kvm_run *kvm_run;
 
-static int cachepc_fd;
+static int kvm_fd;
 
 #define TARGET_CACHE_LINESIZE 64
 #define TARGET_SET 15
@@ -189,14 +189,15 @@ kvm_init(size_t ramsize, void *code_start, void *code_stop)
 }
 
 uint16_t *
-read_counts() 
+read_counts()
 {
-	uint16_t *counts = (uint16_t *)malloc(64*sizeof(uint16_t));
-	size_t len;
+	uint16_t *counts;
+	int ret;
 
-	lseek(cachepc_fd, 0, SEEK_SET);
-	len = read(cachepc_fd, counts, 64 * sizeof(uint16_t));
-	assert(len == 64 * sizeof(uint16_t));
+	counts = malloc(64 * sizeof(uint16_t));
+	if (!counts) err(1, "malloc");
+	ret = ioctl(kvm_fd, KVM_CPC_READ_COUNTS, counts);
+	if (ret == -1) err(1, "ioctl READ_COUNTS");
 
 	return counts;
 }
@@ -272,16 +273,16 @@ main(int argc, const char **argv)
 
 	pin_process(0, TARGET_CORE, true);
 
-	cachepc_fd = open("/proc/cachepc", O_RDONLY);
-	if (cachepc_fd < 0) err(1, "open");
+	kvm_fd = open("/dev/kvm", O_RDONLY);
+	if (kvm_fd < 0) err(1, "open");
 
-	/* init L1 miss counter */
+	/* init L1 miss counter for host kernel */
 	arg = 0x002264D8;
-	ret = ioctl(cachepc_fd, CACHEPC_IOCTL_INIT_PMC, &arg);
-	if (ret == -1) err(1, "ioctl fail");
+	ret = ioctl(kvm_fd, KVM_CPC_INIT_PMC, &arg);
+	if (ret == -1) err(1, "ioctl INIT_PMC");
 
 	baseline = calloc(sizeof(uint16_t), 64);
-	if (!baseline) err(1, "counts");
+	if (!baseline) err(1, "calloc");
 	for (k = 0; k < 64; k++)
 		baseline[k] = UINT16_MAX;
 
@@ -319,6 +320,6 @@ main(int argc, const char **argv)
 	}
 
 	free(baseline);
-	close(cachepc_fd);
+	close(kvm_fd);
 }
 

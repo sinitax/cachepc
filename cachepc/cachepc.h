@@ -86,7 +86,7 @@ static_assert(sizeof(struct cacheline) == CACHELINE_SIZE, "Bad cache line struct
 static_assert(CL_NEXT_OFFSET == 0 && CL_PREV_OFFSET == 8);
 
 void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
-	int host_guest, int kernel_user);
+	uint8_t host_guest, uint8_t kernel_user);
 
 cache_ctx *cachepc_get_ctx(int cache_level);
 void cachepc_release_ctx(cache_ctx *ctx);

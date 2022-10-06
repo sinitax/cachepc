@@ -58,7 +58,7 @@ ssize_t sysret;
 pid_t victim_pid;
 
 /* ioctl dev fds */
-int kvm_dev, sev_dev, cachepc_dev;
+int kvm_dev, sev_dev, kvm_dev;
 
 enum {
 	GSTATE_UNINIT,
@@ -399,15 +399,15 @@ sev_kvm_deinit(struct kvm *kvm)
 }
 
 uint16_t *
-read_counts() 
+read_counts()
 {
 	uint16_t *counts;
-	size_t len;
+	int ret;
 
 	counts = malloc(64 * sizeof(uint16_t));
-	lseek(cachepc_dev, 0, SEEK_SET);
-	len = read(cachepc_dev, counts, 64 * sizeof(uint16_t));
-	assert(len == 64 * sizeof(uint16_t));
+	if (!counts) err(1, "malloc");
+	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
+	if (ret == -1) err(1, "ioctl READ_COUNTS");
 
 	return counts;
 }
@@ -478,9 +478,6 @@ main(int argc, const char **argv)
 
 	pin_process(0, TARGET_CORE, true);
 
-	cachepc_dev = open("/proc/cachepc", O_RDONLY);
-	if (cachepc_dev < 0) err(1, "open /proc/cachepc");
-
 	sev_dev = open("/dev/sev", O_RDWR | O_CLOEXEC);
 	if (sev_dev < 0) err(1, "open /dev/sev");
 
@@ -492,13 +489,13 @@ main(int argc, const char **argv)
 	if (ret < 0) err(1, "KVM_GET_API_VERSION");
 	if (ret != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
 
-	// Init L1 miss counter
+	/* init L1 miss counter for host kernel */
 	arg = 0x002264D8;
-	ret = ioctl(cachepc_dev, CACHEPC_IOCTL_INIT_PMC, &arg);
-	if (ret < 0) err(1, "ioctl fail");
+	ret = ioctl(kvm_dev, KVM_CPC_INIT_PMC, &arg);
+	if (ret < 0) err(1, "ioctl INIT_PMC");
 
 	baseline = calloc(sizeof(uint16_t), 64);
-	if (!baseline) err(1, "counts");
+	if (!baseline) err(1, "calloc");
 	for (k = 0; k < 64; k++)
 		baseline[k] = UINT16_MAX;
 
@@ -537,7 +534,6 @@ main(int argc, const char **argv)
 
 	free(baseline);
 
-	close(cachepc_dev);
 	close(kvm_dev);
 	close(sev_dev);
 }

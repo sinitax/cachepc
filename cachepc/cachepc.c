@@ -26,7 +26,7 @@ static bool is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len);
 
 void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
-	int host_guest, int kernel_user)
+	uint8_t host_guest, uint8_t kernel_user)
 {
 	uint64_t event;
 	uint64_t reg_addr;
@@ -45,8 +45,8 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	event |= (1ULL << 22); /* enable performance counter */
 	event |= ((kernel_user & 0b11) * 1ULL) << 16;
 	event |= ((host_guest & 0b11) * 1ULL) << 40;
-	printk(KERN_WARNING "CachePC: Initialized %i. PMC %02X:%02X\n",
-		index, event_no, event_mask);
+	printk(KERN_WARNING "CachePC: Initialized %i. PMC %02X:%02X (%016llx)\n",
+		index, event_no, event_mask, event);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 }
 
@@ -162,8 +162,6 @@ cachepc_save_msrmts(cacheline *head)
 {
 	cacheline *curr_cl;
 
-	// printk(KERN_WARNING "CachePC: Updating /proc/cachepc\n");
-
 	curr_cl = head;
 	do {
 		if (CL_IS_FIRST(curr_cl->flags)) {
@@ -173,6 +171,8 @@ cachepc_save_msrmts(cacheline *head)
 
 		curr_cl = curr_cl->prev;
 	} while (curr_cl != head);
+
+	cachepc_print_msrmts(head);
 }
 
 void
@@ -250,7 +250,8 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 		}
 
 		if (ctx->addressing == PHYSICAL_ADDRESSING && !is_in_arr(
-			curr_cl->cache_set / CACHE_GROUP_SIZE, cache_groups, cache_groups_len))
+			curr_cl->cache_set / CACHE_GROUP_SIZE,
+			cache_groups, cache_groups_len))
 		{
 			// Already free all unused blocks of the cache ds for physical
 			// addressing, because we loose their refs

@@ -15,7 +15,7 @@ main(int argc, const char **argv)
 	track_all_pages_t tracking;
 	int ret, fd;
 
-	fd = open("/proc/cachepc", O_RDONLY);
+	fd = open("/dev/kvm", O_RDONLY);
 	if (!fd) err(1, "open");
 
 	tracking.track_mode = KVM_PAGE_TRACK_ACCESS;

@@ -1,7 +1,6 @@
 #include "uspt.h"
 #include "sevstep.h"
-
-#include "svm/cachepc/cachepc.h"
+#include "cachepc.h"
 
 #include <linux/kvm.h>
 #include <linux/timekeeping.h>

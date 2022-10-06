@@ -225,7 +225,7 @@ cachepc_kvm_single_eviction_test(void *p)
 	evicted = NULL;
 	cl = head = cachepc_ds;
 	do {
-		if (IS_FIRST(cl->flags) && cl->count > 0) {
+		if (CL_IS_FIRST(cl->flags) && cl->count > 0) {
 			evicted = cl;
 			count += cl->count;
 		}
@@ -350,7 +350,7 @@ cachepc_kvm_setup_test(void *p)
 
 	printk(KERN_WARNING "CachePC: Running on core %i\n", cpu);
 
-	cachepc_ctx = cachepc_get_ctx(L1);
+	cachepc_ctx = cachepc_get_ctx(L1_CACHE);
 	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
 
 	cachepc_kvm_system_setup();

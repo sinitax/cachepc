@@ -1,5 +1,5 @@
-#include "../sevstep/sevstep.h"
-#include "../sevstep/uspt.h"
+#include "../cachepc/sevstep.h"
+#include "../cachepc/uspt.h"
 
 static void
 sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,

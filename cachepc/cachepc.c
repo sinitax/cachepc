@@ -6,6 +6,10 @@
 #include <linux/delay.h>
 #include <linux/ioctl.h>
 
+#define SET_MASK(SETS) (((((uintptr_t) SETS) * CACHELINE_SIZE) - 1) ^ (CACHELINE_SIZE - 1))
+
+#define REMOVE_PAGE_OFFSET(ptr) ((void *) (((uintptr_t) ptr) & PAGE_MASK))
+
 static void cl_insert(cacheline *last_cl, cacheline *new_cl);
 static void *remove_cache_set(cache_ctx *ctx, void *ptr);
 static void *remove_cache_group_set(void *ptr);
@@ -47,20 +51,20 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 }
 
 cache_ctx *
-cachepc_get_ctx(cache_level cache_level)
+cachepc_get_ctx(int cache_level)
 {
 	cache_ctx *ctx;
        
 	ctx = kzalloc(sizeof(cache_ctx), GFP_KERNEL);
 	BUG_ON(ctx == NULL);
 
-	BUG_ON(cache_level != L1);
-	if (cache_level == L1) {
+	BUG_ON(cache_level != L1_CACHE);
+	if (cache_level == L1_CACHE) {
 		ctx->addressing = L1_ADDRESSING;
 		ctx->sets = L1_SETS;
 		ctx->associativity = L1_ASSOCIATIVITY;
 		ctx->access_time = L1_ACCESS_TIME;
-	} else if (cache_level == L2) {
+	} else if (cache_level == L2_CACHE) {
 		ctx->addressing = L2_ADDRESSING;
 		ctx->sets = L2_SETS;
 		ctx->associativity = L2_ASSOCIATIVITY;
@@ -120,7 +124,7 @@ cachepc_prepare_victim(cache_ctx *ctx, uint32_t set)
 	victim_cl = victim_set;
 
 	// Free the other lines in the same set that are not used.
-	if (ctx->addressing == PHYSICAL) {
+	if (ctx->addressing == PHYSICAL_ADDRESSING) {
 		curr_cl = victim_cl->next;
 		do {
 			next_cl = curr_cl->next;
@@ -162,7 +166,7 @@ cachepc_save_msrmts(cacheline *head)
 
 	curr_cl = head;
 	do {
-		if (IS_FIRST(curr_cl->flags)) {
+		if (CL_IS_FIRST(curr_cl->flags)) {
 			BUG_ON(curr_cl->cache_set >= cachepc_msrmts_count);
 			cachepc_msrmts[curr_cl->cache_set] = curr_cl->count;
 		}
@@ -178,7 +182,7 @@ cachepc_print_msrmts(cacheline *head)
 
 	curr_cl = head;
 	do {
-		if (IS_FIRST(curr_cl->flags)) {
+		if (CL_IS_FIRST(curr_cl->flags)) {
 			printk(KERN_WARNING "CachePC: Count for cache set %i: %llu\n",
 				curr_cl->cache_set, curr_cl->count);
 		}
@@ -238,14 +242,14 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 	do {
 		next_cl = curr_cl->next;
 
-		if (IS_FIRST(curr_cl->flags)) {
+		if (CL_IS_FIRST(curr_cl->flags)) {
 			first_cl_in_sets[curr_cl->cache_set] = curr_cl;
 		}
-		if (IS_LAST(curr_cl->flags)) {
+		if (CL_IS_LAST(curr_cl->flags)) {
 			last_cl_in_sets[curr_cl->cache_set] = curr_cl;
 		}
 
-		if (ctx->addressing == PHYSICAL && !is_in_arr(
+		if (ctx->addressing == PHYSICAL_ADDRESSING && !is_in_arr(
 			curr_cl->cache_set / CACHE_GROUP_SIZE, cache_groups, cache_groups_len))
 		{
 			// Already free all unused blocks of the cache ds for physical
@@ -255,7 +259,7 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 		}
 		curr_cl = next_cl;
 
-	} while(curr_cl != cache_ds);
+	} while (curr_cl != cache_ds);
 
 	// Fix partial cache set ds
 	for (i = 0; i < sets_len; ++i) {
@@ -265,7 +269,7 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 	cache_set_ds = first_cl_in_sets[sets[0]];
 
 	// Free unused cache lines
-	if (ctx->addressing == PHYSICAL) {
+	if (ctx->addressing == PHYSICAL_ADDRESSING) {
 		cachepc_release_ds(ctx, to_del_cls);
 	}
 
@@ -359,9 +363,9 @@ cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
 
 	for (j = 0; j < ctx->nr_of_cachelines; ++j) {
 		curr_cl = cl_ptr_arr_sorted[j];
-		if (IS_FIRST(curr_cl->flags))
+		if (CL_IS_FIRST(curr_cl->flags))
 			first_cl_in_sets[curr_cl->cache_set] = curr_cl;
-		if (IS_LAST(curr_cl->flags))
+		if (CL_IS_LAST(curr_cl->flags))
 			last_cl_in_sets[curr_cl->cache_set] = curr_cl;
 	}
 
@@ -402,10 +406,10 @@ void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_p
 		curr_cl->prev = cacheline_ptr_arr[idx_map[(len - 1 + i) % len]];
 
 		if (idx_map[i] == 0) {
-			curr_cl->flags = SET_FIRST(DEFAULT_FLAGS);
-			curr_cl->prev->flags = SET_LAST(DEFAULT_FLAGS);
+			curr_cl->flags = CL_SET_FIRST(CL_DEFAULT_FLAGS);
+			curr_cl->prev->flags = CL_SET_LAST(CL_DEFAULT_FLAGS);
 		} else {
-			curr_cl->flags |= DEFAULT_FLAGS;
+			curr_cl->flags |= CL_DEFAULT_FLAGS;
 		}
 	}
 
@@ -425,7 +429,7 @@ allocate_cache_ds(cache_ctx *ctx)
 	cl_ptr_arr = kzalloc(ctx->nr_of_cachelines * sizeof(cacheline *), GFP_KERNEL);
 	BUG_ON(cl_ptr_arr == NULL);
 
-	BUG_ON(ctx->addressing != VIRTUAL);
+	BUG_ON(ctx->addressing != VIRTUAL_ADDRESSING);
 
 	// For virtual addressing, allocating a consecutive chunk of memory is enough
 	cl_arr = cachepc_aligned_alloc(PAGE_SIZE, ctx->cache_size);

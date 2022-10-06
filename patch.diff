@@ -1,5 +1,5 @@
 diff --git a/arch/x86/include/asm/kvm_page_track.h b/arch/x86/include/asm/kvm_page_track.h
-index eb186bc57f6a..3f767a27045e 100644
+index eb186bc57f6a..b96e80934005 100644
 --- a/arch/x86/include/asm/kvm_page_track.h
 +++ b/arch/x86/include/asm/kvm_page_track.h
 @@ -2,10 +2,9 @@
@@ -12,12 +12,12 @@ index eb186bc57f6a..3f767a27045e 100644
 -};
 +#include<linux/srcu.h>
 +
-+#include "../../kvm/sevstep/uapi.h"
++#include "../../kvm/cachepc/uapi.h"
  
  /*
   * The notifier represented by @kvm_page_track_notifier_node is linked into
 diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
-index 30f244b64523..3c5f65040878 100644
+index 30f244b64523..e0eeffd340e8 100644
 --- a/arch/x86/kvm/Makefile
 +++ b/arch/x86/kvm/Makefile
 @@ -1,6 +1,6 @@
@@ -35,8 +35,8 @@ index 30f244b64523..3c5f65040878 100644
 -			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o \
 -			   mmu/spte.o
 +			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o mmu/spte.o \
-+			   svm/cachepc/cachepc.o svm/cachepc/kvm.o \
-+			   sevstep/sevstep.o sevstep/uspt.o
++			   cachepc/cachepc.o cachepc/kvm.o \
++			   cachepc/sevstep.o cachepc/uspt.o
  
  ifdef CONFIG_HYPERV
  kvm-y			+= kvm_onhyperv.o
@@ -45,20 +45,20 @@ index 30f244b64523..3c5f65040878 100644
  kvm-intel-$(CONFIG_X86_SGX_KVM)	+= vmx/sgx.o
  
 -kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o
-+kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o \
-+                           svm/cachepc/cachepc.o
++kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o \
++				   svm/avic.o svm/sev.o cachepc/cachepc.o
  
  ifdef CONFIG_HYPERV
  kvm-amd-y		+= svm/svm_onhyperv.o
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index d871b8dee7b3..32900ef5ee0b 100644
+index d871b8dee7b3..3b7720aebbc6 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -1152,6 +1152,8 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
  	}
  }
  
-+#include "../sevstep/mmu.c"
++#include "../cachepc/mmu.c"
 +
  /*
   * Write-protect on the specified @sptep, @pt_protect indicates whether
@@ -154,14 +154,14 @@ index d871b8dee7b3..32900ef5ee0b 100644
  	return false;
  }
 diff --git a/arch/x86/kvm/mmu/page_track.c b/arch/x86/kvm/mmu/page_track.c
-index 2e09d1b6249f..17b69a1f2b40 100644
+index 2e09d1b6249f..9b40e71564bf 100644
 --- a/arch/x86/kvm/mmu/page_track.c
 +++ b/arch/x86/kvm/mmu/page_track.c
 @@ -19,6 +19,8 @@
  #include "mmu.h"
  #include "mmu_internal.h"
  
-+#include "../sevstep/sevstep.h"
++#include "../cachepc/sevstep.h"
 +
  bool kvm_page_track_write_tracking_enabled(struct kvm *kvm)
  {
@@ -180,22 +180,6 @@ index 2e09d1b6249f..17b69a1f2b40 100644
  }
  EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
  
-diff --git a/arch/x86/kvm/sevstep b/arch/x86/kvm/sevstep
-new file mode 120000
-index 000000000000..642ea24bf098
---- /dev/null
-+++ b/arch/x86/kvm/sevstep
-@@ -0,0 +1 @@
-+/home/louis/kvm-prime-count/sevstep
-\ No newline at end of file
-diff --git a/arch/x86/kvm/svm/cachepc b/arch/x86/kvm/svm/cachepc
-new file mode 120000
-index 000000000000..9119e44af1f0
---- /dev/null
-+++ b/arch/x86/kvm/svm/cachepc
-@@ -0,0 +1 @@
-+/home/louis/kvm-prime-count/cachepc
-\ No newline at end of file
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
 index cf0bf456d520..4dbb8041541f 100644
 --- a/arch/x86/kvm/svm/svm.c
@@ -382,14 +366,14 @@ index dfaeb47fcf2a..0626f3fdddfd 100644
  2:	cli
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index d9adf79124f9..082dc8553566 100644
+index d9adf79124f9..3e5c55f9bef0 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -82,6 +82,8 @@
  #include <asm/sgx.h>
  #include <clocksource/hyperv_timer.h>
  
-+#include "sevstep/sevstep.h"
++#include "cachepc/sevstep.h"
 +
  #define CREATE_TRACE_POINTS
  #include "trace.h"
@@ -427,21 +411,29 @@ index e089fbf9017f..7899e1efe852
  static int __sev_init_locked(int *error)
  {
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index f2a63cb2658b..bd26b7a29c9e 100644
+index f2a63cb2658b..0d1c1d8c72ea 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -70,6 +70,10 @@
+@@ -13,6 +13,7 @@
+  *   Yaniv Kamay  <yaniv@qumranet.com>
+  */
+ 
++#include <asm-generic/errno-base.h>
+ #include <kvm/iodev.h>
+ 
+ #include <linux/kvm_host.h>
+@@ -70,6 +71,10 @@
  /* Worst case buffer size needed for holding an integer. */
  #define ITOA_MAX_LEN 12
  
-+#include "../../arch/x86/kvm/svm/cachepc/kvm.h"
-+#include "../../arch/x86/kvm/sevstep/sevstep.h"
-+#include "../../arch/x86/kvm/sevstep/uspt.h"
++#include "../../arch/x86/kvm/cachepc/kvm.h"
++#include "../../arch/x86/kvm/cachepc/sevstep.h"
++#include "../../arch/x86/kvm/cachepc/uspt.h"
 +
  MODULE_AUTHOR("Qumranet");
  MODULE_LICENSE("GPL");
  
-@@ -159,6 +163,267 @@ static unsigned long long kvm_active_vms;
+@@ -159,6 +164,267 @@ static unsigned long long kvm_active_vms;
  
  static DEFINE_PER_CPU(cpumask_var_t, cpu_kick_mask);
  
@@ -709,7 +701,7 @@ index f2a63cb2658b..bd26b7a29c9e 100644
  __weak void kvm_arch_mmu_notifier_invalidate_range(struct kvm *kvm,
  						   unsigned long start, unsigned long end)
  {
-@@ -1261,6 +1526,9 @@ static void kvm_destroy_vm(struct kvm *kvm)
+@@ -1261,6 +1527,9 @@ static void kvm_destroy_vm(struct kvm *kvm)
  	hardware_disable_all();
  	mmdrop(mm);
  	module_put(kvm_chardev_ops.owner);
@@ -719,7 +711,7 @@ index f2a63cb2658b..bd26b7a29c9e 100644
  }
  
  void kvm_get_kvm(struct kvm *kvm)
-@@ -1360,7 +1628,7 @@ static void kvm_insert_gfn_node(struct kvm_memslots *slots,
+@@ -1360,7 +1629,7 @@ static void kvm_insert_gfn_node(struct kvm_memslots *slots,
  	int idx = slots->node_idx;
  
  	parent = NULL;
@@ -728,7 +720,7 @@ index f2a63cb2658b..bd26b7a29c9e 100644
  		struct kvm_memory_slot *tmp;
  
  		tmp = container_of(*node, struct kvm_memory_slot, gfn_node[idx]);
-@@ -4823,6 +5091,9 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
+@@ -4823,6 +5092,9 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
  	kvm_uevent_notify_change(KVM_EVENT_CREATE_VM, kvm);
  
  	fd_install(r, file);
@@ -738,7 +730,7 @@ index f2a63cb2658b..bd26b7a29c9e 100644
  	return r;
  
  put_kvm:
-@@ -4836,6 +5107,315 @@ static long kvm_dev_ioctl(struct file *filp,
+@@ -4836,6 +5108,315 @@ static long kvm_dev_ioctl(struct file *filp,
  	long r = -EINVAL;
  
  	switch (ioctl) {
@@ -1054,7 +1046,18 @@ index f2a63cb2658b..bd26b7a29c9e 100644
  	case KVM_GET_API_VERSION:
  		if (arg)
  			goto out;
-@@ -5792,6 +6372,8 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4864,7 +5445,9 @@ static long kvm_dev_ioctl(struct file *filp,
+ 		r = -EOPNOTSUPP;
+ 		break;
+ 	default:
+-		return kvm_arch_dev_ioctl(filp, ioctl, arg);
++		//r = cachepc_kvm_ioctl(filp, ioctl, arg);
++		//if (r == -EINVAL)
++			return kvm_arch_dev_ioctl(filp, ioctl, arg);
+ 	}
+ out:
+ 	return r;
+@@ -5792,6 +6375,8 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	r = kvm_vfio_ops_init();
  	WARN_ON(r);
  
@@ -1063,7 +1066,7 @@ index f2a63cb2658b..bd26b7a29c9e 100644
  	return 0;
  
  out_unreg:
-@@ -5821,6 +6403,8 @@ void kvm_exit(void)
+@@ -5821,6 +6406,8 @@ void kvm_exit(void)
  {
  	int cpu;
  

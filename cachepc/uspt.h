@@ -7,7 +7,6 @@
 #include <linux/types.h>
 
 
-int sevstep_uspt_initialize(int pid, bool should_get_rip);
 int sevstep_uspt_is_initialiized(void);
 void sevstep_uspt_clear(void);
 

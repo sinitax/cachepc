@@ -4,29 +4,31 @@
 #include <linux/types.h>
 #include <linux/ioctl.h>
 
+#define CPC_ISOLCPU 2
+
+#define CPC_L1MISS_PMC 0
+#define CPC_RETINST_PMC 1
+
 #define KVM_CPC_TEST_ACCESS _IOWR(KVMIO, 0x20, __u32)
 #define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x21, __u32)
 #define KVM_CPC_INIT_PMC _IOW(KVMIO, 0x22, __u32)
 #define KVM_CPC_READ_PMC _IOWR(KVMIO, 0x23, __u32)
 #define KVM_CPC_READ_COUNTS _IOR(KVMIO, 0x24, __u64)
+#define KVM_CPC_SETUP_PMC _IO(KVMIO, 0x25)
+#define KVM_CPC_READ_GUEST_MEMORY _IOWR(KVMIO, 0x26, read_guest_memory_t)
 
-#define KVM_TRACK_PAGE _IOWR(KVMIO, 0x30, track_page_param_t)
-#define KVM_USPT_REGISTER_PID _IOWR(KVMIO, 0x31, userspace_ctx_t)
-#define KVM_USPT_WAIT_AND_SEND _IO(KVMIO, 0x32)
-#define KVM_USPT_POLL_EVENT _IOWR(KVMIO, 0x33, page_fault_event_t)
-#define KVM_USPT_ACK_EVENT _IOWR(KVMIO, 0x34, ack_event_t)
-#define KVM_READ_GUEST_MEMORY _IOWR(KVMIO, 0x35, read_guest_memory_t)
-#define KVM_USPT_RESET _IO(KVMIO, 0x36)
-#define KVM_USPT_TRACK_ALL _IOWR(KVMIO, 0x37, track_all_pages_t)
-#define KVM_USPT_UNTRACK_ALL _IOWR(KVMIO, 0x38, track_all_pages_t)
-#define KVM_USPT_SETUP_RETINSTR_PERF _IOWR(KVMIO, 0x39, retired_instr_perf_config_t)
-#define KVM_USPT_READ_RETINSTR_PERF _IOWR(KVMIO, 0x3A, retired_instr_perf_t)
-#define KVM_USPT_BATCH_TRACK_START _IOWR(KVMIO, 0x3B, batch_track_config_t)
-#define KVM_USPT_BATCH_TRACK_STOP _IOWR(KVMIO, 0x3C, batch_track_stop_and_get_t)
-#define KVM_USPT_BATCH_TRACK_EVENT_COUNT _IOWR(KVMIO, 0x3D, batch_track_event_count_t)
+#define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, track_page_param_t)
+#define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x31, page_fault_event_t)
+#define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x32, ack_event_t)
+#define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x33)
+#define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x34, track_all_pages_t)
+#define KVM_CPC_UNTRACK_ALL _IOWR(KVMIO, 0x35, track_all_pages_t)
+#define KVM_CPC_BATCH_TRACK_START _IOWR(KVMIO, 0x36, batch_track_config_t)
+#define KVM_CPC_BATCH_TRACK_STOP _IOWR(KVMIO, 0x37, batch_track_stop_and_get_t)
+#define KVM_CPC_BATCH_TRACK_EVENT_COUNT _IOWR(KVMIO, 0x38, batch_track_event_count_t)
 
-#define KVM_USPT_POLL_EVENT_NO_EVENT 1000
-#define KVM_USPT_POLL_EVENT_GOT_EVENT 0
+#define CPC_USPT_POLL_EVENT_NO_EVENT 1000
+#define CPC_USPT_POLL_EVENT_GOT_EVENT 0
 
 enum kvm_page_track_mode {
 	KVM_PAGE_TRACK_WRITE,

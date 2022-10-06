@@ -46,7 +46,7 @@ static int have_event = 0;
 
 static bool get_rip = true;
 
-static int inited = 0;
+static int was_init = 0;
 
 DEFINE_SPINLOCK(batch_track_state_lock);
 static batch_track_state_t batch_track_state;
@@ -59,7 +59,7 @@ void
 sevstep_uspt_clear(void)
 {
 	write_lock(&event_lock);
-	inited = 0;
+	was_init = 1;
 	last_sent_event_id = 1;
 	last_acked_event_id = 1;
 	have_event = 0;
@@ -68,23 +68,9 @@ sevstep_uspt_clear(void)
 }
 
 int
-sevstep_uspt_initialize(int pid, bool should_get_rip)
-{
-	write_lock(&event_lock);
-	inited = 1;
-	last_sent_event_id = 1;
-	last_acked_event_id = 1;
-	have_event = 0;
-	get_rip = should_get_rip;
-	write_unlock(&event_lock);
-
-	return 0;
-}
-
-int
 sevstep_uspt_is_initialiized()
 {
-	return inited;
+	return was_init;
 }
 
 bool
@@ -175,7 +161,7 @@ sevstep_uspt_handle_poll_event(page_fault_event_t* userpace_mem)
 	read_lock(&event_lock);
 	if (!have_event) {
 		read_unlock(&event_lock);
-		return KVM_USPT_POLL_EVENT_NO_EVENT;
+		return CPC_USPT_POLL_EVENT_NO_EVENT;
 	}
 	read_unlock(&event_lock);
 
@@ -185,7 +171,7 @@ sevstep_uspt_handle_poll_event(page_fault_event_t* userpace_mem)
 			&sent_event, sizeof(page_fault_event_t));
 		have_event = 0;
 	} else {
-		err = KVM_USPT_POLL_EVENT_NO_EVENT;
+		err = CPC_USPT_POLL_EVENT_NO_EVENT;
 	}
 	write_unlock(&event_lock);
 
@@ -222,7 +208,7 @@ perf_state_update_and_get_delta(uint64_t current_event_idx)
 	if (perf_state.delta_valid_idx == current_event_idx) {
 		if (current_event_idx == 0) {
 			perf_state.idx_for_last_perf_reading = current_event_idx;
-			perf_state.last_perf_reading = cachepc_read_pmc(0);
+			perf_state.last_perf_reading = cachepc_read_pmc(CPC_RETINST_PMC);
 		}
 		return perf_state.delta;
 	}
@@ -234,7 +220,7 @@ perf_state_update_and_get_delta(uint64_t current_event_idx)
 			perf_state.idx_for_last_perf_reading, current_event_idx);
 	}
 
-	current_value = cachepc_read_pmc(0);
+	current_value = cachepc_read_pmc(CPC_RETINST_PMC);
 	perf_state.delta = (current_value - perf_state.last_perf_reading);
 	perf_state.delta_valid_idx = current_event_idx;
 

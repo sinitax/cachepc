@@ -25,7 +25,49 @@ uint64_t cachepc_regs_vm[16];
 EXPORT_SYMBOL(cachepc_regs_tmp);
 EXPORT_SYMBOL(cachepc_regs_vm);
 
-static long
+static long get_user_pages_remote_unlocked(struct mm_struct *mm,
+	unsigned long start, unsigned long nr_pages,
+	unsigned int gup_flags, struct page **pages);
+
+static int read_physical(struct kvm *kvm, u64 gpa,
+	void *buf, u64 size, bool decrypt_at_host);
+// static int write_physical(struct kvm *kvm, u64 gpa, u64 size,
+// 		const void *buf, bool write_plaintexts);
+// static int print_physical(struct kvm *kvm, u64 gpa,
+// 	u64 size, bool decrypt_at_host);
+// static int map_physical(struct kvm *kvm, u64 gpa,
+// 	bool decrypt_at_host, void **mapping, struct page **page);
+// static void unmap_physical(void **mapping, struct page **page);
+
+// static int read_mapped(u64 gpa, void *buff, u64 size, void *mapping);
+// static int write_mapped(u64 gpa, u64 size, const void *buf, void *mapping);
+
+static void cachepc_kvm_prime_probe_test(void *p);
+static void cachepc_kvm_stream_hwpf_test(void *p);
+static void cachepc_kvm_single_access_test(void *p);
+static void cachepc_kvm_single_eviction_test(void *p);
+
+static void cachepc_kvm_system_setup(void);
+
+static int cachepc_kvm_test_access_ioctl(void __user *arg_user);
+static int cachepc_kvm_test_eviction_ioctl(void __user *arg_user);
+static int cachepc_kvm_init_pmc_ioctl(void __user *arg_user);
+static int cachepc_kvm_read_pmc_ioctl(void __user *arg_user);
+static int cachepc_kvm_read_counts_ioctl(void __user *arg_user);
+static int cachepc_kvm_setup_pmc_ioctl(void __user *arg_user);
+static int cachepc_kvm_read_guest_memory_ioctl(void __user *arg_user);
+
+static int cachepc_kvm_track_page_ioctl(void __user *arg_user);
+static int cachepc_kvm_batch_track_start_ioctl(void __user *arg_user);
+static int cachepc_kvm_batch_track_count_ioctl(void __user *arg_user);
+static int cachepc_kvm_batch_track_stop_ioctl(void __user *arg_user);
+static int cachepc_kvm_track_all_ioctl(void __user *arg_user);
+static int cachepc_kvm_untrack_all_ioctl(void __user *arg_user);
+static int cachepc_kvm_uspt_reset_ioctl(void __user *arg_user);
+static int cachepc_kvm_poll_event_ioctl(void __user *arg_user);
+static int cachepc_kvm_uscpt_ack_event_ioctl(void __user *arg_user);
+
+long
 get_user_pages_remote_unlocked(struct mm_struct *mm,
 	unsigned long start, unsigned long nr_pages,
 	unsigned int gup_flags, struct page **pages)
@@ -74,12 +116,12 @@ get_user_pages_remote_unlocked(struct mm_struct *mm,
 // }
 
 int
-read_physical(struct kvm *kvm, u64 gpa, void *buff, u64 size,
+read_physical(struct kvm *kvm, u64 gpa, void *buf, u64 size,
 		bool decrypt_at_host)
 {
-	unsigned long hva;
 	struct page *page = NULL;
 	void *ptr_page = NULL;
+	unsigned long hva;
 	uint64_t offset;
 	int ec;
 
@@ -96,20 +138,15 @@ read_physical(struct kvm *kvm, u64 gpa, void *buff, u64 size,
 
 	hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
 
-	// TODO: test change
-	/*
 	if (kvm_is_error_hva(hva)) {
-		printk(KERN_CRIT "Luca: read_physical: translation to hva failed( gpa was "
-										 "%016llx hva is %016lx\n",
-					 gpa, hva);
+		pr_warn("read_physical: translation to hva failed( gpa was "
+			"%016llx hva is %016lx\n", gpa, hva);
 		ec = -100;
 		goto out;
 	}
-	*/
 
 	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, 0, &page) != 1) {
 		pr_warn("read_physical: failed to get page struct from mm\n");
-		// ec = -KVM_EINVAL;
 		ec = -100;
 		goto out;
 	}
@@ -123,9 +160,9 @@ read_physical(struct kvm *kvm, u64 gpa, void *buff, u64 size,
 		ptr_page = vmap(&page, 1, 0, __pgprot(__PAGE_KERNEL_NOCACHE));
 	}
 
-	/*printk("value of buff ptr = %p\t value of ptr_page=%p\n", buff,
+	/*printk("value of buf ptr = %p\t value of ptr_page=%p\n", buf,
 				 ptr_page + offset);*/
-	memcpy(buff, ptr_page + offset, size);
+	memcpy(buf, ptr_page + offset, size);
 
 out:
 	if (ptr_page)
@@ -136,156 +173,154 @@ out:
 	return ec;
 }
 
-int
-print_physical(struct kvm *kvm, u64 gpa, u64 size, bool decrypt_at_host)
-{
-	u8 *buffer;
-	int i, err;
+// int
+// write_physical(struct kvm *kvm, u64 gpa, u64 size,
+// 		const void *buf, bool write_plaintexts)
+// {
+// 	int ec;
+// 	unsigned long hva;
+// 	struct page *page;
+// 	void *ptr_page;
+// 	uint64_t offset;
+// 
+// 	offset = (gpa & 0xFFF);
+// 
+// 	if ((offset + size - 1) > 0xFFF) {
+// 		pr_warn("write_physical: trying to write "
+// 			"beyond page(offset+size=%016llx)\n",
+// 			offset + size);
+// 		return -EINVAL;
+// 	}
+// 
+// 	ec = 0;
+// 	hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
+// 
+// 	if (kvm_is_error_hva(hva))
+// 		return -KVM_EINVAL;
+// 
+// 	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, FOLL_WRITE, &page) != 1)
+// 		return -KVM_EINVAL;
+// 
+// 	if (write_plaintexts) {
+// 		// map with encrytpion bit to aplly host encryption. Usefull if sev is
+// 		// disabled but sme is enabled and we want to write a certain value into a
+// 		// page
+// 		ptr_page = vmap(&page, 1, 0, PAGE_KERNEL_NOCACHE);
+// 	} else {
+// 		// map without encryption bit to write ciphertexts
+// 		ptr_page = vmap(&page, 1, 0, __pgprot(__PAGE_KERNEL_NOCACHE));
+// 	}
+// 
+// 	memcpy(ptr_page + offset, buf, size);
+// 
+// 	vunmap(ptr_page);
+// 	put_page(page);
+// 	return ec;
+// }
 
-	buffer = kmalloc(size, GFP_ATOMIC);
+// int
+// print_physical(struct kvm *kvm, u64 gpa, u64 size, bool decrypt_at_host)
+// {
+// 	u8 *buf;
+// 	int i, err;
+// 
+// 	buf = kmalloc(size, GFP_ATOMIC);
+// 
+// 	err = read_physical(kvm, gpa, buf, size, decrypt_at_host);
+// 	if (err != 0) {
+// 		pr_warn("at %s line %d: read_physical "
+// 			"failed with: %d\n", __FILE__, __LINE__, err);
+// 	}
+// 	for (i = 0; i < size; i++) {
+// 		// print bytewise with line break every 16 bytes
+// 		if (i % 16 == 0) {
+// 			printk("%02x ", buf[i]);
+// 		} else {
+// 			printk(KERN_CONT " %02x ", buf[i]);
+// 		}
+// 	}
+// 	printk("\n");
+// 
+// 	kfree(buf);
+// 
+// 	return err;
+// }
 
-	err = read_physical(kvm, gpa, buffer, size, decrypt_at_host);
-	if (err != 0) {
-		pr_warn("at %s line %d: read_physical "
-			"failed with: %d\n", __FILE__, __LINE__, err);
-	}
-	for (i = 0; i < size; i++) {
-		// print bytewise with line break every 16 bytes
-		if (i % 16 == 0) {
-			printk("%02x ", buffer[i]);
-		} else {
-			printk(KERN_CONT " %02x ", buffer[i]);
-		}
-	}
-	printk("\n");
+// int
+// map_physical(struct kvm *kvm, u64 gpa, bool decrypt_at_host,
+// 	void **mapping, struct page **page)
+// {
+// 
+// 	unsigned long hva;
+// 	uint64_t offset;
+// 	int err;
+// 
+// 	offset = (gpa & 0xFFF);
+// 
+// 	err = 0;
+// 
+// 	hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
+// 
+// 	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, 0, page) != 1) {
+// 		pr_warn("map_physical: failed to get page struct from mm");
+// 		err = -100;
+// 		return err;
+// 	}
+// 
+// 	if (decrypt_at_host) {
+// 		// map with encryption bit. Content is decrypted with host key. If sev is
+// 		// disabled but sme is enable this allows to read the plaintext.
+// 		(*mapping) = vmap(page, 1, 0, PAGE_KERNEL);
+// 	} else {
+// 		// map without encryption bit to read ciphertexts
+// 		(*mapping) = vmap(page, 1, 0, __pgprot(__PAGE_KERNEL));
+// 	}
+// 
+// 	return err;
+// }
 
-	kfree(buffer);
+// void
+// unmap_physical(void **mapping, struct page **page)
+// {
+// 	if (*mapping)
+// 		vunmap(*mapping);
+// 	if (*page)
+// 		put_page(*page);
+// }
 
-	return err;
-}
+// int
+// read_mapped(u64 gpa, void *buff, u64 size, void *mapping)
+// {
+// 	uint64_t offset;
+// 	offset = (gpa & 0xFFF);
+// 
+// 	if ((offset + size - 1) > 0xFFF) {
+// 		pr_warn("read_mapped: trying to read "
+// 			"beyond page (offset+size=%016llx)\n",
+// 			offset + size);
+// 		return -EINVAL;
+// 	}
+// 	memcpy(buff, mapping + offset, size);
+// 
+// 	return 0;
+// }
 
-int
-map_physical(struct kvm *kvm, u64 gpa, bool decrypt_at_host,
-	void **mapping, struct page **page)
-{
-
-	int ec;
-	unsigned long hva;
-	uint64_t offset;
-
-	offset = (gpa & 0xFFF);
-
-	ec = 0;
-
-	hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
-
-	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, 0, page) != 1) {
-		pr_warn("map_physical: failed to get page struct from mm");
-		// ec = -KVM_EINVAL;
-		ec = -100;
-		return ec;
-	}
-
-	if (decrypt_at_host) {
-		// map with encryption bit. Content is decrypted with host key. If sev is
-		// disabled but sme is enable this allows to read the plaintext.
-		(*mapping) = vmap(page, 1, 0, PAGE_KERNEL);
-	} else {
-		// map without encryption bit to read ciphertexts
-		(*mapping) = vmap(page, 1, 0, __pgprot(__PAGE_KERNEL));
-	}
-
-	return ec;
-}
-
-void
-unmap_physical(void **mapping, struct page **page)
-{
-	if (*mapping)
-		vunmap(*mapping);
-	if (*page)
-		put_page(*page);
-}
-
-int
-read_mapped(u64 gpa, void *buff, u64 size, void *mapping)
-{
-	uint64_t offset;
-	offset = (gpa & 0xFFF);
-
-	if ((offset + size - 1) > 0xFFF) {
-		pr_warn("read_mapped: trying to read "
-			"beyond page (offset+size=%016llx)\n",
-			offset + size);
-		return -EINVAL;
-	}
-	memcpy(buff, mapping + offset, size);
-
-	return 0;
-}
-
-int
-write_mapped(u64 gpa, u64 size, const void *buf, void *mapping)
-{
-	uint64_t offset;
-
-	offset = (gpa & 0xFFF);
-
-	if ((offset + size - 1) > 0xFFF) {
-		printk("write_physical: trying to write beyond page(offset+size=%016llx)\n",
-					 offset + size);
-		return -EINVAL;
-	}
-	memcpy(mapping + offset, buf, size);
-
-	return 0;
-}
-
-int
-write_physical(struct kvm *kvm, u64 gpa, u64 size,
-		const void *buf, bool write_plaintexts)
-{
-	int ec;
-	unsigned long hva;
-	struct page *page;
-	void *ptr_page;
-	uint64_t offset;
-
-	offset = (gpa & 0xFFF);
-
-	if ((offset + size - 1) > 0xFFF) {
-		pr_warn("write_physical: trying to write "
-			"beyond page(offset+size=%016llx)\n",
-			offset + size);
-		return -EINVAL;
-	}
-
-	ec = 0;
-	hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
-
-	if (kvm_is_error_hva(hva))
-		return -KVM_EINVAL;
-
-	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, FOLL_WRITE, &page) != 1)
-		return -KVM_EINVAL;
-
-	if (write_plaintexts) {
-		// map with encrytpion bit to aplly host encryption. Usefull if sev is
-		// disabled but sme is enabled and we want to write a certain value into a
-		// page
-		ptr_page = vmap(&page, 1, 0, PAGE_KERNEL_NOCACHE);
-	} else {
-		// map without encryption bit to write ciphertexts
-		ptr_page = vmap(&page, 1, 0, __pgprot(__PAGE_KERNEL_NOCACHE));
-	}
-
-	memcpy(ptr_page + offset, buf, size);
-
-	vunmap(ptr_page);
-	put_page(page);
-	return ec;
-}
-
+// int
+// write_mapped(u64 gpa, u64 size, const void *buf, void *mapping)
+// {
+// 	uint64_t offset;
+// 
+// 	offset = (gpa & 0xFFF);
+// 
+// 	if ((offset + size - 1) > 0xFFF) {
+// 		printk("write_physical: trying to write beyond page(offset+size=%016llx)\n",
+// 					 offset + size);
+// 		return -EINVAL;
+// 	}
+// 	memcpy(mapping + offset, buf, size);
+// 
+// 	return 0;
+// }
 
 void
 cachepc_kvm_prime_probe_test(void *p)
@@ -353,10 +388,10 @@ cachepc_kvm_stream_hwpf_test(void *p)
 	count = 0;
 	cachepc_prime(cachepc_ds);
 
-	count -= cachepc_read_pmc(0);
+	count -= cachepc_read_pmc(CPC_L1MISS_PMC);
 	for (i = 0; i < max; i++)
 		asm volatile ("mov (%0), %%rbx" : : "r"(lines + i) : "rbx");
-	count += cachepc_read_pmc(0);
+	count += cachepc_read_pmc(CPC_L1MISS_PMC);
 
 	printk(KERN_WARNING "CachePC: HWPF test done (%u vs. %u => %s)\n",
 		count, max, (count == max) ? "passed" : "failed");
@@ -384,9 +419,9 @@ cachepc_kvm_single_access_test(void *p)
 
 	cachepc_prime(cachepc_ds);
 
-	pre = cachepc_read_pmc(0);
+	pre = cachepc_read_pmc(CPC_L1MISS_PMC);
 	cachepc_victim(ptr);
-	post = cachepc_read_pmc(0);
+	post = cachepc_read_pmc(CPC_L1MISS_PMC);
 
 	printk(KERN_WARNING "CachePC: Single access test done (%llu vs %u => %s)",
 		post - pre, 1, (post - pre == 1) ? "passed" : "failed");
@@ -471,17 +506,62 @@ cachepc_kvm_system_setup(void)
 	printk("CachePC: Writing MSR %08llX: %016llX\n", reg_addr, val);
 }
 
-void
-cachepc_kvm_init_pmc_ioctl(void *p)
+int
+cachepc_kvm_test_access_ioctl(void __user *arg_user)
+{
+	uint32_t u32;
+	int ret;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
+		return -EFAULT;
+
+	ret = smp_call_function_single(2,
+		cachepc_kvm_single_access_test, &u32, true);
+	WARN_ON(ret != 0);
+
+	if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
+cachepc_kvm_test_eviction_ioctl(void __user *arg_user)
+{
+	uint32_t u32;
+	int ret;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
+		return -EFAULT;
+
+	ret = smp_call_function_single(2,
+		cachepc_kvm_single_eviction_test, &u32, true);
+	WARN_ON(ret != 0);
+
+	if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
+cachepc_kvm_init_pmc_ioctl(void __user *arg_user)
 {
 	uint8_t index, event_no, event_mask;
 	uint8_t host_guest, kernel_user;
 	uint32_t event;
 
-	WARN_ON(p == NULL);
-	if (!p) return;
+	if (!arg_user) return -EINVAL;
 
-	event = *(uint32_t *)p;
+	if (smp_processor_id() != CPC_ISOLCPU)
+		return -EFAULT;
+
+	if (copy_from_user(&event, arg_user, sizeof(uint32_t)))
+		return -EFAULT;
 
 	index       = (event & 0xFF000000) >> 24;
 	host_guest  = (event & 0x00300000) >> 20;
@@ -491,201 +571,53 @@ cachepc_kvm_init_pmc_ioctl(void *p)
 
 	cachepc_init_pmc(index, event_no, event_mask,
 		host_guest, kernel_user);
-}
-
-int
-cachepc_kvm_track_page_ioctl(void __user *arg_user)
-{
-	track_page_param_t param;
-	struct kvm_vcpu *vcpu;
-
-	if (!arg_user) return -EINVAL;
-
-	if (copy_from_user(&param, arg_user, sizeof(param))) {
-		pr_warn("KVM_TRACK_PAGE: error copying arguments, exiting\n");
-		return -EFAULT;
-	}
-
-	if (main_vm == NULL) {
-		pr_warn("KVM_TRACK_PAGE: main_vm is not initialized, aborting!\n");
-		return -EFAULT;
-	}
-
-	if (param.track_mode < 0 || param.track_mode >= KVM_PAGE_TRACK_MAX) {
-		pr_warn("KVM_TRACK_PAGE track_mode %d invalid, "
-			"must be in range [%d,%d]", param.track_mode,
-			0, KVM_PAGE_TRACK_MAX);
-		return -EFAULT;
-	}
-
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!sevstep_track_single_page(vcpu,
-			param.gpa >> PAGE_SHIFT, param.track_mode)) {
-		printk("KVM_TRACK_PAGE: sevstep_track_single_page failed");
-	}
 
 	return 0;
 }
 
 int
-cachepc_kvm_batch_track_start_ioctl(void __user *arg_user)
+cachepc_kvm_read_pmc_ioctl(void __user *arg_user)
 {
-	batch_track_config_t param;
-	int ret;
+	uint64_t count;
+	uint32_t event;
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&param, arg_user, sizeof(param))) {
-		pr_warn("KVM_USPT_BATCH_TRACK_START: "
-			"error copying arguments, exiting\n");
+	if (copy_from_user(&event, arg_user, sizeof(uint32_t)))
 		return -EFAULT;
-	}
 
-	ret = sevstep_uspt_batch_tracking_start(param.tracking_type,
-		param.expected_events, param.perf_cpu, param.retrack);
-	if (ret != 0) {
-		pr_warn("KVM_USPT_BATCH_TRACK_START: failed\n");
-		return ret;
-	}
+	count = cachepc_read_pmc(event);
+	if (copy_to_user(arg_user, &count, sizeof(uint64_t)))
+		return -EFAULT;
 
 	return 0;
 }
 
 int
-cachepc_kvm_batch_track_count_ioctl(void __user *arg_user)
+cachepc_kvm_read_counts_ioctl(void __user *arg_user)
 {
-	batch_track_event_count_t result;
-
 	if (!arg_user) return -EINVAL;
 
-	result.event_count = sevstep_uspt_batch_tracking_get_events_count();
-
-	if (copy_to_user(arg_user, &result, sizeof(result))) {
-		pr_warn("KVM_USPT_BATCH_TRACK_EVENT_COUNT: "
-			"error copying result to user, exiting\n");
+	if (copy_to_user(arg_user, cachepc_msrmts,
+			cachepc_msrmts_count * sizeof(uint16_t)))
 		return -EFAULT;
-	}
 
 	return 0;
 }
 
 int
-cachepc_kvm_batch_track_stop_ioctl(void __user *arg_user)
+cachepc_kvm_setup_pmc_ioctl(void __user *arg_user)
 {
-	batch_track_stop_and_get_t param;
-	page_fault_event_t* buf;
-	uint64_t buf_bytes;
-	void __user* inner_user_out_buf;
-	int ret;
-
-	if (!arg_user) return -EINVAL;
-
-	if (copy_from_user(&param, arg_user, sizeof(param))) {
-		pr_warn("KVM_USPT_BATCH_TRACK_STOP: "
-			"error copying arguments, exiting\n");
+	if (smp_processor_id() != CPC_ISOLCPU)
 		return -EFAULT;
-	}
-	inner_user_out_buf = param.out_buf;
 
-	buf_bytes = sizeof(page_fault_event_t)*param.len;
-	pr_warn("KVM_USPT_BATCH_TRACK_STOP: "
-		"allocating %llu bytes for tmp buf\n", buf_bytes);
+	/* L1 Misses in Host Kernel */
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8,
+		PMC_HOST, PMC_KERNEL);
 
-	buf = vmalloc(buf_bytes);
-	if (buf == NULL) {
-		pr_warn("KVM_USPT_BATCH_TRACK_STOP: "
-			"failed to alloc tmp buf\n");
-		return -EFAULT;
-	}
-	param.out_buf = buf;
-
-	ret = sevstep_uspt_batch_tracking_stop(buf, param.len,
-		&param.error_during_batch);
-	if (ret != 0) {
-		pr_warn("KVM_USPT_BATCH_TRACK_STOP: failed\n");
-		vfree(buf);
-		return -EFAULT;
-	}
-
-	if (copy_to_user(arg_user, &param, sizeof(param))) {
-		pr_warn("KVM_USPT_BATCH_TRACK_STOP: "
-			"error copying result to user, exiting\n");
-		vfree(buf);
-		return -EFAULT;
-	}
-
-	if (copy_to_user(inner_user_out_buf, buf,buf_bytes)) {
-		pr_warn("KVM_USPT_BATCH_TRACK_STOP: "
-			"error copying result to user, exiting\n");
-		vfree(buf);
-		return -EFAULT;
-	}
-
-	vfree(buf);
-
-	return 0;
-}
-
-int
-cachepc_kvm_track_all_ioctl(void __user *arg_user)
-{
-	track_all_pages_t param;
-	struct kvm_vcpu *vcpu;
-	long tracked_pages;
-
-	if (!arg_user) return -EINVAL;
-
-	if (copy_from_user(&param, arg_user, sizeof(param))) {
-		pr_warn("KVM_USPT_TRACK_ALL: error copying arguments, exiting\n");
-		return -EFAULT;
-	}
-
-	if (main_vm == NULL) {
-		pr_warn("KVM_USPT_TRACK_ALL: main_vm is not initialized, aborting!\n");
-		return -EFAULT;
-	}
-
-	if (param.track_mode < 0 || param.track_mode >= KVM_PAGE_TRACK_MAX) {
-		pr_warn("KVM_USPT_TRACK_ALL: "
-			"track_mode %d invalid, must be in range [%d,%d]\n",
-			param.track_mode, 0, KVM_PAGE_TRACK_MAX);
-		return -EFAULT;
-	}
-
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	tracked_pages = sevstep_start_tracking(vcpu, param.track_mode);
-
-	return 0;
-}
-
-int
-cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
-{
-	track_all_pages_t param;
-	struct kvm_vcpu *vcpu;
-	long untrack_count;
-
-	if (!arg_user) return -EINVAL;
-
-	if (copy_from_user(&param, arg_user, sizeof(param))) {
-		printk(KERN_CRIT "KVM_USPT_UNTRACK_ALL: error copying arguments, exiting\n");
-		return -EFAULT;
-	}
-
-	if (main_vm == NULL) {
-		printk("KVM_USPT_UNTRACK_ALL: main_vm is not initialized, aborting!\n");
-		return -EFAULT;
-	}
-
-	if (param.track_mode < 0 || param.track_mode >= KVM_PAGE_TRACK_MAX) {
-		printk("KVM_USPT_UNTRACK_ALL: track_mode %d invalid, "
-			"must be in range [%d,%d]", param.track_mode,
-			0, KVM_PAGE_TRACK_MAX);
-		return -EFAULT;
-	}
-
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	untrack_count = sevstep_stop_tracking(vcpu, param.track_mode);
+	/* Retired Instructions in Guest */
+	cachepc_init_pmc(CPC_RETINST_PMC, 0xC0, 0x00,
+		PMC_GUEST, PMC_KERNEL | PMC_USER);
 
 	return 0;
 }
@@ -735,7 +667,204 @@ cachepc_kvm_read_guest_memory_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_uspt_reset(void __user *arg_user)
+cachepc_kvm_track_page_ioctl(void __user *arg_user)
+{
+	track_page_param_t param;
+	struct kvm_vcpu *vcpu;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&param, arg_user, sizeof(param))) {
+		pr_warn("KVM_TRACK_PAGE: error copying arguments, exiting\n");
+		return -EFAULT;
+	}
+
+	if (main_vm == NULL) {
+		pr_warn("KVM_TRACK_PAGE: main_vm is not initialized, aborting!\n");
+		return -EFAULT;
+	}
+
+	if (param.track_mode < 0 || param.track_mode >= KVM_PAGE_TRACK_MAX) {
+		pr_warn("KVM_TRACK_PAGE track_mode %d invalid, "
+			"must be in range [%d,%d]", param.track_mode,
+			0, KVM_PAGE_TRACK_MAX);
+		return -EFAULT;
+	}
+
+	vcpu = xa_load(&main_vm->vcpu_array, 0);
+	if (!sevstep_track_single_page(vcpu,
+			param.gpa >> PAGE_SHIFT, param.track_mode)) {
+		printk("KVM_TRACK_PAGE: sevstep_track_single_page failed");
+	}
+
+	return 0;
+}
+
+int
+cachepc_kvm_batch_track_start_ioctl(void __user *arg_user)
+{
+	batch_track_config_t param;
+	int ret;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&param, arg_user, sizeof(param))) {
+		pr_warn("KVM_CPC_BATCH_TRACK_START: "
+			"error copying arguments, exiting\n");
+		return -EFAULT;
+	}
+
+	ret = sevstep_uspt_batch_tracking_start(param.tracking_type,
+		param.expected_events, param.perf_cpu, param.retrack);
+	if (ret != 0) {
+		pr_warn("KVM_CPC_BATCH_TRACK_START: failed\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+int
+cachepc_kvm_batch_track_count_ioctl(void __user *arg_user)
+{
+	batch_track_event_count_t result;
+
+	if (!arg_user) return -EINVAL;
+
+	result.event_count = sevstep_uspt_batch_tracking_get_events_count();
+
+	if (copy_to_user(arg_user, &result, sizeof(result))) {
+		pr_warn("KVM_CPC_BATCH_TRACK_EVENT_COUNT: "
+			"error copying result to user, exiting\n");
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
+int
+cachepc_kvm_batch_track_stop_ioctl(void __user *arg_user)
+{
+	batch_track_stop_and_get_t param;
+	page_fault_event_t* buf;
+	uint64_t buf_bytes;
+	void __user* inner_user_out_buf;
+	int ret;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&param, arg_user, sizeof(param))) {
+		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
+			"error copying arguments, exiting\n");
+		return -EFAULT;
+	}
+	inner_user_out_buf = param.out_buf;
+
+	buf_bytes = sizeof(page_fault_event_t)*param.len;
+	pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
+		"allocating %llu bytes for tmp buf\n", buf_bytes);
+
+	buf = vmalloc(buf_bytes);
+	if (buf == NULL) {
+		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
+			"failed to alloc tmp buf\n");
+		return -EFAULT;
+	}
+	param.out_buf = buf;
+
+	ret = sevstep_uspt_batch_tracking_stop(buf, param.len,
+		&param.error_during_batch);
+	if (ret != 0) {
+		pr_warn("KVM_CPC_BATCH_TRACK_STOP: failed\n");
+		vfree(buf);
+		return -EFAULT;
+	}
+
+	if (copy_to_user(arg_user, &param, sizeof(param))) {
+		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
+			"error copying result to user, exiting\n");
+		vfree(buf);
+		return -EFAULT;
+	}
+
+	if (copy_to_user(inner_user_out_buf, buf,buf_bytes)) {
+		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
+			"error copying result to user, exiting\n");
+		vfree(buf);
+		return -EFAULT;
+	}
+
+	vfree(buf);
+
+	return 0;
+}
+
+int
+cachepc_kvm_track_all_ioctl(void __user *arg_user)
+{
+	track_all_pages_t param;
+	struct kvm_vcpu *vcpu;
+	long tracked_pages;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&param, arg_user, sizeof(param))) {
+		pr_warn("KVM_CPC_TRACK_ALL: error copying arguments, exiting\n");
+		return -EFAULT;
+	}
+
+	if (main_vm == NULL) {
+		pr_warn("KVM_CPC_TRACK_ALL: main_vm is not initialized, aborting!\n");
+		return -EFAULT;
+	}
+
+	if (param.track_mode < 0 || param.track_mode >= KVM_PAGE_TRACK_MAX) {
+		pr_warn("KVM_CPC_TRACK_ALL: "
+			"track_mode %d invalid, must be in range [%d,%d]\n",
+			param.track_mode, 0, KVM_PAGE_TRACK_MAX);
+		return -EFAULT;
+	}
+
+	vcpu = xa_load(&main_vm->vcpu_array, 0);
+	tracked_pages = sevstep_start_tracking(vcpu, param.track_mode);
+
+	return 0;
+}
+
+int
+cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
+{
+	track_all_pages_t param;
+	struct kvm_vcpu *vcpu;
+	long untrack_count;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&param, arg_user, sizeof(param))) {
+		printk(KERN_CRIT "KVM_CPC_UNTRACK_ALL: error copying arguments, exiting\n");
+		return -EFAULT;
+	}
+
+	if (main_vm == NULL) {
+		printk("KVM_CPC_UNTRACK_ALL: main_vm is not initialized, aborting!\n");
+		return -EFAULT;
+	}
+
+	if (param.track_mode < 0 || param.track_mode >= KVM_PAGE_TRACK_MAX) {
+		printk("KVM_CPC_UNTRACK_ALL: track_mode %d invalid, "
+			"must be in range [%d,%d]", param.track_mode,
+			0, KVM_PAGE_TRACK_MAX);
+		return -EFAULT;
+	}
+
+	vcpu = xa_load(&main_vm->vcpu_array, 0);
+	untrack_count = sevstep_stop_tracking(vcpu, param.track_mode);
+
+	return 0;
+}
+
+int
+cachepc_kvm_uspt_reset_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
 
@@ -749,33 +878,14 @@ cachepc_kvm_uspt_reset(void __user *arg_user)
 }
 
 int
-cachepc_kvm_register_pid(void __user *arg_user)
+cachepc_kvm_poll_event_ioctl(void __user *arg_user)
 {
-	userspace_ctx_t ctx;
-	struct kvm_vcpu *vcpu;
-
-	if (!arg_user) return -EINVAL;
-
-	if (copy_from_user(&ctx, arg_user, sizeof(userspace_ctx_t))) {
-		printk("copy from user failed\n");
-		return -EACCES;
+	if (!sevstep_uspt_is_initialiized()) {
+		pr_warn("CachePC: userspace context uninitialized\n");
+		return -EINVAL;
 	}
 
-	if (main_vm == NULL) {
-		printk("KVM_TRACK_PAGE: main_vm is not initialized, aborting!\n");
-		return -EFAULT;
-	}
-
-	sevstep_uspt_clear();
-	sevstep_uspt_initialize(ctx.pid, ctx.get_rip);
-
-	printk("Resetting page tracking\n");
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	sevstep_stop_tracking(vcpu, KVM_PAGE_TRACK_EXEC);
-	sevstep_stop_tracking(vcpu, KVM_PAGE_TRACK_ACCESS);
-	sevstep_stop_tracking(vcpu, KVM_PAGE_TRACK_WRITE);
-
-	return 0;
+	return sevstep_uspt_handle_poll_event(arg_user);
 }
 
 int
@@ -785,10 +895,9 @@ cachepc_kvm_uscpt_ack_event_ioctl(void __user *arg_user)
 
 	if (!arg_user) return -EINVAL;
 
-	if (!sevstep_uspt_is_initialiized()) {
-		printk("userspace context not initilaized, call REGISTER_PID");
+	if (!sevstep_uspt_is_initialiized())
 		return -EINVAL;
-	}
+
 	if (copy_from_user(&ack_event, arg_user, sizeof(ack_event_t))) {
 		printk("ACK_EVENT failed to copy args");
 		return -EINVAL;
@@ -801,85 +910,44 @@ long
 cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 {
 	void __user *arg_user;
-	uint32_t u32;
-	uint64_t u64;
-	int ret;
 
 	arg_user = (void __user *)arg;
 	switch (ioctl) {
 	case KVM_CPC_TEST_ACCESS:
-		if (!arg_user) return -EINVAL;
-		if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
-			return -EFAULT;
-		ret = smp_call_function_single(2,
-			cachepc_kvm_single_access_test, &u32, true);
-		WARN_ON(ret != 0);
-		if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
-			return -EFAULT;
-		break;
+		return cachepc_kvm_test_access_ioctl(arg_user);
 	case KVM_CPC_TEST_EVICTION:
-		if (!arg_user) return -EINVAL;
-		if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
-			return -EFAULT;
-		ret = smp_call_function_single(2,
-			cachepc_kvm_single_eviction_test, &u32, true);
-		WARN_ON(ret != 0);
-		if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
-			return -EFAULT;
-		break;
+		return cachepc_kvm_test_eviction_ioctl(arg_user);
 	case KVM_CPC_INIT_PMC:
-		if (!arg_user) return -EINVAL;
-		if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
-			return -EFAULT;
-		ret = smp_call_function_single(2,
-			cachepc_kvm_init_pmc_ioctl, &u32, true);
-		WARN_ON(ret != 0);
-		break;
+		return cachepc_kvm_init_pmc_ioctl(arg_user);
 	case KVM_CPC_READ_PMC:
-		if (!arg_user) return -EINVAL;
-		if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
-			return -EFAULT;
-		u64 = cachepc_read_pmc(u32);
-		if (copy_to_user(arg_user, &u64, sizeof(uint64_t)))
-			return -EFAULT;
-		break;
+		return cachepc_kvm_read_pmc_ioctl(arg_user);
 	case KVM_CPC_READ_COUNTS:
-		if (!arg_user) return -EINVAL;
-		if (copy_to_user(arg_user, cachepc_msrmts,
-				cachepc_msrmts_count * sizeof(uint16_t)))
-			return -EFAULT;
-		break;
-	case KVM_TRACK_PAGE:
+		return cachepc_kvm_read_counts_ioctl(arg_user);
+	case KVM_CPC_SETUP_PMC:
+		return cachepc_kvm_setup_pmc_ioctl(arg_user);
+	case KVM_CPC_TRACK_PAGE:
 		return cachepc_kvm_track_page_ioctl(arg_user);
-	case KVM_USPT_BATCH_TRACK_START:
+	case KVM_CPC_BATCH_TRACK_START:
 		return cachepc_kvm_batch_track_start_ioctl(arg_user);
-	case KVM_USPT_BATCH_TRACK_EVENT_COUNT:
+	case KVM_CPC_BATCH_TRACK_EVENT_COUNT:
 		return cachepc_kvm_batch_track_count_ioctl(arg_user);
-	case KVM_USPT_BATCH_TRACK_STOP:
+	case KVM_CPC_BATCH_TRACK_STOP:
 		return cachepc_kvm_batch_track_stop_ioctl(arg_user);
-	case KVM_USPT_TRACK_ALL:
+	case KVM_CPC_TRACK_ALL:
 		return cachepc_kvm_track_all_ioctl(arg_user);
-	case KVM_USPT_UNTRACK_ALL:
+	case KVM_CPC_UNTRACK_ALL:
 		return cachepc_kvm_untrack_all_ioctl(arg_user);
-	case KVM_READ_GUEST_MEMORY:
+	case KVM_CPC_READ_GUEST_MEMORY:
 		return cachepc_kvm_read_guest_memory_ioctl(arg_user);
-	case KVM_USPT_RESET:
-		return cachepc_kvm_uspt_reset(arg_user);
-	case KVM_USPT_REGISTER_PID:
-		return cachepc_kvm_register_pid(arg_user);
-	case KVM_USPT_POLL_EVENT:
-		if (!sevstep_uspt_is_initialiized()) {
-			printk("userspace context not initilaized, call REGISTER_PID");
-			return -EINVAL;
-		}
-		return sevstep_uspt_handle_poll_event(arg_user);
-	case KVM_USPT_ACK_EVENT:
+	case KVM_CPC_RESET_TRACKING:
+		return cachepc_kvm_uspt_reset_ioctl(arg_user);
+	case KVM_CPC_POLL_EVENT:
+		return cachepc_kvm_poll_event_ioctl(arg_user);
+	case KVM_CPC_ACK_EVENT:
 		return cachepc_kvm_uscpt_ack_event_ioctl(arg_user);
 	default:
 		return kvm_arch_dev_ioctl(file, ioctl, arg);
 	}
-
-	return 0;
 }
 
 void

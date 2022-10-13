@@ -306,19 +306,23 @@ sevstep_uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 {
 	uint64_t ret_instr_delta;
 	int i, next_idx;
+	int cpu;
+
+	cpu = get_cpu();
 
 	spin_lock(&batch_track_state_lock);
 
 	if (!batch_track_state.retrack) {
 		spin_unlock(&batch_track_state_lock);
+		put_cpu();
 		return;
 	}
 
-	if (smp_processor_id() != batch_track_state.perf_cpu) {
+	if (cpu != batch_track_state.perf_cpu) {
 		pr_warn("sevstep_uspt_batch_tracking_handle_retrack: perf was "
 			"programmed on logical cpu %d but handler was called "
 			"on %d. Did you forget to pin the vcpu thread?\n",
-			batch_track_state.perf_cpu, smp_processor_id());
+			batch_track_state.perf_cpu, cpu);
 	}
 	ret_instr_delta = perf_state_update_and_get_delta(batch_track_state.event_next_idx);
 
@@ -339,6 +343,7 @@ sevstep_uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 		}
 
 		spin_unlock(&batch_track_state_lock);
+		put_cpu();
 		return;
 	}
 
@@ -354,7 +359,7 @@ sevstep_uspt_batch_tracking_handle_retrack(struct kvm_vcpu* vcpu,
 	batch_track_state.gfn_retrack_backlog_next_idx = 1;
 
 	spin_unlock(&batch_track_state_lock);
-
+	put_cpu();
 }
 
 int
@@ -363,6 +368,9 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 {
 	uint64_t ret_instr_delta;
 	page_fault_event_t* event;
+	int cpu;
+
+	cpu = get_cpu();
 
 	spin_lock(&batch_track_state_lock);
 
@@ -371,22 +379,23 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 			"got save but batch tracking is not active!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
+		put_cpu();
 		return 1;
 	}
-
 
 	if (batch_track_state.event_next_idx >= batch_track_state.events_size) {
 		pr_warn("sevstep_uspt_batch_tracking_save: events buffer is full!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
+		put_cpu();
 		return 1;
 	}
 
-	if (smp_processor_id() != batch_track_state.perf_cpu) {
+	if (cpu != batch_track_state.perf_cpu) {
 		pr_warn("sevstep_uspt_batch_tracking_save: perf was "
 			"programmed on logical cpu %d but handler was called "
 			"on %d. Did you forget to pin the vcpu thread?\n",
-			batch_track_state.perf_cpu, smp_processor_id());
+			batch_track_state.perf_cpu, cpu);
 	}
 	ret_instr_delta = perf_state_update_and_get_delta(batch_track_state.event_next_idx);
 
@@ -416,10 +425,12 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 			"gfn retrack backlog overflow!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
+		put_cpu();
 		return 1;
 	}
 
 	spin_unlock(&batch_track_state_lock);
+	put_cpu();
 
 	return 0;
 }

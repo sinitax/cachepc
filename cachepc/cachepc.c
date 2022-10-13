@@ -171,8 +171,6 @@ cachepc_save_msrmts(cacheline *head)
 
 		curr_cl = curr_cl->prev;
 	} while (curr_cl != head);
-
-	cachepc_print_msrmts(head);
 }
 
 void

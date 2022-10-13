@@ -554,14 +554,20 @@ cachepc_kvm_init_pmc_ioctl(void __user *arg_user)
 	uint8_t index, event_no, event_mask;
 	uint8_t host_guest, kernel_user;
 	uint32_t event;
+	int cpu;
 
 	if (!arg_user) return -EINVAL;
 
-	if (smp_processor_id() != CPC_ISOLCPU)
+	cpu = get_cpu();
+	if (cpu != CPC_ISOLCPU) {
+		put_cpu();
 		return -EFAULT;
+	}
 
-	if (copy_from_user(&event, arg_user, sizeof(uint32_t)))
+	if (copy_from_user(&event, arg_user, sizeof(uint32_t))) {
+		put_cpu();
 		return -EFAULT;
+	}
 
 	index       = (event & 0xFF000000) >> 24;
 	host_guest  = (event & 0x00300000) >> 20;
@@ -571,6 +577,8 @@ cachepc_kvm_init_pmc_ioctl(void __user *arg_user)
 
 	cachepc_init_pmc(index, event_no, event_mask,
 		host_guest, kernel_user);
+
+	put_cpu();
 
 	return 0;
 }
@@ -608,8 +616,14 @@ cachepc_kvm_read_counts_ioctl(void __user *arg_user)
 int
 cachepc_kvm_setup_pmc_ioctl(void __user *arg_user)
 {
-	if (smp_processor_id() != CPC_ISOLCPU)
+	int cpu;
+
+	cpu = get_cpu();
+
+	if (cpu != CPC_ISOLCPU) {
+		put_cpu();
 		return -EFAULT;
+	}
 
 	/* L1 Misses in Host Kernel */
 	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8,
@@ -618,6 +632,8 @@ cachepc_kvm_setup_pmc_ioctl(void __user *arg_user)
 	/* Retired Instructions in Guest */
 	cachepc_init_pmc(CPC_RETINST_PMC, 0xC0, 0x00,
 		PMC_GUEST, PMC_KERNEL | PMC_USER);
+
+	put_cpu();
 
 	return 0;
 }

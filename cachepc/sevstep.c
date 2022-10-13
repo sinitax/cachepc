@@ -192,20 +192,23 @@ sevstep_start_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 	long count = 0;
 	int idx;
 
+	pr_warn("Sevstep: Start tracking %i\n", mode);
+
 	// Vincent: Memslots interface changed into a rb tree, see
-	// here: https:// lwn.net/Articles/856392/
-	// and here: https:// lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
+	// here: https://lwn.net/Articles/856392/
+	// and here: https://lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
 	// Thus we use instead of
 	// iterat_max = vcpu->kvm->memslots[0]->memslots[0].base_gfn
 	// 	     + vcpu->kvm->memslots[0]->memslots[0].npages;
 	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
 	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
 	iterat_max = first_memslot->base_gfn + first_memslot->npages;
-	for (iterator = 0; iterator < iterat_max; iterator++)
-	{
+	pr_warn("Sevstep: Page count: %llu\n", iterat_max);
+	for (iterator = 0; iterator < iterat_max; iterator++) {
 		idx = srcu_read_lock(&vcpu->kvm->srcu);
 		slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
 		if (slot != NULL && !kvm_slot_page_track_is_active(vcpu->kvm, slot, iterator, mode)) {
+			pr_warn("Sevstep: Tracking page: %llu\n", iterator);
 			write_lock(&vcpu->kvm->mmu_lock);
 			kvm_slot_page_track_add_page(vcpu->kvm, slot, iterator, mode);
 			write_unlock(&vcpu->kvm->mmu_lock);
@@ -228,6 +231,8 @@ sevstep_stop_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 	long count = 0;
 	int idx;
 
+	pr_warn("Sevstep: Stop tracking %i\n", mode);
+
 	// Vincent: Memslots interface changed into a rb tree, see
 	// here: https:// lwn.net/Articles/856392/
 	// and here: https:// lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
@@ -237,8 +242,7 @@ sevstep_stop_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
 	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
 	iterat_max = first_memslot->base_gfn + first_memslot->npages;
-	for (iterator=0; iterator < iterat_max; iterator++)
-	{
+	for (iterator = 0; iterator < iterat_max; iterator++) {
 		idx = srcu_read_lock(&vcpu->kvm->srcu);
 		slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
 		// Vincent: I think see here

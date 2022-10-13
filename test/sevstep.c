@@ -503,10 +503,11 @@ main(int argc, const char **argv)
 		free(counts);
 	}
 	
-	for (i = 0; i < SAMPLE_COUNT; i++) {
-		printf("Evictions with access:\n");
-		print_counts(with_access[i]);
-	}
+	// for (i = 0; i < SAMPLE_COUNT; i++) {
+	// 	printf("Evictions with access:\n");
+	// 	print_counts(with_access[i]);
+	// }
+	printf("done.\n");
 
 	sev_kvm_deinit(&kvm_with_access);
 

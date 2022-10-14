@@ -445,6 +445,7 @@ collect(struct kvm *kvm)
 			event.retired_instructions);
 
 		ack.id = event.id;
+		printf("Acking event %d \n", ack.id);
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &ack);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 	} else if (ret != CPC_USPT_POLL_EVENT_NO_EVENT) {

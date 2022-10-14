@@ -954,6 +954,7 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 	case KVM_CPC_POLL_EVENT:
 		return cachepc_kvm_poll_event_ioctl(arg_user);
 	case KVM_CPC_ACK_EVENT:
+		pr_warn("Cachepc: CPC_ACK_EVENT called");
 		return cachepc_kvm_uscpt_ack_event_ioctl(arg_user);
 	default:
 		return kvm_arch_dev_ioctl(file, ioctl, arg);

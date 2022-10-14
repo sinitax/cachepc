@@ -139,9 +139,6 @@ sevstep_reset_accessed_on_page(struct kvm_vcpu *vcpu, gfn_t gfn)
 	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
 	if (slot != NULL) {
 		write_lock(&vcpu->kvm->mmu_lock);
-		// Vincent: The kvm mmu function now requires min_level
-		// We want all pages to protected so we do PG_LEVEL_4K
-		// https:// patchwork.kernel.org/project/kvm/patch/20210416082511.2856-2-zhukeqian1@huawei.com/
 		sevstep_kvm_mmu_slot_gfn_protect(vcpu->kvm, slot, gfn,
 			PG_LEVEL_4K, KVM_PAGE_TRACK_RESET_ACCESSED);
 		write_unlock(&vcpu->kvm->mmu_lock);
@@ -167,9 +164,6 @@ sevstep_clear_nx_on_page(struct kvm_vcpu *vcpu, gfn_t gfn)
 	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
 	if (slot != NULL) {
 		write_lock(&vcpu->kvm->mmu_lock);
-		// Vincent: The kvm mmu function now requires min_level
-		// We want all pages to protected so we do PG_LEVEL_4K
-		// https:// patchwork.kernel.org/project/kvm/patch/20210416082511.2856-2-zhukeqian1@huawei.com/
 		sevstep_kvm_mmu_slot_gfn_protect(vcpu->kvm, slot, gfn,
 			PG_LEVEL_4K, KVM_PAGE_TRACK_RESET_EXEC);
 		write_unlock(&vcpu->kvm->mmu_lock);
@@ -187,6 +181,7 @@ sevstep_start_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
 	struct kvm_memory_slot *first_memslot;
+	//struct kvm_memory_slot *second_memslot;
 	struct rb_node *node;
 	u64 iterator, iterat_max;
 	long count = 0;
@@ -194,15 +189,15 @@ sevstep_start_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 
 	pr_warn("Sevstep: Start tracking %i\n", mode);
 
-	// Vincent: Memslots interface changed into a rb tree, see
-	// here: https://lwn.net/Articles/856392/
-	// and here: https://lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
-	// Thus we use instead of
-	// iterat_max = vcpu->kvm->memslots[0]->memslots[0].base_gfn
-	// 	     + vcpu->kvm->memslots[0]->memslots[0].npages;
 	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
 	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
-	iterat_max = first_memslot->base_gfn + first_memslot->npages;
+	//second_memslot = container_of(node, struct kvm_memory_slot, gfn_node[1]);
+	pr_warn("Sevstep: Total memslot pages %ld", vcpu->kvm->nr_memslot_pages);
+	//pr_warn("Sevstep: First memslot pages %ld base gfn 0x%llx", first_memslot->npages, //first_memslot->base_gfn);
+	//pr_warn("Sevstep: Second memslot pages %ld base gfn 0x%llx",second_memslot->npages, //second_memslot->base_gfn);
+	iterat_max = first_memslot->base_gfn + vcpu->kvm->nr_memslot_pages;//first_memslot->npages;
+	//VU: We retrieve the total nr of memslot pages directly from the kvm struct. 
+	//VU: I think this should work, but only if my understanding of the memslots is correct
 	pr_warn("Sevstep: Page count: %llu\n", iterat_max);
 	for (iterator = 0; iterator < iterat_max; iterator++) {
 		idx = srcu_read_lock(&vcpu->kvm->srcu);
@@ -233,20 +228,12 @@ sevstep_stop_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 
 	pr_warn("Sevstep: Stop tracking %i\n", mode);
 
-	// Vincent: Memslots interface changed into a rb tree, see
-	// here: https:// lwn.net/Articles/856392/
-	// and here: https:// lore.kernel.org/all/cover.1632171478.git.maciej.szmigiero@oracle.com/T/#u
-	// Thus we use instead of
-	// iterat_max = vcpu->kvm->memslots[0]->memslots[0].base_gfn
-	// 	     + vcpu->kvm->memslots[0]->memslots[0].npages;
 	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
 	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
-	iterat_max = first_memslot->base_gfn + first_memslot->npages;
+	iterat_max = first_memslot->base_gfn + + vcpu->kvm->nr_memslot_pages;//first_memslot->npages;
 	for (iterator = 0; iterator < iterat_max; iterator++) {
 		idx = srcu_read_lock(&vcpu->kvm->srcu);
 		slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
-		// Vincent: I think see here
-		// https:// patchwork.kernel.org/project/kvm/patch/20210924163152.289027-22-pbonzini@redhat.com/
 		if (slot != NULL && kvm_slot_page_track_is_active(vcpu->kvm, slot, iterator, mode)) {
 			write_lock(&vcpu->kvm->mmu_lock);
 			kvm_slot_page_track_remove_page(vcpu->kvm, slot, iterator, mode);

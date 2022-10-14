@@ -375,8 +375,6 @@ cachepc_kvm_stream_hwpf_test(void *p)
 
 	arg = p;
 
-	/* TODO: improve detection */
-
 	/* l2 data cache hit & miss */
 	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
@@ -763,27 +761,23 @@ cachepc_kvm_batch_track_stop_ioctl(void __user *arg_user)
 {
 	batch_track_stop_and_get_t param;
 	page_fault_event_t* buf;
-	uint64_t buf_bytes;
+	size_t buflen;
 	void __user* inner_user_out_buf;
 	int ret;
 
 	if (!arg_user) return -EINVAL;
 
 	if (copy_from_user(&param, arg_user, sizeof(param))) {
-		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
+		pr_warn("CachePC: BATCH_TRACK_STOP: "
 			"error copying arguments, exiting\n");
 		return -EFAULT;
 	}
 	inner_user_out_buf = param.out_buf;
 
-	buf_bytes = sizeof(page_fault_event_t)*param.len;
-	pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
-		"allocating %llu bytes for tmp buf\n", buf_bytes);
-
-	buf = vmalloc(buf_bytes);
+	buflen = sizeof(page_fault_event_t) * param.len;
+	buf = vmalloc(buflen);
 	if (buf == NULL) {
-		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
-			"failed to alloc tmp buf\n");
+		pr_warn("CachePC: BATCH_TRACK_STOP: OOM\n");
 		return -EFAULT;
 	}
 	param.out_buf = buf;
@@ -791,21 +785,21 @@ cachepc_kvm_batch_track_stop_ioctl(void __user *arg_user)
 	ret = sevstep_uspt_batch_tracking_stop(buf, param.len,
 		&param.error_during_batch);
 	if (ret != 0) {
-		pr_warn("KVM_CPC_BATCH_TRACK_STOP: failed\n");
+		pr_warn("CachePC: BATCH_TRACK_STOP: Error\n");
 		vfree(buf);
 		return -EFAULT;
 	}
 
 	if (copy_to_user(arg_user, &param, sizeof(param))) {
-		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
-			"error copying result to user, exiting\n");
+		pr_warn("CachePC: BATCH_TRACK_STOP: "
+			"Error copying result to user\n");
 		vfree(buf);
 		return -EFAULT;
 	}
 
-	if (copy_to_user(inner_user_out_buf, buf,buf_bytes)) {
-		pr_warn("KVM_CPC_BATCH_TRACK_STOP: "
-			"error copying result to user, exiting\n");
+	if (copy_to_user(inner_user_out_buf, buf, buflen)) {
+		pr_warn("CachePC: BATCH_TRACK_STOP: "
+			"Error copying result to user\n");
 		vfree(buf);
 		return -EFAULT;
 	}

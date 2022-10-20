@@ -15,11 +15,13 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	int have_rip, i;
 	int send_err;
 
+	pr_warn("Sevstep: Got page fault (gfn:%llu)", fault->gfn);
+
 	was_tracked = false;
 	for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
 		if (kvm_slot_page_track_is_active(vcpu->kvm,
 				fault->slot, fault->gfn, modes[i])) {
-			sevstep_untrack_single_page(vcpu, fault->gfn, modes[i]);
+			//sevstep_untrack_single_page(vcpu, fault->gfn, modes[i]);
 			was_tracked = true;
 		}
 	}
@@ -32,9 +34,8 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 			send_err = sevstep_uspt_batch_tracking_save(fault->gfn << PAGE_SHIFT,
 				fault->error_code, have_rip, current_rip);
 			if (send_err) {
-				printk_ratelimited(
-					"sevstep_uspt_batch_tracking_save failed with %d\n"
-					"##########################\n", send_err);
+				pr_warn("Sevstep: uspt_batch_tracking_save failed with %d\n",
+					send_err);
 			}
 			sevstep_uspt_batch_tracking_handle_retrack(vcpu, fault->gfn);
 			sevstep_uspt_batch_tracking_inc_event_idx();
@@ -42,8 +43,8 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 			send_err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
 				fault->error_code, have_rip, current_rip);
 			if (send_err) {
-				printk("sevstep_uspt_send_and_block failed with %d\n"
-					"##########################\n", send_err);
+				printk("Sevstep: uspt_send_and_block failed with %d\n",
+					send_err);
 			}
 		}
 	}

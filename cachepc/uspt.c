@@ -94,7 +94,7 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 
 	read_lock(&event_lock);
 	if (!sevstep_uspt_is_initialiized()) {
-		pr_warn("sevstep_uspt_send_and_block: ctx not initialized!\n");
+		pr_warn("Sevstep: uspt_send_and_block: ctx not initialized!\n");
 		read_unlock(&event_lock);
 		return 1;
 	}
@@ -102,7 +102,7 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 
 	write_lock(&event_lock);
 	 if (last_sent_event_id != last_acked_event_id) {
-		pr_warn("sevstep_uspt_send_and_block: "
+		pr_warn("Sevstep: uspt_send_and_block: "
 			"event id_s out of sync, aborting. Fix this later\n");
 		write_unlock(&event_lock);
 		return 1;
@@ -118,21 +118,19 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 	message_for_user.ns_timestamp = ktime_get_real_ns();
 	message_for_user.have_retired_instructions = false;
 
-	// for poll based system;
 	have_event = 1;
 	sent_event = message_for_user;
-	// printk("sevstep_uspt_send_and_block sending event %llu\n", sent_event.id);
 
 	write_unlock(&event_lock);
 
-	// wait for ack, but with timeout. Otherwise small bugs in userland
-	// easily lead to a kernel hang
-	abort_after = ktime_get() + 1000000000ULL; // 1 sec in nanosecond
+	/* wait for ack with timeout */
+	pr_warn("Sevstep: uspt_send_and_block: Begin wait for event ack");
+	abort_after = ktime_get_ns() + 1000000000ULL; /* 1s in ns */
 	while (!sevstep_uspt_is_event_done(sent_event.id)) {
-		if (ktime_get() > abort_after) {
-			pr_warn("sevstep_uspt_send_and_block: "
-				"Waiting for ack of event %llu timed out, "
-				"continuing\n",sent_event.id);
+		if (ktime_get_ns() > abort_after) {
+			pr_warn("Sevstep: uspt_send_and_block: "
+				"Waiting for ack of event %llu timed out",
+			       	sent_event.id);
 			return 3;
 		}
 	}
@@ -143,13 +141,13 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 int
 sevstep_uspt_is_event_done(uint64_t id)
 {
-	int res;
+	bool done;
 
 	read_lock(&event_lock);
-	res = last_acked_event_id >= id;
+	done = last_acked_event_id >= id;
 	read_unlock(&event_lock);
 
-	return res;
+	return done;
 }
 
 int
@@ -183,6 +181,7 @@ sevstep_uspt_handle_ack_event_ioctl(ack_event_t event)
 {
 	int err = 0;
 
+	pr_warn("Sevstep: uspt_handle_ack_event_ioctl: acking event %llu", event.id);
 	write_lock(&event_lock);
 	if (event.id == last_sent_event_id) {
 		last_acked_event_id = last_sent_event_id;
@@ -371,11 +370,10 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 	int cpu;
 
 	cpu = get_cpu();
-
 	spin_lock(&batch_track_state_lock);
 
 	if (!batch_track_state.is_active) {
-		pr_warn("sevstep_uspt_batch_tracking_save: "
+		pr_warn("Sevstep: uspt_batch_tracking_save: "
 			"got save but batch tracking is not active!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
@@ -384,7 +382,7 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 	}
 
 	if (batch_track_state.event_next_idx >= batch_track_state.events_size) {
-		pr_warn("sevstep_uspt_batch_tracking_save: events buffer is full!\n");
+		pr_warn("Sevstep: uspt_batch_tracking_save: events buffer is full!\n");
 		batch_track_state.error_occured = true;
 		spin_unlock(&batch_track_state_lock);
 		put_cpu();
@@ -392,7 +390,7 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 	}
 
 	if (cpu != batch_track_state.perf_cpu) {
-		pr_warn("sevstep_uspt_batch_tracking_save: perf was "
+		pr_warn("Sevstep: uspt_batch_tracking_save: perf was "
 			"programmed on logical cpu %d but handler was called "
 			"on %d. Did you forget to pin the vcpu thread?\n",
 			batch_track_state.perf_cpu, cpu);
@@ -401,7 +399,7 @@ sevstep_uspt_batch_tracking_save(uint64_t faulted_gpa, uint32_t error_code,
 
 
 	if (batch_track_state.events == NULL) {
-		pr_warn("sevstep_uspt_batch_tracking_save: events buf was "
+		pr_warn("Sevstep: uspt_batch_tracking_save: events buf was "
 			"NULL but \"is_active\" was set! This should never happen!!!\n");
 		spin_unlock(&batch_track_state_lock);
 		return 1;
@@ -467,7 +465,7 @@ sevstep_uspt_batch_tracking_stop(page_fault_event_t* results,
 }
 
 uint64_t
-sevstep_uspt_batch_tracking_get_events_count()
+sevstep_uspt_batch_tracking_get_events_count(void)
 {
 	uint64_t buf;
 
@@ -479,7 +477,8 @@ sevstep_uspt_batch_tracking_get_events_count()
 }
 
 bool
-sevstep_uspt_batch_tracking_in_progress()
+sevstep_uspt_batch_tracking_in_progress(void)
 {
 	return batch_track_state.is_active;
 }
+

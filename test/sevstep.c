@@ -50,7 +50,8 @@ extern uint8_t __start_guest_with[];
 extern uint8_t __stop_guest_with[];
 
 /* ioctl dev fds */
-int kvm_dev, sev_dev, kvm_dev;
+static int kvm_dev, sev_dev, kvm_dev;
+static int faultcnt;
 
 enum {
 	GSTATE_UNINIT,
@@ -113,17 +114,13 @@ hexdump(void *data, int len)
 	printf("\n");
 }
 
-// REF: https://events19.linuxfoundation.org/wp-content/uploads/2017/12/Extending-Secure-Encrypted-Virtualization-with-SEV-ES-Thomas-Lendacky-AMD.pdf
-// REF: https://www.spinics.net/lists/linux-kselftest/msg27206.html
 __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
+	asm volatile("hlt");
 	while (1) {
 		asm volatile("mov (%[v]), %%bl"
 			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
-		//asm volatile("out %%al, (%%dx)" : : );
-		asm volatile("hlt"); 
-		//asm volatile("rep; vmmcall\n\r");
 	}
 }
 
@@ -359,7 +356,8 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	
 	/* Prepare the vm save area */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_VMSA, NULL, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_VMSA: (%s) %s",strerror(errno), sev_fwerr_str(fwerr));
+	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_VMSA: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
 
 	/* Collect a measurement (necessary) */
 	msrmt = sev_get_measure(kvm->vmfd);
@@ -416,16 +414,15 @@ print_counts(uint16_t *counts)
 	printf("\n");
 }
 
-uint16_t *
-collect(struct kvm *kvm)
+void
+runonce(struct kvm *kvm)
 {
 	struct kvm_regs regs;
-	page_fault_event_t event;
-	ack_event_t ack;
 	int ret;
 
 	ret = ioctl(kvm->vcpufd, KVM_RUN, NULL);
 	if (ret < 0) err(1, "KVM_RUN");
+	printf("VMEXIT\n");
 
 	if (kvm->run->exit_reason == KVM_EXIT_MMIO) {
 		memset(&regs, 0, sizeof(regs));
@@ -437,31 +434,40 @@ collect(struct kvm *kvm)
 	} else if (kvm->run->exit_reason != KVM_EXIT_HLT) {
 		errx(1, "KVM died: %i\n", kvm->run->exit_reason);
 	}
+}
+
+int
+monitor(void)
+{
+	page_fault_event_t event;
+	ack_event_t ack;
+	int ret;
 
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (!ret) {
-		printf("Got page fault: %llu insts\n",
+		printf("Got page fault! %llu retired insts\n",
 			event.retired_instructions);
+		faultcnt++;
 
 		ack.id = event.id;
-		printf("Acking event %d \n", ack.id);
+		printf("Acking event %llu\n", ack.id);
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &ack);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 	} else if (ret != CPC_USPT_POLL_EVENT_NO_EVENT) {
-		err(1, "ioctl POLL_EVENT");
+		perror("ioctl POLL_EVENT");
+		return 1;
 	}
 
-	return read_counts();
+	return 0;
 }
 
 int
 main(int argc, const char **argv)
 {
-	uint16_t with_access[SAMPLE_COUNT][64];
 	struct kvm kvm_with_access;
 	track_all_pages_t track_all;
-	uint16_t *counts;
+	pid_t ppid, pid;
 	int i, ret;
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -486,8 +492,11 @@ main(int argc, const char **argv)
 	sev_kvm_init(&kvm_with_access, 64 * 64 * 8 * 2,
 		__start_guest_with, __stop_guest_with);
 
-	/* One run to get into while loop (after stack setup) */
+	/* One run to skip stack setup */
 	ioctl(kvm_with_access.vcpufd, KVM_RUN, NULL);
+
+	/* Page tracking init needs to happen after kvm
+	 * init so main_kvm is set.. */
 
 	/* Reset previous tracking */
 	ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
@@ -498,20 +507,22 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_all);
 	if (ret == -1) err(1, "ioctl TRACK_ALL");
 
-	for (i = 0; i < SAMPLE_COUNT; i++) {
-		counts = collect(&kvm_with_access);
-		memcpy(with_access[i], counts, 64 * sizeof(uint16_t));
-		free(counts);
+	ppid = getpid();
+	if ((pid = fork())) {
+		if (pid < 0) err(1, "fork");
+		runonce(&kvm_with_access);
+	} else {
+		pin_process(0, SECONDARY_CORE, true);
+		faultcnt = 0;
+		while (faultcnt < SAMPLE_COUNT) {
+		       if (monitor()) break;
+		}
+		kill(ppid, SIGTERM);
+		exit(0);
 	}
-	
-	// for (i = 0; i < SAMPLE_COUNT; i++) {
-	// 	printf("Evictions with access:\n");
-	// 	print_counts(with_access[i]);
-	// }
-	printf("done.\n");
 
 	sev_kvm_deinit(&kvm_with_access);
-
+	
 	close(kvm_dev);
 	close(sev_dev);
 }

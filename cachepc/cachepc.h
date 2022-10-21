@@ -3,9 +3,6 @@
 #include "asm.h"
 #include "uapi.h"
 
-#define CACHELINE_SIZE 64
-#define CACHE_GROUP_SIZE (PAGE_SIZE / CACHELINE_SIZE)
-
 #define L1_CACHE 0
 #define L2_CACHE 1
 
@@ -13,19 +10,19 @@
 #define PHYSICAL_ADDRESSING 1
 
 #define L1_ADDRESSING VIRTUAL_ADDRESSING
+#define L1_ASSOC 8
+#define L1_LINESIZE 64
 #define L1_SETS 64
-#define L1_ASSOCIATIVITY 8
-#define L1_ACCESS_TIME 4
+#define L1_SIZE (L1_SETS * L1_ASSOC * L1_LINESIZE)
 
 #define L2_ADDRESSING PHYSICAL_ADDRESSING
-#define L2_SETS 512
-#define L2_ASSOCIATIVITY 8
-#define L2_ACCESS_TIME 12
+#define L2_ASSOC 8
+#define L2_LINESIZE 64
+#define L2_SETS 1024
+#define L2_SIZE (L2_SETS * L2_ASSOC * L2_LINESIZE)
 
-#define L3_ADDRESSING PHYSICAL_ADDRESSING
-#define L3_SETS 4096
-#define L3_ASSOCIATIVITY 16
-#define L3_ACCESS_TIME 30
+#define CACHELINE_SIZE L1_LINESIZE
+#define CACHE_GROUP_SIZE (PAGE_SIZE / CACHELINE_SIZE)
 
 #define CACHEPC_GET_BIT(b, i) (((b) >> (i)) & 1)
 #define CACHEPC_SET_BIT(b, i) ((b) | (1 << (i)))
@@ -61,7 +58,6 @@ struct cache_ctx {
 
     uint32_t sets;
     uint32_t associativity;
-    uint32_t access_time;
     uint32_t nr_of_cachelines;
     uint32_t set_size;
     uint32_t cache_size;
@@ -84,6 +80,8 @@ struct cacheline {
 
 static_assert(sizeof(struct cacheline) == CACHELINE_SIZE, "Bad cache line struct size");
 static_assert(CL_NEXT_OFFSET == 0 && CL_PREV_OFFSET == 8);
+
+bool cachepc_verify_topology(void);
 
 void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user);

@@ -24,6 +24,92 @@ static void random_perm(uint32_t *arr, uint32_t arr_len);
 static void gen_random_indices(uint32_t *arr, uint32_t arr_len);
 static bool is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len);
 
+bool
+cachepc_verify_topology(void)
+{
+	uint32_t val;
+	uint32_t assoc;
+	uint32_t linesize;
+	uint32_t size;
+	uint32_t sets;
+
+	/* REF: https://developer.amd.com/resources/developer-guides-manuals
+	 * (PPR 17H 31H, P.81) */
+
+	asm volatile ("cpuid" : "=c"(val) : "a"(0x80000005));
+	size = ((val >> 24) & 0xFF) * 1024;
+	assoc = (val >> 16) & 0xFF;
+	linesize = val & 0xFF;
+	sets = size / (linesize * assoc);
+	if (size != L1_SIZE || assoc != L1_ASSOC
+			|| linesize != L1_LINESIZE || sets != L1_SETS) {
+		pr_warn("CachePC: L1 topology is invalid!\n");
+		pr_warn("CachePC: L1_SIZE (expected) %u vs. (real) %u\n",
+			L1_SIZE, size);
+		pr_warn("CachePC: L1_ASSOC (expected) %u vs. (real) %u\n",
+			L1_ASSOC, assoc);
+		pr_warn("CachePC: L1_LINESIZE (expected) %u vs. (real) %u\n",
+			L1_LINESIZE, linesize);
+		pr_warn("CachePC: L1_SETS (expected) %u vs. (real) %u\n",
+			L1_SETS, sets);
+		return true;
+	}
+
+	asm volatile ("cpuid" : "=c"(val) : "a"(0x80000006));
+	size = ((val >> 16) & 0xFFFF) * 1024;
+	assoc = (val >> 12) & 0xF;
+	linesize = val & 0xFF;
+	switch (assoc) {
+	case 0x1:
+	case 0x2:
+	case 0x4:
+		break;
+	case 0x6:
+		assoc = 8;
+		break;
+	case 0x8:
+		assoc = 16;
+		break;
+	case 0xA:
+		assoc = 32;
+		break;
+	case 0xB:
+		assoc = 48;
+		break;
+	case 0xC:
+		assoc = 64;
+		break;
+	case 0xD:
+		assoc = 96;
+		break;
+	case 0xE:
+		assoc = 128;
+		break;
+	case 0xF:
+		assoc = size / linesize;
+		break;
+	default:
+		pr_warn("CachePC: Read invalid L2 associativity: %i\n", assoc);
+		return true;
+	}
+	sets = size / (linesize * assoc);
+	if (size != L2_SIZE || assoc != L2_ASSOC
+			|| linesize != L2_LINESIZE || sets != L2_SETS) {
+		pr_warn("CachePC: L2 topology is invalid!\n");
+		pr_warn("CachePC: L2_SIZE (expected) %u vs. (real) %u\n",
+			L2_SIZE, size);
+		pr_warn("CachePC: L2_ASSOC (expected) %u vs. (real) %u\n",
+			L2_ASSOC, assoc);
+		pr_warn("CachePC: L2_LINESIZE (expected) %u vs. (real) %u\n",
+			L2_LINESIZE, linesize);
+		pr_warn("CachePC: L2_SETS (expected) %u vs. (real) %u\n",
+			L2_SETS, sets);
+		return true;
+	}
+
+	return false;
+}
+
 void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user)
@@ -31,7 +117,8 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint64_t event;
 	uint64_t reg_addr;
 
-	/* REF: https://developer.amd.com/resources/developer-guides-manuals (PPR 17H 31H, P.166)
+	/* REF: https://developer.amd.com/resources/developer-guides-manuals
+	 * (PPR 17H 31H, P.166)
 	 *
 	 * performance event selection via 0xC001_020X with X = (0..A)[::2]
 	 * performance event reading viea 0XC001_020X with X = (1..B)[::2]
@@ -62,13 +149,11 @@ cachepc_get_ctx(int cache_level)
 	if (cache_level == L1_CACHE) {
 		ctx->addressing = L1_ADDRESSING;
 		ctx->sets = L1_SETS;
-		ctx->associativity = L1_ASSOCIATIVITY;
-		ctx->access_time = L1_ACCESS_TIME;
+		ctx->associativity = L1_ASSOC;
 	} else if (cache_level == L2_CACHE) {
 		ctx->addressing = L2_ADDRESSING;
 		ctx->sets = L2_SETS;
-		ctx->associativity = L2_ASSOCIATIVITY;
-		ctx->access_time = L2_ACCESS_TIME;
+		ctx->associativity = L2_ASSOC;
 	} else {
 		return NULL;
 	}
@@ -97,13 +182,9 @@ cachepc_prepare_ds(cache_ctx *ctx)
 	cacheline **cacheline_ptr_arr;
 	cacheline *cache_ds;
 
-	//printk(KERN_WARNING "CachePC: Preparing ds..\n");
-	
        	cacheline_ptr_arr = allocate_cache_ds(ctx);
 	cache_ds = build_cache_ds(ctx, cacheline_ptr_arr);
 	kfree(cacheline_ptr_arr);
-
-	// printk(KERN_WARNING "CachePC: Preparing ds done\n");
 
 	return cache_ds;
 }
@@ -317,7 +398,8 @@ remove_cache_group_set(void *ptr)
  * where x0, x1, ..., xD is a random permutation of 1, 2, ..., D
  * and D = Associativity = | cache set |
  */
-cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
+cacheline *
+build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
 	cacheline **first_cl_in_sets, **last_cl_in_sets;
 	cacheline **cl_ptr_arr_sorted;
 	cacheline *curr_cl;
@@ -387,7 +469,8 @@ cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
 /*
  * Helper function to build a randomised list of cacheline structs for a set
  */
-void build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_ptr_arr)
+void
+build_randomized_list_for_cache_set(cache_ctx *ctx, cacheline **cacheline_ptr_arr)
 {
 	cacheline *curr_cl;
 	uint32_t len, *idx_map;
@@ -476,7 +559,9 @@ gen_random_indices(uint32_t *arr, uint32_t arr_len)
 }
 
 
-bool is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len) {
+bool
+is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len)
+{
 	uint32_t i;
 
 	for (i = 0; i < arr_len; ++i) {

@@ -391,8 +391,9 @@ cachepc_kvm_stream_hwpf_test(void *p)
 		asm volatile ("mov (%0), %%rbx" : : "r"(lines + i) : "rbx");
 	count += cachepc_read_pmc(CPC_L1MISS_PMC);
 
+	pass = (count == max) || (count == max + 1); /* +1 for pot. counter miss */
 	printk(KERN_WARNING "CachePC: HWPF test done (%u vs. %u => %s)\n",
-		count, max, (count == max) ? "passed" : "failed");
+		count, max, pass ? "passed" : "failed");
 
 	if (arg) *arg = (count == max);
 
@@ -968,7 +969,10 @@ cachepc_kvm_setup_test(void *p)
 
 	cpu = get_cpu();
 
-	printk(KERN_WARNING "CachePC: Running on core %i\n", cpu);
+	pr_warn("CachePC: Running on core %i\n", cpu);
+
+	if (cachepc_verify_topology())
+		goto exit;
 
 	cachepc_ctx = cachepc_get_ctx(L1_CACHE);
 	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
@@ -980,6 +984,7 @@ cachepc_kvm_setup_test(void *p)
 	cachepc_kvm_single_eviction_test(NULL);
 	cachepc_kvm_stream_hwpf_test(NULL);
 
+exit:
 	put_cpu();
 }
 
@@ -987,6 +992,9 @@ void
 cachepc_kvm_init(void)
 {
 	int ret;
+
+	cachepc_ctx = NULL;
+	cachepc_ds = NULL;
 
 	cachepc_msrmts_count = L1_SETS;
 	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(uint16_t), GFP_KERNEL);
@@ -1001,6 +1009,9 @@ cachepc_kvm_exit(void)
 {
 	kfree(cachepc_msrmts);
 
-	cachepc_release_ds(cachepc_ctx, cachepc_ds);
-	cachepc_release_ctx(cachepc_ctx);
+	if (cachepc_ds)
+		cachepc_release_ds(cachepc_ctx, cachepc_ds);
+
+	if (cachepc_ctx)
+		cachepc_release_ctx(cachepc_ctx);
 }

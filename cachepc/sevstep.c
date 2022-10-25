@@ -45,138 +45,51 @@ struct kvm* main_vm;
 EXPORT_SYMBOL(main_vm);
 
 bool
-sevstep_track_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
+sevstep_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 	enum kvm_page_track_mode mode)
 {
-	int idx;
-	bool ret;
 	struct kvm_memory_slot *slot;
+	int idx;
 
-	ret = false;
 	idx = srcu_read_lock(&vcpu->kvm->srcu);
-	
-	if (mode == KVM_PAGE_TRACK_ACCESS) {
-		pr_warn("Adding gfn: %016llx to access page track pool\n", gfn);
-	}
-	
-	if (mode == KVM_PAGE_TRACK_WRITE) {
-		pr_warn("Adding gfn: %016llx to write page track pool\n", gfn);
-	}
 
 	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	if (slot != NULL && !kvm_slot_page_track_is_active(vcpu->kvm,slot, gfn, mode)) {
+	if (slot != NULL && !kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
 		write_lock(&vcpu->kvm->mmu_lock);
 		kvm_slot_page_track_add_page(vcpu->kvm, slot, gfn, mode);
 		write_unlock(&vcpu->kvm->mmu_lock);
-		ret = true;
-	} else {
-		pr_warn("Failed to track %016llx because ", gfn);
-		if (slot == NULL) {
-			printk(KERN_CONT "slot was	null");
-		}
-		if (kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
-			printk(KERN_CONT "page is already tracked");
-		}
-		printk(KERN_CONT "\n");
 	}
 
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 
-	return ret;
+	return slot != NULL;
 }
-EXPORT_SYMBOL(sevstep_track_single_page);
+EXPORT_SYMBOL(sevstep_track_single);
 
 bool
-sevstep_untrack_single_page(struct kvm_vcpu *vcpu, gfn_t gfn,
+sevstep_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 	enum kvm_page_track_mode mode)
 {
-	int idx;
-	bool ret;
 	struct kvm_memory_slot *slot;
+	int idx;
 
-	ret = false;
 	idx = srcu_read_lock(&vcpu->kvm->srcu);
-
-	if (mode == KVM_PAGE_TRACK_ACCESS) {
-		pr_warn("Removing gfn: %016llx from access page track pool\n", gfn);
-	} else if (mode == KVM_PAGE_TRACK_WRITE) {
-		pr_warn("Removing gfn: %016llx from write page track pool\n", gfn);
-	}
 
 	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
 	if (slot != NULL && kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
 		write_lock(&vcpu->kvm->mmu_lock);
 		kvm_slot_page_track_remove_page(vcpu->kvm, slot, gfn, mode);
 		write_unlock(&vcpu->kvm->mmu_lock);
-		ret = true;
-	} else {
-		pr_warn("Failed to untrack %016llx because ", gfn);
-		if (slot == NULL) {
-			printk(KERN_CONT "slot was null");
-		} else if (!kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
-			printk(KERN_CONT "page track was not active");
-		}
-		printk(KERN_CONT "\n");
 	}
 
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 
-	return ret;
+	return slot != NULL;
 }
-EXPORT_SYMBOL(sevstep_untrack_single_page);
-
-bool
-sevstep_reset_accessed_on_page(struct kvm_vcpu *vcpu, gfn_t gfn)
-{
-	int idx;
-	bool ret;
-	struct kvm_memory_slot *slot;
-
-	ret = false;
-	idx = srcu_read_lock(&vcpu->kvm->srcu);
-
-	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	if (slot != NULL) {
-		write_lock(&vcpu->kvm->mmu_lock);
-		sevstep_kvm_mmu_slot_gfn_protect(vcpu->kvm, slot, gfn,
-			PG_LEVEL_4K, KVM_PAGE_TRACK_RESET_ACCESSED);
-		write_unlock(&vcpu->kvm->mmu_lock);
-		ret = true;
-	}
-
-	srcu_read_unlock(&vcpu->kvm->srcu, idx);
-
-	return ret;
-}
-EXPORT_SYMBOL(sevstep_reset_accessed_on_page);
-
-bool
-sevstep_clear_nx_on_page(struct kvm_vcpu *vcpu, gfn_t gfn)
-{
-	int idx;
-	bool ret;
-	struct kvm_memory_slot *slot;
-
-	ret = false;
-	idx = srcu_read_lock(&vcpu->kvm->srcu);
-
-	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	if (slot != NULL) {
-		write_lock(&vcpu->kvm->mmu_lock);
-		sevstep_kvm_mmu_slot_gfn_protect(vcpu->kvm, slot, gfn,
-			PG_LEVEL_4K, KVM_PAGE_TRACK_RESET_EXEC);
-		write_unlock(&vcpu->kvm->mmu_lock);
-		ret = true;
-	}
-
-	srcu_read_unlock(&vcpu->kvm->srcu, idx);
-
-	return ret;
-}
-EXPORT_SYMBOL(sevstep_clear_nx_on_page);
+EXPORT_SYMBOL(sevstep_untrack_single);
 
 long
-sevstep_start_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
+sevstep_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
 	struct kvm_memslots *slots;
@@ -184,7 +97,7 @@ sevstep_start_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 	int bkt;
 	u64 gfn;
 
-	pr_warn("Sevstep: Start tracking %i\n", mode);
+	pr_warn("Sevstep: Start tracking (mode:%i)\n", mode);
 
 	slots = kvm_vcpu_memslots(vcpu);
 	kvm_for_each_memslot(slot, bkt, slots) {
@@ -202,41 +115,32 @@ sevstep_start_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 
 	return count;
 }
-EXPORT_SYMBOL(sevstep_start_tracking);
+EXPORT_SYMBOL(sevstep_track_all);
 
 long
-sevstep_stop_tracking(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
+sevstep_untrack_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
-	struct kvm_memory_slot *first_memslot;
-	struct rb_node *node;
-	u64 iterator, iterat_max;
+	struct kvm_memslots *slots;
 	long count = 0;
-	int idx;
+	int bkt;
+	u64 gfn;
 
-	pr_warn("Sevstep: Stop tracking %i\n", mode);
+	pr_warn("Sevstep: Stop tracking (mode:%i)\n", mode);
 
-	node = rb_last(&(vcpu->kvm->memslots[0]->gfn_tree));
-	first_memslot = container_of(node, struct kvm_memory_slot, gfn_node[0]);
-	iterat_max = first_memslot->base_gfn + + vcpu->kvm->nr_memslot_pages;//first_memslot->npages;
-	for (iterator = 0; iterator < iterat_max; iterator++) {
-		idx = srcu_read_lock(&vcpu->kvm->srcu);
-		slot = kvm_vcpu_gfn_to_memslot(vcpu, iterator);
-		if (slot != NULL && kvm_slot_page_track_is_active(vcpu->kvm, slot, iterator, mode)) {
-			write_lock(&vcpu->kvm->mmu_lock);
-			kvm_slot_page_track_remove_page(vcpu->kvm, slot, iterator, mode);
-			write_unlock(&vcpu->kvm->mmu_lock);
-			count++;
+	slots = kvm_vcpu_memslots(vcpu);
+	kvm_for_each_memslot(slot, bkt, slots) {
+		for (gfn = slot->base_gfn; gfn < slot->base_gfn + slot->npages; gfn++) {
+			if (kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
+				write_lock(&vcpu->kvm->mmu_lock);
+				kvm_slot_page_track_remove_page(vcpu->kvm, slot, gfn, mode);
+				write_unlock(&vcpu->kvm->mmu_lock);
+				count++;
+			}
 		}
-		srcu_read_unlock(&vcpu->kvm->srcu, idx);
 	}
 
 	return count;
 }
-EXPORT_SYMBOL(sevstep_stop_tracking);
+EXPORT_SYMBOL(sevstep_untrack_all);
 
-int
-sevstep_get_rip_kvm_vcpu(struct kvm_vcpu *vcpu, uint64_t *rip)
-{
-	return 0;
-}

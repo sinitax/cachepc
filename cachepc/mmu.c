@@ -28,24 +28,11 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 
 	if (was_tracked) {
 		have_rip = false;
-		if (sevstep_uspt_should_get_rip())
-			have_rip = sevstep_get_rip_kvm_vcpu(vcpu, &current_rip) == 0;
-		if (sevstep_uspt_batch_tracking_in_progress()) {
-			send_err = sevstep_uspt_batch_tracking_save(fault->gfn << PAGE_SHIFT,
-				fault->error_code, have_rip, current_rip);
-			if (send_err) {
-				pr_warn("Sevstep: uspt_batch_tracking_save failed with %d\n",
-					send_err);
-			}
-			sevstep_uspt_batch_tracking_handle_retrack(vcpu, fault->gfn);
-			sevstep_uspt_batch_tracking_inc_event_idx();
-		} else {
-			send_err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
-				fault->error_code, have_rip, current_rip);
-			if (send_err) {
-				printk("Sevstep: uspt_send_and_block failed with %d\n",
-					send_err);
-			}
+		send_err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
+			fault->error_code, have_rip, current_rip);
+		if (send_err) {
+			printk("Sevstep: uspt_send_and_block failed with %d\n",
+				send_err);
 		}
 	}
 }

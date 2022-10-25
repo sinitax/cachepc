@@ -439,8 +439,7 @@ runonce(struct kvm *kvm)
 int
 monitor(void)
 {
-	page_fault_event_t event;
-	ack_event_t ack;
+	struct cpc_track_event event;
 	int ret;
 
 	/* Get page fault info */
@@ -450,9 +449,8 @@ monitor(void)
 			event.retired_instructions);
 		faultcnt++;
 
-		ack.id = event.id;
-		printf("Acking event %llu\n", ack.id);
-		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &ack);
+		printf("Acking event %llu\n", event.id);
+		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 	} else if (ret != CPC_USPT_POLL_EVENT_NO_EVENT) {
 		perror("ioctl POLL_EVENT");
@@ -466,9 +464,9 @@ int
 main(int argc, const char **argv)
 {
 	struct kvm kvm_with_access;
-	track_all_pages_t track_all;
+	uint64_t track_mode;
 	pid_t ppid, pid;
-	int i, ret;
+	int ret;
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -503,8 +501,8 @@ main(int argc, const char **argv)
 	if (ret == -1) err(1, "ioctl RESET_TRACKING");
 
 	/* Init page tracking */
-	track_all.track_mode = KVM_PAGE_TRACK_ACCESS;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_all);
+	track_mode = KVM_PAGE_TRACK_ACCESS;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
 	if (ret == -1) err(1, "ioctl TRACK_ALL");
 
 	ppid = getpid();

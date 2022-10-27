@@ -85,6 +85,7 @@ bool cachepc_verify_topology(void);
 
 void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user);
+void cachepc_reset_pmc(uint8_t index);
 
 cache_ctx *cachepc_get_ctx(int cache_level);
 void cachepc_release_ctx(cache_ctx *ctx);
@@ -119,11 +120,12 @@ static inline void cachepc_victim(void *p);
 __attribute__((always_inline))
 static inline uint64_t cachepc_read_pmc(uint64_t event);
 
-extern uint16_t *cachepc_msrmts;
+extern cpc_msrmt_t *cachepc_msrmts;
 extern size_t cachepc_msrmts_count;
 
-extern uint16_t *cachepc_baseline;
+extern cpc_msrmt_t *cachepc_baseline;
 extern bool cachepc_baseline_measure;
+extern bool cachepc_baseline_active;
 
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;

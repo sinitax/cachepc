@@ -139,6 +139,20 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 }
 
+void
+cachepc_reset_pmc(uint8_t index)
+{
+	uint64_t reg_addr;
+	uint64_t value;
+
+	WARN_ON(index >= 6);
+	if (index >= 6) return;
+
+	reg_addr = 0xc0010201 + index * 2;
+	value = 0;
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(value));
+}
+
 cache_ctx *
 cachepc_get_ctx(int cache_level)
 {
@@ -244,6 +258,7 @@ void
 cachepc_save_msrmts(cacheline *head)
 {
 	cacheline *curr_cl;
+	size_t i;
 
 	curr_cl = head;
 	do {
@@ -254,6 +269,14 @@ cachepc_save_msrmts(cacheline *head)
 
 		curr_cl = curr_cl->prev;
 	} while (curr_cl != head);
+
+	if (cachepc_baseline_active) {
+		for (i = 0; i < cachepc_msrmts_count; i++) {
+			if (!cachepc_baseline_active)
+				WARN_ON(cachepc_msrmts[i] < cachepc_baseline[i]);
+			cachepc_msrmts[i] -= cachepc_baseline[i];
+		}
+	}
 }
 
 void

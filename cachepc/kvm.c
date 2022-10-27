@@ -10,15 +10,17 @@
 #include <linux/init.h>
 #include <asm/uaccess.h>
 
-uint16_t *cachepc_msrmts = NULL;
+cpc_msrmt_t *cachepc_msrmts = NULL;
 size_t cachepc_msrmts_count = 0;
 EXPORT_SYMBOL(cachepc_msrmts);
 EXPORT_SYMBOL(cachepc_msrmts_count);
 
-uint16_t *cachepc_baseline = NULL;
+cpc_msrmt_t *cachepc_baseline = NULL;
 bool cachepc_baseline_measure = false;
+bool cachepc_baseline_active = false;
 EXPORT_SYMBOL(cachepc_baseline);
 EXPORT_SYMBOL(cachepc_baseline_measure);
+EXPORT_SYMBOL(cachepc_baseline_active);
 
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
@@ -243,14 +245,14 @@ cachepc_kvm_test_access_ioctl(void __user *arg_user)
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
+	if (copy_from_user(&u32, arg_user, sizeof(u32)))
 		return -EFAULT;
 
 	ret = smp_call_function_single(2,
 		cachepc_kvm_single_access_test, &u32, true);
 	WARN_ON(ret != 0);
 
-	if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
+	if (copy_to_user(arg_user, &u32, sizeof(u32)))
 		return -EFAULT;
 
 	return 0;
@@ -264,14 +266,14 @@ cachepc_kvm_test_eviction_ioctl(void __user *arg_user)
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&u32, arg_user, sizeof(uint32_t)))
+	if (copy_from_user(&u32, arg_user, sizeof(u32)))
 		return -EFAULT;
 
 	ret = smp_call_function_single(2,
 		cachepc_kvm_single_eviction_test, &u32, true);
 	WARN_ON(ret != 0);
 
-	if (copy_to_user(arg_user, &u32, sizeof(uint32_t)))
+	if (copy_to_user(arg_user, &u32, sizeof(u32)))
 		return -EFAULT;
 
 	return 0;
@@ -293,7 +295,7 @@ cachepc_kvm_init_pmc_ioctl(void __user *arg_user)
 		return -EFAULT;
 	}
 
-	if (copy_from_user(&event, arg_user, sizeof(uint32_t))) {
+	if (copy_from_user(&event, arg_user, sizeof(event))) {
 		put_cpu();
 		return -EFAULT;
 	}
@@ -306,6 +308,7 @@ cachepc_kvm_init_pmc_ioctl(void __user *arg_user)
 
 	cachepc_init_pmc(index, event_no, event_mask,
 		host_guest, kernel_user);
+	cachepc_reset_pmc(index);
 
 	put_cpu();
 
@@ -320,11 +323,11 @@ cachepc_kvm_read_pmc_ioctl(void __user *arg_user)
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&event, arg_user, sizeof(uint32_t)))
+	if (copy_from_user(&event, arg_user, sizeof(event)))
 		return -EFAULT;
 
 	count = cachepc_read_pmc(event);
-	if (copy_to_user(arg_user, &count, sizeof(uint64_t)))
+	if (copy_to_user(arg_user, &count, sizeof(count)))
 		return -EFAULT;
 
 	return 0;
@@ -336,7 +339,7 @@ cachepc_kvm_read_counts_ioctl(void __user *arg_user)
 	if (!arg_user) return -EINVAL;
 
 	if (copy_to_user(arg_user, cachepc_msrmts,
-			cachepc_msrmts_count * sizeof(uint16_t)))
+			cachepc_msrmts_count * sizeof(cpc_msrmt_t)))
 		return -EFAULT;
 
 	return 0;
@@ -370,7 +373,8 @@ cachepc_kvm_setup_pmc_ioctl(void __user *arg_user)
 int
 cachepc_kvm_measure_baseline_ioctl(void __user *arg_user)
 {
-	bool state;
+	uint32_t state;
+	size_t i;
 
 	if (!arg_user) return -EINVAL;
 
@@ -379,10 +383,37 @@ cachepc_kvm_measure_baseline_ioctl(void __user *arg_user)
 
 	cachepc_baseline_measure = state;
 
-	if (!state) {
-		memset(cachepc_baseline, 0,
-			sizeof(uint16_t) * cachepc_msrmts_count);
+	if (state) {
+		for (i = 0; i < cachepc_msrmts_count; i++)
+			cachepc_baseline[i] = CPC_MSRMT_MAX;
 	}
+
+	return 0;
+}
+
+int
+cachepc_kvm_read_baseline_ioctl(void __user *arg_user)
+{
+	if (!arg_user) return -EINVAL;
+
+	if (copy_to_user(arg_user, cachepc_baseline,
+			cachepc_msrmts_count * sizeof(cpc_msrmt_t)))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
+cachepc_kvm_sub_baseline_ioctl(void __user *arg_user)
+{
+	uint32_t state;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&state, arg_user, sizeof(state)))
+		return -EFAULT;
+
+	cachepc_baseline_active = state;
 
 	return 0;
 }
@@ -522,6 +553,10 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_setup_pmc_ioctl(arg_user);
 	case KVM_CPC_MEASURE_BASELINE:
 		return cachepc_kvm_measure_baseline_ioctl(arg_user);
+	case KVM_CPC_READ_BASELINE:
+		return cachepc_kvm_read_baseline_ioctl(arg_user);
+	case KVM_CPC_SUB_BASELINE:
+		return cachepc_kvm_sub_baseline_ioctl(arg_user);
 	case KVM_CPC_TRACK_PAGE:
 		return cachepc_kvm_track_page_ioctl(arg_user);
 	case KVM_CPC_TRACK_ALL:
@@ -574,11 +609,11 @@ cachepc_kvm_init(void)
 	cachepc_ds = NULL;
 
 	cachepc_msrmts_count = L1_SETS;
-	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(uint16_t), GFP_KERNEL);
+	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);
 	BUG_ON(cachepc_msrmts == NULL);
 
 	cachepc_baseline_measure = false;
-	cachepc_baseline = kzalloc(cachepc_msrmts_count * sizeof(uint16_t), GFP_KERNEL);
+	cachepc_baseline = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);
 	BUG_ON(cachepc_baseline == NULL);
 
 	ret = smp_call_function_single(2, cachepc_kvm_setup_test, NULL, true);

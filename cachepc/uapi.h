@@ -9,13 +9,17 @@
 #define CPC_L1MISS_PMC 0
 #define CPC_RETINST_PMC 1
 
+#define CPC_MSRMT_MAX (~((cpc_msrmt_t) 0))
+
 #define KVM_CPC_TEST_ACCESS _IOWR(KVMIO, 0x20, __u32)
 #define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x21, __u32)
 #define KVM_CPC_INIT_PMC _IOW(KVMIO, 0x22, __u32)
 #define KVM_CPC_READ_PMC _IOWR(KVMIO, 0x23, __u32)
 #define KVM_CPC_READ_COUNTS _IOR(KVMIO, 0x24, __u64)
 #define KVM_CPC_SETUP_PMC _IO(KVMIO, 0x25)
-#define KVM_CPC_MEASURE_BASELINE _IO(KVMIO, 0x26)
+#define KVM_CPC_MEASURE_BASELINE _IOW(KVMIO, 0x26, __u32)
+#define KVM_CPC_READ_BASELINE _IOR(KVMIO, 0x27, __u64)
+#define KVM_CPC_SUB_BASELINE _IOR(KVMIO, 0x28, __u32)
 
 #define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, struct cpc_track_config)
 #define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x31, __u64)
@@ -51,3 +55,5 @@ struct cpc_track_event {
 	__u8 have_retired_instructions;
 	__u64 retired_instructions;
 };
+
+typedef __u64 cpc_msrmt_t;

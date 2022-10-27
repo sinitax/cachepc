@@ -15,6 +15,11 @@ size_t cachepc_msrmts_count = 0;
 EXPORT_SYMBOL(cachepc_msrmts);
 EXPORT_SYMBOL(cachepc_msrmts_count);
 
+uint16_t *cachepc_baseline = NULL;
+bool cachepc_baseline_measure = false;
+EXPORT_SYMBOL(cachepc_baseline);
+EXPORT_SYMBOL(cachepc_baseline_measure);
+
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
 EXPORT_SYMBOL(cachepc_ctx);
@@ -363,6 +368,26 @@ cachepc_kvm_setup_pmc_ioctl(void __user *arg_user)
 }
 
 int
+cachepc_kvm_measure_baseline_ioctl(void __user *arg_user)
+{
+	bool state;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&state, arg_user, sizeof(state)))
+		return -EFAULT;
+
+	cachepc_baseline_measure = state;
+
+	if (!state) {
+		memset(cachepc_baseline, 0,
+			sizeof(uint16_t) * cachepc_msrmts_count);
+	}
+
+	return 0;
+}
+
+int
 cachepc_kvm_track_page_ioctl(void __user *arg_user)
 {
 	struct cpc_track_config cfg;
@@ -495,6 +520,8 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_read_counts_ioctl(arg_user);
 	case KVM_CPC_SETUP_PMC:
 		return cachepc_kvm_setup_pmc_ioctl(arg_user);
+	case KVM_CPC_MEASURE_BASELINE:
+		return cachepc_kvm_measure_baseline_ioctl(arg_user);
 	case KVM_CPC_TRACK_PAGE:
 		return cachepc_kvm_track_page_ioctl(arg_user);
 	case KVM_CPC_TRACK_ALL:
@@ -549,6 +576,10 @@ cachepc_kvm_init(void)
 	cachepc_msrmts_count = L1_SETS;
 	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(uint16_t), GFP_KERNEL);
 	BUG_ON(cachepc_msrmts == NULL);
+
+	cachepc_baseline_measure = false;
+	cachepc_baseline = kzalloc(cachepc_msrmts_count * sizeof(uint16_t), GFP_KERNEL);
+	BUG_ON(cachepc_baseline == NULL);
 
 	ret = smp_call_function_single(2, cachepc_kvm_setup_test, NULL, true);
 	WARN_ON(ret != 0);

@@ -15,6 +15,7 @@
 #define KVM_CPC_READ_PMC _IOWR(KVMIO, 0x23, __u32)
 #define KVM_CPC_READ_COUNTS _IOR(KVMIO, 0x24, __u64)
 #define KVM_CPC_SETUP_PMC _IO(KVMIO, 0x25)
+#define KVM_CPC_MEASURE_BASELINE _IO(KVMIO, 0x26)
 
 #define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, struct cpc_track_config)
 #define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x31, __u64)

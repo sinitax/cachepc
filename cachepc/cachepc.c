@@ -10,6 +10,8 @@
 
 #define REMOVE_PAGE_OFFSET(ptr) ((void *) (((uintptr_t) ptr) & PAGE_MASK))
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 static void cl_insert(cacheline *last_cl, cacheline *new_cl);
 static void *remove_cache_set(cache_ctx *ctx, void *ptr);
 static void *remove_cache_group_set(void *ptr);
@@ -268,6 +270,17 @@ cachepc_print_msrmts(cacheline *head)
 
 		curr_cl = curr_cl->prev;
 	} while (curr_cl != head);
+}
+
+void
+cachepc_update_baseline(void)
+{
+	size_t i;
+
+	for (i = 0; i < cachepc_msrmts_count; i++) {
+		cachepc_baseline[i] = MIN(cachepc_baseline[i],
+			cachepc_msrmts[i]);
+	}
 }
 
 void __attribute__((optimize(1))) // prevent instruction reordering

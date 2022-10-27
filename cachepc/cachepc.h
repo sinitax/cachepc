@@ -99,6 +99,7 @@ void *cachepc_aligned_alloc(size_t alignment, size_t size);
 
 void cachepc_save_msrmts(cacheline *head);
 void cachepc_print_msrmts(cacheline *head);
+void cachepc_update_baseline(void);
 
 void cachepc_prime_vcall(uintptr_t ret, cacheline *cl);
 void cachepc_probe_vcall(uintptr_t ret, cacheline *cl);
@@ -120,6 +121,9 @@ static inline uint64_t cachepc_read_pmc(uint64_t event);
 
 extern uint16_t *cachepc_msrmts;
 extern size_t cachepc_msrmts_count;
+
+extern uint16_t *cachepc_baseline;
+extern bool cachepc_baseline_measure;
 
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;

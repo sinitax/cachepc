@@ -1,4 +1,5 @@
 #include "cachepc.h"
+#include "uapi.h"
 
 #include <linux/kernel.h>
 #include <linux/types.h> 
@@ -34,6 +35,11 @@ cachepc_verify_topology(void)
 	uint32_t linesize;
 	uint32_t size;
 	uint32_t sets;
+
+	if (PAGE_SIZE != L1_SETS * L1_LINESIZE)
+		pr_warn("Cachepc: System pagesize does not guarentee "
+			"virtual memory access will hit corresponding "
+			"physical cacheline, PAGE_SIZE != L1_SETS * L1_LINESIZE\n");
 
 	/* REF: https://developer.amd.com/resources/developer-guides-manuals
 	 * (PPR 17H 31H, P.81) */

@@ -10,10 +10,9 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 		KVM_PAGE_TRACK_ACCESS,
 		KVM_PAGE_TRACK_EXEC
 	};
-	uint64_t current_rip;
 	bool was_tracked;
-	int have_rip, i;
-	int send_err;
+	int i;
+	int err;
 
 	pr_warn("Sevstep: Got page fault (gfn:%llu)", fault->gfn);
 
@@ -27,12 +26,10 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	}
 
 	if (was_tracked) {
-		have_rip = false;
-		send_err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
-			fault->error_code, have_rip, current_rip);
-		if (send_err) {
-			printk("Sevstep: uspt_send_and_block failed with %d\n",
-				send_err);
+		err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
+			fault->error_code);
+		if (err) {
+			printk("Sevstep: uspt_send_and_block failed (%d)\n", err);
 		}
 	}
 }

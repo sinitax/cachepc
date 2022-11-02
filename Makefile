@@ -1,7 +1,10 @@
 LINUX ?= /usr/src/linux
 PWD := $(shell pwd)
 
-all: build test/eviction test/access test/kvm test/sev test/sev-es test/sevstep
+TARGETS = build test/eviction test/access test/kvm test/sev test/sev-es test/sevstep 
+TARGETS += test/aes-detect_guest test/aes-detect_host
+
+all: $(TARGETS)
 
 clean:
 	$(MAKE) -C $(LINUX) SUBDIRS=arch/x86/kvm clean
@@ -18,9 +21,11 @@ load:
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm.ko
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm-amd.ko
 
-test/%: test/%.c cachepc/uapi.h
-	clang -o $@ $< -fsanitize=address -I . -Wunused-variable
+test/aes-detect_%: test/aes-detect_%.c test/aes-detect.c
+	clang -o $@ $< -I . -I test/libkcapi/lib -L test/libkcapi/.libs -lkcapi -static
 
+test/%: test/%.c cachepc/uapi.h
+	clang -o $@ $< -fsanitize=address -I . -I test -Wunused-variable
 
 update:
 	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff

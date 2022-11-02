@@ -22,6 +22,9 @@ EXPORT_SYMBOL(cachepc_baseline);
 EXPORT_SYMBOL(cachepc_baseline_measure);
 EXPORT_SYMBOL(cachepc_baseline_active);
 
+uint64_t cachepc_retinst = 0;
+EXPORT_SYMBOL(cachepc_retinst);
+
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
 EXPORT_SYMBOL(cachepc_ctx);
@@ -65,7 +68,7 @@ cachepc_kvm_prime_probe_test(void *p)
 	arg = p;
 
 	/* l2 data cache hit & miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
 	BUG_ON(lines == NULL);
@@ -108,7 +111,7 @@ cachepc_kvm_stream_hwpf_test(void *p)
 	arg = p;
 
 	/* l2 data cache hit & miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
 	BUG_ON(lines == NULL);
@@ -140,7 +143,7 @@ cachepc_kvm_single_access_test(void *p)
 	uint32_t *arg;
 
 	/* l2 data cache hit & miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	arg = p;
 	
@@ -174,7 +177,7 @@ cachepc_kvm_single_eviction_test(void *p)
 	arg = p;
 
 	/* l2 data cache hit & miss */
-	cachepc_init_pmc(0, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	WARN_ON(arg && *arg >= L1_SETS);
 	if (arg && *arg >= L1_SETS) return;	
@@ -607,6 +610,8 @@ cachepc_kvm_init(void)
 
 	cachepc_ctx = NULL;
 	cachepc_ds = NULL;
+
+	cachepc_retinst = 0;
 
 	cachepc_msrmts_count = L1_SETS;
 	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);

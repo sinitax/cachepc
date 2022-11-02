@@ -10,16 +10,7 @@
 #define PHYSICAL_ADDRESSING 1
 
 #define L1_ADDRESSING VIRTUAL_ADDRESSING
-#define L1_ASSOC 8
-#define L1_LINESIZE 64
-#define L1_SETS 64
-#define L1_SIZE (L1_SETS * L1_ASSOC * L1_LINESIZE)
-
 #define L2_ADDRESSING PHYSICAL_ADDRESSING
-#define L2_ASSOC 8
-#define L2_LINESIZE 64
-#define L2_SETS 1024
-#define L2_SIZE (L2_SETS * L2_ASSOC * L2_LINESIZE)
 
 #define CACHELINE_SIZE L1_LINESIZE
 #define CACHE_GROUP_SIZE (PAGE_SIZE / CACHELINE_SIZE)
@@ -126,6 +117,8 @@ extern size_t cachepc_msrmts_count;
 extern cpc_msrmt_t *cachepc_baseline;
 extern bool cachepc_baseline_measure;
 extern bool cachepc_baseline_active;
+
+extern uint64_t cachepc_retinst;
 
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;

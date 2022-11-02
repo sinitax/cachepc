@@ -9,6 +9,16 @@
 #define CPC_L1MISS_PMC 0
 #define CPC_RETINST_PMC 1
 
+#define L1_ASSOC 8
+#define L1_LINESIZE 64
+#define L1_SETS 64
+#define L1_SIZE (L1_SETS * L1_ASSOC * L1_LINESIZE)
+
+#define L2_ASSOC 8
+#define L2_LINESIZE 64
+#define L2_SETS 1024
+#define L2_SIZE (L2_SETS * L2_ASSOC * L2_LINESIZE)
+
 #define CPC_MSRMT_MAX (~((cpc_msrmt_t) 0))
 
 #define KVM_CPC_TEST_ACCESS _IOWR(KVMIO, 0x20, __u32)
@@ -28,9 +38,6 @@
 #define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x34, struct cpc_track_event)
 #define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x35, __u64)
 
-#define CPC_USPT_POLL_EVENT_NO_EVENT 1000
-#define CPC_USPT_POLL_EVENT_GOT_EVENT 0
-
 enum kvm_page_track_mode {
 	KVM_PAGE_TRACK_WRITE,
 	KVM_PAGE_TRACK_ACCESS,
@@ -49,11 +56,8 @@ struct cpc_track_event {
 	__u64 id; /* filled automatically */
 	__u64 faulted_gpa;
 	__u32 error_code;
-	__u8 have_rip_info;
-	__u64 rip;
-	__u64 ns_timestamp;
-	__u8 have_retired_instructions;
-	__u64 retired_instructions;
+	__u64 timestamp_ns;
+	__u64 retinst;
 };
 
 typedef __u64 cpc_msrmt_t;

@@ -40,8 +40,7 @@ sevstep_uspt_is_initialiized()
 }
 
 int
-sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
-	bool have_rip, uint64_t rip)
+sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code)
 {
 	struct cpc_track_event event;
 	ktime_t deadline;
@@ -66,10 +65,8 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code,
 	event.id = last_sent_eventid;
 	event.faulted_gpa = faulted_gpa;
 	event.error_code = error_code;
-	event.have_rip_info = have_rip;
-	event.rip = rip;
-	event.ns_timestamp = ktime_get_real_ns();
-	event.have_retired_instructions = false;
+	event.timestamp_ns = ktime_get_real_ns();
+	event.retinst = cachepc_retinst;
 
 	have_event = true;
 	sent_event = event;
@@ -110,7 +107,7 @@ sevstep_uspt_handle_poll_event(struct cpc_track_event __user *event)
 	read_lock(&event_lock);
 	if (!have_event) {
 		read_unlock(&event_lock);
-		return CPC_USPT_POLL_EVENT_NO_EVENT;
+		return -EAGAIN;
 	}
 	read_unlock(&event_lock);
 
@@ -120,7 +117,7 @@ sevstep_uspt_handle_poll_event(struct cpc_track_event __user *event)
 			sizeof(struct cpc_track_event));
 		have_event = false;
 	} else {
-		err = CPC_USPT_POLL_EVENT_NO_EVENT;
+		err = -EAGAIN;
 	}
 	write_unlock(&event_lock);
 

@@ -1,4 +1,5 @@
 #include "../cachepc/sevstep.h"
+#include "../cachepc/cachepc.h"
 #include "../cachepc/uspt.h"
 
 static void
@@ -11,24 +12,31 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 		KVM_PAGE_TRACK_EXEC
 	};
 	bool was_tracked;
-	int i;
-	int err;
+	int err, i;
+
+	pr_warn("CachePCTest: Page fault %llu\n", fault->gfn);
 
 	was_tracked = false;
 	for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
 		if (kvm_slot_page_track_is_active(vcpu->kvm,
 				fault->slot, fault->gfn, modes[i])) {
-			//sevstep_untrack_single_page(vcpu, fault->gfn, modes[i]);
+			pr_warn("CachePCTest: Page attrs %i %i %i\n",
+				fault->present, fault->write, fault->user);
+			sevstep_untrack_single(vcpu, fault->gfn, modes[i]);
 			was_tracked = true;
 		}
 	}
 
 	if (was_tracked) {
 		pr_warn("Sevstep: Tracked page fault (gfn:%llu)", fault->gfn);
-		err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
-			fault->error_code);
-		if (err) {
-			printk("Sevstep: uspt_send_and_block failed (%d)\n", err);
+		if (cachepc_track_single_step) {
+			cachepc_last_fault_gfn = fault->gfn;
+			cachepc_last_fault_err = fault->error_code;
+			cachepc_single_step = true;
+		} else {
+			err = sevstep_uspt_send_and_block(fault->gfn,
+				fault->error_code);
+			if (err) pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
 		}
 	}
 }

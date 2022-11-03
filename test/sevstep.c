@@ -36,7 +36,8 @@
 #define SECONDARY_CORE 3
 
 #define TARGET_CACHE_LINESIZE 64
-#define TARGET_SET 15
+#define TARGET_SET1 14
+#define TARGET_SET2 15
 
 struct kvm {
 	int vmfd, vcpufd;
@@ -117,10 +118,11 @@ hexdump(void *data, int len)
 __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
-	asm volatile("hlt");
 	while (1) {
 		asm volatile("mov (%[v]), %%bl"
-			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET));
+			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET1));
+		asm volatile("mov (%[v]), %%bl"
+			: : [v] "r" (TARGET_CACHE_LINESIZE * TARGET_SET2));
 	}
 }
 
@@ -341,6 +343,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	/* Generate encryption keys and set policy */
 	memset(&start, 0, sizeof(start));
 	start.handle = 0;
+	// start.policy = 1 << 0; /* disallow debug */
 	start.policy = 1 << 2; /* require ES */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_START, &start, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_START: (%s) %s",
@@ -380,13 +383,13 @@ sev_kvm_deinit(struct kvm *kvm)
 	munmap(kvm->mem, kvm->memsize);
 }
 
-uint16_t *
+cpc_msrmt_t *
 read_counts()
 {
-	uint16_t *counts;
+	cpc_msrmt_t *counts;
 	int ret;
 
-	counts = malloc(64 * sizeof(uint16_t));
+	counts = malloc(64 * sizeof(cpc_msrmt_t));
 	if (!counts) err(1, "malloc");
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 	if (ret == -1) err(1, "ioctl READ_COUNTS");
@@ -395,7 +398,7 @@ read_counts()
 }
 
 void
-print_counts(uint16_t *counts)
+print_counts(cpc_msrmt_t *counts)
 {
 	int i;
 
@@ -410,46 +413,57 @@ print_counts(uint16_t *counts)
 		if (counts[i] > 0)
 			printf("\x1b[0m");
 	}
-	printf("\n Target Set %i Count: %hu\n", TARGET_SET, counts[TARGET_SET]);
+	printf("\n");
+	printf(" Target Set 1 %i Count: %llu\n",
+		TARGET_SET1, counts[TARGET_SET1]);
+	printf(" Target Set 2 %i Count: %llu\n",
+		TARGET_SET2, counts[TARGET_SET2]);
 	printf("\n");
 }
 
 void
 runonce(struct kvm *kvm)
 {
-	struct kvm_regs regs;
 	int ret;
 
 	ret = ioctl(kvm->vcpufd, KVM_RUN, NULL);
 	if (ret < 0) err(1, "KVM_RUN");
-	printf("VMEXIT\n");
+}
 
-	if (kvm->run->exit_reason == KVM_EXIT_MMIO) {
-		memset(&regs, 0, sizeof(regs));
-		ret = ioctl(kvm->vcpufd, KVM_GET_REGS, &regs);
-		if (ret < 0) err(1, "KVM_GET_REGS");
-		errx(1, "KVM_EXTI_MMIO: Victim %s at 0x%08llx: rip=0x%08llx\n",
-			kvm->run->mmio.is_write ? "write" : "read",
-			kvm->run->mmio.phys_addr, regs.rip);
-	} else if (kvm->run->exit_reason != KVM_EXIT_HLT) {
-		errx(1, "KVM died: %i\n", kvm->run->exit_reason);
-	}
+uint64_t
+svm_dbg_rip(struct kvm *kvm)
+{
+	/* TODO: decrypt vmsa */
+
+	return 0;
 }
 
 int
-monitor(void)
+monitor(struct kvm *kvm)
 {
+	struct cpc_track_config cfg;
 	struct cpc_track_event event;
+	cpc_msrmt_t counts[64];
 	int ret;
 
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (!ret) {
-		printf("Got page fault! %llu retired insts\n",
-			event.retinst);
+		printf("Event: gpa:%llu retinst:%llu err:%i rip:%lu\n",
+			event.fault_gfn, event.retinst,
+			event.fault_err, svm_dbg_rip(kvm));
 		faultcnt++;
 
-		printf("Acking event %llu\n", event.id);
+		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
+		if (ret == -1) err(1, "ioctl READ_COUNTS");
+		print_counts(counts);
+
+		/* retrack page */
+		cfg.gfn = event.fault_gfn;
+		cfg.mode = KVM_PAGE_TRACK_ACCESS;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_PAGE, &cfg);
+		if (ret == -1) err(1, "ioctl TRACK_PAGE");
+
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 	} else if (errno != EAGAIN) {
@@ -466,6 +480,8 @@ main(int argc, const char **argv)
 	struct kvm kvm_with_access;
 	uint64_t track_mode;
 	pid_t ppid, pid;
+	uint32_t arg;
+	cpc_msrmt_t baseline[64];
 	int ret;
 	
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -490,9 +506,6 @@ main(int argc, const char **argv)
 	sev_kvm_init(&kvm_with_access, 64 * 64 * 8 * 2,
 		__start_guest_with, __stop_guest_with);
 
-	/* One run to skip stack setup */
-	ioctl(kvm_with_access.vcpufd, KVM_RUN, NULL);
-
 	/* Page tracking init needs to happen after kvm
 	 * init so main_kvm is set.. */
 
@@ -508,13 +521,48 @@ main(int argc, const char **argv)
 	ppid = getpid();
 	if ((pid = fork())) {
 		if (pid < 0) err(1, "fork");
+
+		sleep(1); /* give time for child to pin other core */
+
+		printf("VMRUN\n");
 		runonce(&kvm_with_access);
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
+		printf("PINNED\n");
+
+		printf("Doing baseline measurement..\n");
+
+		arg = true;
+		ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
+		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+
+		faultcnt = 0;
+		while (faultcnt < 20) {
+		       if (monitor(&kvm_with_access)) break;
+		}
+
+		arg = false;
+		ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
+		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+
+		ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
+		if (ret == -1) err(1, "ioctl READ_BASELINE");
+		printf("\n>>> BASELINE:\n");
+		print_counts(baseline);
+
+		arg = true;
+		ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
+		if (ret == -1) err(1, "ioctl SUB_BASELINE");
+
+		arg = true;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_SINGLE_STEP, &arg);
+		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+	
 		faultcnt = 0;
 		while (faultcnt < SAMPLE_COUNT) {
-		       if (monitor()) break;
+		       if (monitor(&kvm_with_access)) break;
 		}
+
 		kill(ppid, SIGTERM);
 		exit(0);
 	}

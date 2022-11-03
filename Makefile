@@ -15,7 +15,8 @@ $(LINUX)/arch/x86/kvm/cachepc:
 	ln -sf $(PWD)/cachepc $@
 
 build: $(LINUX)/arch/x86/kvm/cachepc
-	$(MAKE) -C $(LINUX) -j6 M=arch/x86/kvm M=crypto
+	$(MAKE) -C $(LINUX) -j6 M=arch/x86/kvm
+	$(MAKE) -C $(LINUX) -j6 M=crypto
 
 load:
 	sudo rmmod kvm_amd || true

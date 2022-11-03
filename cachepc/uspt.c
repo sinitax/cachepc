@@ -13,15 +13,6 @@
 
 #define ARRLEN(x) (sizeof(x)/sizeof((x)[0]))
 
-static uint64_t last_sent_eventid;
-static uint64_t last_acked_eventid;
-DEFINE_RWLOCK(event_lock);
-
-static struct cpc_track_event sent_event;
-static bool have_event;
-
-static bool uspt_init = false;
-
 void
 sevstep_uspt_clear(void)
 {
@@ -40,7 +31,7 @@ sevstep_uspt_is_initialiized()
 }
 
 int
-sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code)
+sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code)
 {
 	struct cpc_track_event event;
 	ktime_t deadline;
@@ -63,8 +54,8 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code)
 		last_sent_eventid++;
 	}
 	event.id = last_sent_eventid;
-	event.faulted_gpa = faulted_gpa;
-	event.error_code = error_code;
+	event.fault_gfn = fault_gfn;
+	event.fault_err = error_code;
 	event.timestamp_ns = ktime_get_real_ns();
 	event.retinst = cachepc_retinst;
 
@@ -74,7 +65,7 @@ sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code)
 
 	/* wait for ack with timeout */
 	pr_warn("Sevstep: uspt_send_and_block: Begin wait for event ack");
-	deadline = ktime_get_ns() + 1000000000ULL; /* 1s in ns */
+	deadline = ktime_get_ns() + 2000000000ULL; /* 1s in ns */
 	while (!sevstep_uspt_is_event_done(sent_event.id)) {
 		if (ktime_get_ns() > deadline) {
 			pr_warn("Sevstep: uspt_send_and_block: "

@@ -25,6 +25,15 @@ EXPORT_SYMBOL(cachepc_baseline_active);
 uint64_t cachepc_retinst = 0;
 EXPORT_SYMBOL(cachepc_retinst);
 
+bool cachepc_single_step = false;
+bool cachepc_track_single_step = false;
+uint64_t cachepc_last_fault_gfn;
+uint32_t cachepc_last_fault_err;
+EXPORT_SYMBOL(cachepc_single_step);
+EXPORT_SYMBOL(cachepc_track_single_step);
+EXPORT_SYMBOL(cachepc_last_fault_gfn);
+EXPORT_SYMBOL(cachepc_last_fault_err);
+
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
 EXPORT_SYMBOL(cachepc_ctx);
@@ -34,6 +43,21 @@ uint64_t cachepc_regs_tmp[16];
 uint64_t cachepc_regs_vm[16];
 EXPORT_SYMBOL(cachepc_regs_tmp);
 EXPORT_SYMBOL(cachepc_regs_vm);
+
+uint64_t last_sent_eventid;
+uint64_t last_acked_eventid;
+DEFINE_RWLOCK(event_lock);
+EXPORT_SYMBOL(last_sent_eventid);
+EXPORT_SYMBOL(last_acked_eventid);
+EXPORT_SYMBOL(event_lock);
+
+struct cpc_track_event sent_event;
+bool have_event;
+EXPORT_SYMBOL(sent_event);
+EXPORT_SYMBOL(have_event);
+
+bool uspt_init;
+EXPORT_SYMBOL(uspt_init);
 
 static void cachepc_kvm_prime_probe_test(void *p);
 static void cachepc_kvm_stream_hwpf_test(void *p);
@@ -48,6 +72,11 @@ static int cachepc_kvm_init_pmc_ioctl(void __user *arg_user);
 static int cachepc_kvm_read_pmc_ioctl(void __user *arg_user);
 static int cachepc_kvm_read_counts_ioctl(void __user *arg_user);
 static int cachepc_kvm_setup_pmc_ioctl(void __user *arg_user);
+static int cachepc_kvm_measure_baseline_ioctl(void __user *arg_user);
+static int cachepc_kvm_read_baseline_ioctl(void __user *arg_user);
+static int cachepc_kvm_sub_baseline_ioctl(void __user *arg_user);
+static int cachepc_kvm_single_step_ioctl(void __user *arg_user);
+static int cachepc_kvm_track_single_step_ioctl(void __user *arg_user);
 
 static int cachepc_kvm_track_page_ioctl(void __user *arg_user);
 static int cachepc_kvm_track_all_ioctl(void __user *arg_user);
@@ -238,6 +267,9 @@ cachepc_kvm_system_setup(void)
 	val |= 1 << 13;
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
 	printk("CachePC: Writing MSR %08llX: %016llX\n", reg_addr, val);
+
+	/* enable local apic */
+
 }
 
 int
@@ -384,12 +416,13 @@ cachepc_kvm_measure_baseline_ioctl(void __user *arg_user)
 	if (copy_from_user(&state, arg_user, sizeof(state)))
 		return -EFAULT;
 
-	cachepc_baseline_measure = state;
-
 	if (state) {
 		for (i = 0; i < cachepc_msrmts_count; i++)
 			cachepc_baseline[i] = CPC_MSRMT_MAX;
 	}
+
+	cachepc_baseline_measure = state;
+
 
 	return 0;
 }
@@ -422,6 +455,29 @@ cachepc_kvm_sub_baseline_ioctl(void __user *arg_user)
 }
 
 int
+cachepc_kvm_single_step_ioctl(void __user *arg_user)
+{
+	cachepc_single_step = true;
+
+	return 0;
+}
+
+int
+cachepc_kvm_track_single_step_ioctl(void __user *arg_user)
+{
+	uint32_t state;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&state, arg_user, sizeof(state)))
+		return -EFAULT;
+
+	cachepc_track_single_step = state;
+
+	return 0;
+}
+
+int
 cachepc_kvm_track_page_ioctl(void __user *arg_user)
 {
 	struct cpc_track_config cfg;
@@ -435,12 +491,11 @@ cachepc_kvm_track_page_ioctl(void __user *arg_user)
 	if (main_vm == NULL)
 		return -EFAULT;
 
-	if (cfg.track_mode < 0 || cfg.track_mode >= KVM_PAGE_TRACK_MAX)
+	if (cfg.mode < 0 || cfg.mode >= KVM_PAGE_TRACK_MAX)
 		return -EINVAL;
 
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!sevstep_track_single(vcpu,
-			cfg.gpa >> PAGE_SHIFT, cfg.track_mode)) {
+	if (!sevstep_track_single(vcpu, cfg.gfn, cfg.mode)) {
 		printk("KVM_TRACK_PAGE: sevstep_track_single failed");
 		return -EFAULT;
 	}
@@ -452,21 +507,21 @@ int
 cachepc_kvm_track_all_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
-	uint64_t track_mode;
+	uint64_t mode;
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&track_mode, arg_user, sizeof(track_mode)))
+	if (copy_from_user(&mode, arg_user, sizeof(mode)))
 		return -EFAULT;
 
 	if (main_vm == NULL)
 		return -EFAULT;
 
-	if (track_mode < 0 || track_mode >= KVM_PAGE_TRACK_MAX)
+	if (mode < 0 || mode >= KVM_PAGE_TRACK_MAX)
 		return -EINVAL;
 
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!sevstep_track_all(vcpu, track_mode))
+	if (!sevstep_track_all(vcpu, mode))
 		return -EFAULT;
 
 	return 0;
@@ -476,21 +531,21 @@ int
 cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
-	uint64_t track_mode;
+	uint64_t mode;
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&track_mode, arg_user, sizeof(track_mode)))
+	if (copy_from_user(&mode, arg_user, sizeof(mode)))
 		return -EFAULT;
 
 	if (main_vm == NULL)
 		return -EFAULT;
 
-	if (track_mode < 0 || track_mode >= KVM_PAGE_TRACK_MAX)
+	if (mode < 0 || mode >= KVM_PAGE_TRACK_MAX)
 		return -EINVAL;
 
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!sevstep_untrack_all(vcpu, track_mode))
+	if (!sevstep_untrack_all(vcpu, mode))
 		return -EFAULT;
 
 	return 0;
@@ -560,6 +615,10 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_read_baseline_ioctl(arg_user);
 	case KVM_CPC_SUB_BASELINE:
 		return cachepc_kvm_sub_baseline_ioctl(arg_user);
+	case KVM_CPC_SINGLE_STEP:
+		return cachepc_kvm_single_step_ioctl(arg_user);
+	case KVM_CPC_TRACK_SINGLE_STEP:
+		return cachepc_kvm_track_single_step_ioctl(arg_user);
 	case KVM_CPC_TRACK_PAGE:
 		return cachepc_kvm_track_page_ioctl(arg_user);
 	case KVM_CPC_TRACK_ALL:
@@ -612,6 +671,9 @@ cachepc_kvm_init(void)
 	cachepc_ds = NULL;
 
 	cachepc_retinst = 0;
+
+	cachepc_single_step = false;
+	cachepc_track_single_step = false;
 
 	cachepc_msrmts_count = L1_SETS;
 	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);

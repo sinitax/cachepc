@@ -104,7 +104,6 @@ sevstep_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 		pr_warn("Sevstep: Slot page count: %lu\n", slot->npages);
 		for (gfn = slot->base_gfn; gfn < slot->base_gfn + slot->npages; gfn++) {
 			if (!kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
-				pr_warn("Sevstep: Tracking page: %llu\n", gfn);
 				write_lock(&vcpu->kvm->mmu_lock);
 				kvm_slot_page_track_add_page(vcpu->kvm, slot, gfn, mode);
 				write_unlock(&vcpu->kvm->mmu_lock);

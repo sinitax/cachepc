@@ -1,6 +1,9 @@
 #include "cachepc.h"
 #include "uapi.h"
 
+#include "../../include/asm/apic.h"
+#include "../../include/asm/irq_vectors.h"
+
 #include <linux/kernel.h>
 #include <linux/types.h> 
 #include <linux/slab.h>
@@ -310,6 +313,15 @@ cachepc_update_baseline(void)
 		cachepc_baseline[i] = MIN(cachepc_baseline[i],
 			cachepc_msrmts[i]);
 	}
+}
+
+void
+cachepc_apic_oneshot(uint32_t interval)
+{
+	pr_warn("CachePCTest: Setting up APIC oneshot\n");
+	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
+	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_2);
+	native_apic_mem_write(APIC_TMICT, interval);
 }
 
 void __attribute__((optimize(1))) // prevent instruction reordering

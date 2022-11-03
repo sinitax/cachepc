@@ -6,11 +6,19 @@
 #include <linux/kvm_host.h>
 #include <linux/types.h>
 
+extern uint64_t last_sent_eventid;
+extern uint64_t last_acked_eventid;
+extern rwlock_t event_lock;
+
+extern struct cpc_track_event sent_event;
+extern bool have_event;
+
+extern bool uspt_init;
 
 bool sevstep_uspt_is_initialiized(void);
 void sevstep_uspt_clear(void);
 
-int sevstep_uspt_send_and_block(uint64_t faulted_gpa, uint32_t error_code);
+int sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code);
 int sevstep_uspt_is_event_done(uint64_t id);
 
 int sevstep_uspt_handle_poll_event(struct cpc_track_event *userpace_mem);

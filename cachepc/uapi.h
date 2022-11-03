@@ -30,6 +30,8 @@
 #define KVM_CPC_MEASURE_BASELINE _IOW(KVMIO, 0x26, __u32)
 #define KVM_CPC_READ_BASELINE _IOR(KVMIO, 0x27, __u64)
 #define KVM_CPC_SUB_BASELINE _IOR(KVMIO, 0x28, __u32)
+#define KVM_CPC_SINGLE_STEP _IO(KVMIO, 0x29)
+#define KVM_CPC_TRACK_SINGLE_STEP _IOWR(KVMIO, 0x2A, __u32)
 
 #define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, struct cpc_track_config)
 #define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x31, __u64)
@@ -48,14 +50,14 @@ enum kvm_page_track_mode {
 };
 
 struct cpc_track_config {
-	__u64 gpa;
-	__s32 track_mode;
+	__u64 gfn;
+	__s32 mode;
 };
 
 struct cpc_track_event {
 	__u64 id; /* filled automatically */
-	__u64 faulted_gpa;
-	__u32 error_code;
+	__u64 fault_gfn;
+	__u32 fault_err;
 	__u64 timestamp_ns;
 	__u64 retinst;
 };

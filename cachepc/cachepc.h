@@ -93,6 +93,8 @@ void cachepc_save_msrmts(cacheline *head);
 void cachepc_print_msrmts(cacheline *head);
 void cachepc_update_baseline(void);
 
+void cachepc_apic_oneshot(uint32_t interval);
+
 void cachepc_prime_vcall(uintptr_t ret, cacheline *cl);
 void cachepc_probe_vcall(uintptr_t ret, cacheline *cl);
 
@@ -119,6 +121,11 @@ extern bool cachepc_baseline_measure;
 extern bool cachepc_baseline_active;
 
 extern uint64_t cachepc_retinst;
+
+extern bool cachepc_single_step;
+extern bool cachepc_track_single_step;
+extern uint64_t cachepc_last_fault_gfn;
+extern uint32_t cachepc_last_fault_err;
 
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;

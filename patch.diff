@@ -17,7 +17,7 @@ index eb186bc57f6a..b96e80934005 100644
  /*
   * The notifier represented by @kvm_page_track_notifier_node is linked into
 diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
-index 30f244b64523..e0eeffd340e8 100644
+index 30f244b64523..568cc761f0e5 100644
 --- a/arch/x86/kvm/Makefile
 +++ b/arch/x86/kvm/Makefile
 @@ -1,6 +1,6 @@
@@ -46,7 +46,7 @@ index 30f244b64523..e0eeffd340e8 100644
  
 -kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o
 +kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o \
-+				   svm/avic.o svm/sev.o cachepc/cachepc.o
++				   svm/avic.o svm/sev.o cachepc/cachepc.o cachepc/uspt.o
  
  ifdef CONFIG_HYPERV
  kvm-amd-y		+= svm/svm_onhyperv.o
@@ -189,19 +189,38 @@ index 2e09d1b6249f..9b40e71564bf 100644
  EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
  
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index cf0bf456d520..d6a4002fa550 100644
+index cf0bf456d520..1e1667dc8f96 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
-@@ -2,6 +2,8 @@
+@@ -2,6 +2,9 @@
  
  #include <linux/kvm_host.h>
  
 +#include "cachepc/cachepc.h"
++#include "cachepc/uspt.h"
 +
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -3788,14 +3790,37 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -2083,6 +2086,17 @@ static int smi_interception(struct kvm_vcpu *vcpu)
+ 
+ static int intr_interception(struct kvm_vcpu *vcpu)
+ {
++	int err;
++
++	if (cachepc_track_single_step && cachepc_single_step) {
++		pr_warn("CachePC: Caught single step interrupt\n");
++		cachepc_single_step = false;
++
++		err = sevstep_uspt_send_and_block(cachepc_last_fault_gfn,
++			cachepc_last_fault_err);
++		if (err) pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
++	}
++
+ 	++vcpu->stat.irq_exits;
+ 	return 1;
+ }
+@@ -3788,14 +3802,42 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  {
  	struct vcpu_svm *svm = to_svm(vcpu);
  	unsigned long vmcb_pa = svm->current_vmcb->pa;
@@ -210,15 +229,20 @@ index cf0bf456d520..d6a4002fa550 100644
  	guest_state_enter_irqoff();
  
  	if (sev_es_guest(vcpu->kvm)) {
-+		memset(cachepc_msrmts, 0,
-+			cachepc_msrmts_count * sizeof(cpc_msrmt_t));
-+		cachepc_reset_pmc(CPC_L1MISS_PMC);
-+
 +		cpu = get_cpu();
 +		local_irq_disable();
 +		WARN_ON(cpu != 2);
 +
++		memset(cachepc_msrmts, 0,
++			cachepc_msrmts_count * sizeof(cpc_msrmt_t));
++		cachepc_reset_pmc(CPC_L1MISS_PMC);
++
++		cachepc_reset_pmc(CPC_RETINST_PMC);
++
++		if (cachepc_single_step)
++			cachepc_apic_oneshot(10);
  		__svm_sev_es_vcpu_run(vmcb_pa);
++		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC);
 +
 +		cachepc_save_msrmts(cachepc_ds);
 +		if (cachepc_baseline_measure)
@@ -228,21 +252,29 @@ index cf0bf456d520..d6a4002fa550 100644
  	} else {
  		struct svm_cpu_data *sd = per_cpu(svm_data, vcpu->cpu);
  
-+		memset(cachepc_msrmts, 0,
-+			cachepc_msrmts_count * sizeof(cpc_msrmt_t));
-+		cachepc_reset_pmc(CPC_L1MISS_PMC);
-+
 +		cpu = get_cpu();
 +		local_irq_disable();
 +		WARN_ON(cpu != 2);
 +
++		memset(cachepc_msrmts, 0,
++			cachepc_msrmts_count * sizeof(cpc_msrmt_t));
++		cachepc_reset_pmc(CPC_L1MISS_PMC);
++
  		/*
  		 * Use a single vmcb (vmcb01 because it's always valid) for
  		 * context switching guest state via VMLOAD/VMSAVE, that way
-@@ -3807,6 +3832,12 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3803,10 +3845,20 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+ 		 * vmcb02 when switching vmcbs for nested virtualization.
+ 		 */
+ 		vmload(svm->vmcb01.pa);
++		if (cachepc_single_step)
++			cachepc_apic_oneshot(100);
+ 		__svm_vcpu_run(vmcb_pa, (unsigned long *)&vcpu->arch.regs);
  		vmsave(svm->vmcb01.pa);
  
++		cachepc_reset_pmc(CPC_RETINST_PMC);
  		vmload(__sme_page_pa(sd->save_area));
++		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC);
 +
 +		cachepc_save_msrmts(cachepc_ds);
 +		if (cachepc_baseline_measure)
@@ -397,6 +429,99 @@ index d9adf79124f9..3e5c55f9bef0 100644
  #define CREATE_TRACE_POINTS
  #include "trace.h"
  
+diff --git a/crypto/aes_generic.c b/crypto/aes_generic.c
+index 27ab27931813..90679ec8ba79 100644
+--- a/crypto/aes_generic.c
++++ b/crypto/aes_generic.c
+@@ -1173,8 +1173,78 @@ EXPORT_SYMBOL_GPL(crypto_aes_set_key);
+ 	f_rl(bo, bi, 3, k);	\
+ } while (0)
+ 
++#define L1_ASSOC 8
++#define L1_LINESIZE 64
++#define L1_SETS 64
++#define L1_SIZE (L1_SETS * L1_ASSOC * L1_LINESIZE)
++
++#define ACCESS_LINE(n) \
++	asm volatile ("mov (%0), %%rbx" \
++		: : "r"(((uint8_t*) L1) + n * L1_LINESIZE) : "rbx");
++
++#define DO_ACCESS_PATTERN() \
++	ACCESS_LINE(60) \
++	ACCESS_LINE(13) \
++	ACCESS_LINE(24) \
++	ACCESS_LINE(19) \
++	ACCESS_LINE(38) \
++	ACCESS_LINE(17) \
++	ACCESS_LINE( 2) \
++	ACCESS_LINE(12) \
++	ACCESS_LINE(22) \
++	ACCESS_LINE(46) \
++	ACCESS_LINE( 4) \
++	ACCESS_LINE(61) \
++	ACCESS_LINE( 5) \
++	ACCESS_LINE(14) \
++	ACCESS_LINE(11) \
++	ACCESS_LINE(35) \
++	ACCESS_LINE(45) \
++	ACCESS_LINE(10) \
++	ACCESS_LINE(49) \
++	ACCESS_LINE(56) \
++	ACCESS_LINE(27) \
++	ACCESS_LINE(37) \
++	ACCESS_LINE(63) \
++	ACCESS_LINE(54) \
++	ACCESS_LINE(55) \
++	ACCESS_LINE(29) \
++	ACCESS_LINE(48) \
++	ACCESS_LINE( 9) \
++	ACCESS_LINE(16) \
++	ACCESS_LINE(39) \
++	ACCESS_LINE(20) \
++	ACCESS_LINE(21) \
++	ACCESS_LINE(62) \
++	ACCESS_LINE( 0) \
++	ACCESS_LINE(34) \
++	ACCESS_LINE( 8) \
++	ACCESS_LINE(53) \
++	ACCESS_LINE(42) \
++	ACCESS_LINE(51) \
++	ACCESS_LINE(50) \
++	ACCESS_LINE(57) \
++	ACCESS_LINE( 7) \
++	ACCESS_LINE( 6) \
++	ACCESS_LINE(33) \
++	ACCESS_LINE(26) \
++
++uint8_t *L1 = NULL;
++
+ static void crypto_aes_encrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
+ {
++	int cpu;
++
++	if (L1 == NULL) {
++		L1 = kzalloc(L1_SETS * L1_LINESIZE, GFP_KERNEL);
++		BUG_ON(((uintptr_t)L1) % (L1_SETS * L1_LINESIZE) != 0);
++	}
++
++	pr_warn("CachePC-TEST: Running AES-Generic!");
++
++	cpu = get_cpu();
++	DO_ACCESS_PATTERN()
++
+ 	const struct crypto_aes_ctx *ctx = crypto_tfm_ctx(tfm);
+ 	u32 b0[4], b1[4];
+ 	const u32 *kp = ctx->key_enc + 4;
+@@ -1210,6 +1280,9 @@ static void crypto_aes_encrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
+ 	put_unaligned_le32(b0[1], out + 4);
+ 	put_unaligned_le32(b0[2], out + 8);
+ 	put_unaligned_le32(b0[3], out + 12);
++
++	DO_ACCESS_PATTERN();
++	put_cpu();
+ }
+ 
+ /* decrypt a block of text */
 diff --git a/drivers/crypto/ccp/sev-dev.c b/drivers/crypto/ccp/sev-dev.c
 old mode 100644
 new mode 100755

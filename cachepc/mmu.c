@@ -14,8 +14,6 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	int i;
 	int err;
 
-	pr_warn("Sevstep: Got page fault (gfn:%llu)", fault->gfn);
-
 	was_tracked = false;
 	for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
 		if (kvm_slot_page_track_is_active(vcpu->kvm,
@@ -26,6 +24,7 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	}
 
 	if (was_tracked) {
+		pr_warn("Sevstep: Tracked page fault (gfn:%llu)", fault->gfn);
 		err = sevstep_uspt_send_and_block(fault->gfn << PAGE_SHIFT,
 			fault->error_code);
 		if (err) {

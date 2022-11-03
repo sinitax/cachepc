@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "aes-detect.c"
+// #include "aes-detect.c"
 
 static uint8_t key[16];
 
@@ -48,14 +48,14 @@ main(int argc, const char **argv)
 		memset(block, 0, sizeof(block));
 		strncpy((char *) block, "Hello world", sizeof(block));
 
-		DO_ACCESS_PATTERN();
+		// DO_ACCESS_PATTERN();
 
-		// printhex(block, sizeof(block));
+		printhex(block, sizeof(block));
 		n = kcapi_cipher_encrypt(kcapi, block, sizeof(block), NULL,
 			block, sizeof(block), KCAPI_ACCESS_HEURISTIC);
 		if (n != sizeof(block))
 			err(1, "encrypt");
-		// printhex(block, sizeof(block));
+		printhex(block, sizeof(block));
 
 		sleep(1);
 	}

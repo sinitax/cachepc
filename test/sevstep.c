@@ -30,8 +30,6 @@
 #define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 
-#define SAMPLE_COUNT 20
-
 #define TARGET_CORE 2
 #define SECONDARY_CORE 3
 
@@ -528,7 +526,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
 
 		faultcnt = 0;
-		while (faultcnt < SAMPLE_COUNT) {
+		while (faultcnt < 20) {
 			if (monitor(&kvm_with_access)) break;
 		}
 
@@ -561,7 +559,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl TRACK_SINGLE_STEP");
 
 		faultcnt = 0;
-		while (faultcnt < SAMPLE_COUNT) {
+		while (faultcnt < 100) {
 			if (monitor(&kvm_with_access)) break;
 		}
 

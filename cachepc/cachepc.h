@@ -3,6 +3,9 @@
 #include "asm.h"
 #include "uapi.h"
 
+#include "../../include/asm/apic.h"
+#include "../../include/asm/irq_vectors.h"
+
 #define L1_CACHE 0
 #define L2_CACHE 1
 
@@ -93,8 +96,6 @@ void cachepc_save_msrmts(cacheline *head);
 void cachepc_print_msrmts(cacheline *head);
 void cachepc_update_baseline(void);
 
-void cachepc_apic_oneshot(uint32_t interval);
-
 void cachepc_prime_vcall(uintptr_t ret, cacheline *cl);
 void cachepc_probe_vcall(uintptr_t ret, cacheline *cl);
 
@@ -113,6 +114,9 @@ static inline void cachepc_victim(void *p);
 __attribute__((always_inline))
 static inline uint64_t cachepc_read_pmc(uint64_t event);
 
+__attribute__((always_inline))
+static inline void cachepc_apic_oneshot(uint32_t interval);
+
 extern cpc_msrmt_t *cachepc_msrmts;
 extern size_t cachepc_msrmts_count;
 
@@ -124,8 +128,10 @@ extern uint64_t cachepc_retinst;
 
 extern bool cachepc_single_step;
 extern bool cachepc_track_single_step;
-extern uint64_t cachepc_last_fault_gfn;
-extern uint32_t cachepc_last_fault_err;
+extern bool cachepc_inst_fault_avail;
+extern uint64_t cachepc_inst_fault_gfn;
+extern bool cachepc_data_fault_avail;
+extern uint64_t cachepc_data_fault_gfn;
 
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;
@@ -270,4 +276,12 @@ cachepc_read_pmc(uint64_t event)
 	cachepc_cpuid();
 
 	return res;
+}
+
+void
+cachepc_apic_oneshot(uint32_t interval)
+{
+	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
+	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_2);
+	native_apic_mem_write(APIC_TMICT, interval);
 }

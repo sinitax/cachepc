@@ -27,12 +27,16 @@ EXPORT_SYMBOL(cachepc_retinst);
 
 bool cachepc_single_step = false;
 bool cachepc_track_single_step = false;
-uint64_t cachepc_last_fault_gfn;
-uint32_t cachepc_last_fault_err;
+bool cachepc_inst_fault_avail = false;
+uint64_t cachepc_inst_fault_gfn = 0;
+bool cachepc_data_fault_avail = false;
+uint64_t cachepc_data_fault_gfn = 0;
 EXPORT_SYMBOL(cachepc_single_step);
 EXPORT_SYMBOL(cachepc_track_single_step);
-EXPORT_SYMBOL(cachepc_last_fault_gfn);
-EXPORT_SYMBOL(cachepc_last_fault_err);
+EXPORT_SYMBOL(cachepc_inst_fault_avail);
+EXPORT_SYMBOL(cachepc_inst_fault_gfn);
+EXPORT_SYMBOL(cachepc_data_fault_avail);
+EXPORT_SYMBOL(cachepc_data_fault_gfn);
 
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
@@ -671,6 +675,10 @@ cachepc_kvm_init(void)
 
 	cachepc_single_step = false;
 	cachepc_track_single_step = false;
+	cachepc_data_fault_avail = false;
+	cachepc_data_fault_gfn = 0;
+	cachepc_inst_fault_avail = false;
+	cachepc_inst_fault_gfn = 0;
 
 	cachepc_msrmts_count = L1_SETS;
 	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);

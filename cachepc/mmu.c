@@ -6,40 +6,38 @@ static void
 sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	struct kvm_page_fault *fault)
 {
-	const int modes[] = {
-		KVM_PAGE_TRACK_WRITE,
-		KVM_PAGE_TRACK_ACCESS,
-		KVM_PAGE_TRACK_EXEC
-	};
-	bool was_tracked;
 	int err;
-	int i;
 
-	pr_warn("CachePCTest: Page fault %llu\n", fault->gfn);
+	if (kvm_slot_page_track_is_active(vcpu->kvm,
+			fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS)) {
+		pr_warn("Sevstep: Tracked page fault (gfn:%llu err:%u)\n",
+			fault->gfn, fault->error_code);
+		//pr_warn("Sevstep: Tracked page fault attrs %i %i %i\n",
+		//	fault->present, fault->write, fault->user);
 
-	was_tracked = false;
-	for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
-		if (kvm_slot_page_track_is_active(vcpu->kvm,
-				fault->slot, fault->gfn, modes[i])) {
-			pr_warn("CachePCTest: Page attrs %i %i %i\n",
-				fault->present, fault->write, fault->user);
-			sevstep_untrack_single(vcpu, fault->gfn, modes[i]);
-			if (!cachepc_track_single_step)
-				sevstep_track_single(vcpu, fault->gfn, modes[i]);
-			was_tracked = true;
-		}
-	}
+		sevstep_untrack_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
 
-	if (was_tracked) {
-		pr_warn("Sevstep: Tracked page fault (gfn:%llu)", fault->gfn);
 		if (cachepc_track_single_step) {
-			cachepc_last_fault_gfn = fault->gfn;
-			cachepc_last_fault_err = fault->error_code;
-			cachepc_single_step = true;
+			if (cachepc_single_step && cachepc_inst_fault_avail) {
+				/* faulted during single step => data address */
+				pr_warn("Sevstep: Got data fault gfn:%llu\n", fault->gfn);
+
+				BUG_ON(!cachepc_inst_fault_avail);
+				cachepc_data_fault_gfn = fault->gfn;
+				cachepc_data_fault_avail = true;
+			} else {
+				/* first fault from instruction fetch */
+				pr_warn("Sevstep: Got inst fault gfn:%llu\n", fault->gfn);
+
+				cachepc_inst_fault_gfn = fault->gfn;
+				cachepc_inst_fault_avail = true;
+				cachepc_data_fault_avail = false;
+				cachepc_single_step = true;
+			}
 		} else {
-			err = sevstep_uspt_send_and_block(fault->gfn,
-				fault->error_code);
-			if (err) pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
+			sevstep_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
+			if (sevstep_uspt_send_and_block(fault->gfn, 0))
+				pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
 		}
 	}
 }
@@ -50,7 +48,7 @@ sevstep_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	u64 spte;
 	bool flush;
 
-	pr_warn("Sevstep: spte_protect\n");
+	// pr_warn("Sevstep: spte_protect\n");
 
 	spte = *sptep;
 	if (!is_writable_pte(spte) && !(pt_protect && is_mmu_writable_spte(spte)))
@@ -85,7 +83,7 @@ sevstep_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	}
 	flush |= mmu_spte_update(sptep, spte);
 
-	pr_warn("Sevstep: spte_protect flush:%i\n", flush);
+	// pr_warn("Sevstep: spte_protect flush:%i\n", flush);
 
 	return flush;
 }
@@ -117,7 +115,7 @@ sevstep_kvm_mmu_slot_gfn_protect(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 	protected = false;
 
-	pr_warn("Sevstep: mmu_slot_gfn_protect gfn:%llu\n", gfn);
+	// pr_warn("Sevstep: mmu_slot_gfn_protect gfn:%llu\n", gfn);
 
 	if (kvm_memslots_have_rmaps(kvm)) {
 		for (i = min_level; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
@@ -128,10 +126,10 @@ sevstep_kvm_mmu_slot_gfn_protect(struct kvm *kvm, struct kvm_memory_slot *slot,
 		protected |= sevstep_tdp_protect_gfn(kvm,
 			slot, gfn, min_level, mode);
 	} else {
-		pr_warn("CachePC: Tracking unsupported!\n");
+		pr_err("CachePC: Tracking unsupported!\n");
 	}
 
-	return true;
+	return protected;
 }
 EXPORT_SYMBOL(sevstep_kvm_mmu_slot_gfn_protect);
 

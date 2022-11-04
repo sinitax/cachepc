@@ -62,6 +62,8 @@ sevstep_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 
+	if (!slot) pr_err("Sevstep: Failed to track gfn %llu\n", gfn);
+
 	return slot != NULL;
 }
 EXPORT_SYMBOL(sevstep_track_single);
@@ -83,6 +85,8 @@ sevstep_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 	}
 
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+
+	if (!slot) pr_err("Sevstep: Failed to untrack gfn %llu\n", gfn);
 
 	return slot != NULL;
 }

@@ -59,7 +59,7 @@ index 000000000000..9119e44af1f0
 +/home/louis/kvm-prime-count/cachepc
 \ No newline at end of file
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index d871b8dee7b3..3b7720aebbc6 100644
+index d871b8dee7b3..bfeab994420e 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -1152,6 +1152,8 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
@@ -136,18 +136,19 @@ index d871b8dee7b3..3b7720aebbc6 100644
  }
  
  static bool kvm_vcpu_write_protect_gfn(struct kvm_vcpu *vcpu, u64 gfn)
-@@ -3901,6 +3870,10 @@ static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr, bool direct)
+@@ -3901,18 +3870,25 @@ static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr, bool direct)
  static bool page_fault_handle_page_track(struct kvm_vcpu *vcpu,
  					 struct kvm_page_fault *fault)
  {
+-	if (unlikely(fault->rsvd))
+-		return false;
 +	int active;
-+
-+	sevstep_uspt_page_fault_handle(vcpu, fault);
-+
- 	if (unlikely(fault->rsvd))
- 		return false;
  
-@@ -3911,8 +3884,11 @@ static bool page_fault_handle_page_track(struct kvm_vcpu *vcpu,
+-	if (!fault->present || !fault->write)
+-		return false;
++	sevstep_uspt_page_fault_handle(vcpu, fault);
+ 
+ 	/*
  	 * guest is writing the page which is write tracked which can
  	 * not be fixed by page fault handler.
  	 */
@@ -158,11 +159,17 @@ index d871b8dee7b3..3b7720aebbc6 100644
 +	active |= kvm_slot_page_track_is_active(vcpu->kvm,
 +		fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS);
 +	if (active) return true;
++
++	if (unlikely(fault->rsvd))
++		return false;
++
++	if (!fault->present || !fault->write)
++		return false;
  
  	return false;
  }
 diff --git a/arch/x86/kvm/mmu/page_track.c b/arch/x86/kvm/mmu/page_track.c
-index 2e09d1b6249f..9b40e71564bf 100644
+index 2e09d1b6249f..b139ea33b0e1 100644
 --- a/arch/x86/kvm/mmu/page_track.c
 +++ b/arch/x86/kvm/mmu/page_track.c
 @@ -19,6 +19,8 @@
@@ -174,7 +181,24 @@ index 2e09d1b6249f..9b40e71564bf 100644
  bool kvm_page_track_write_tracking_enabled(struct kvm *kvm)
  {
  	return IS_ENABLED(CONFIG_KVM_EXTERNAL_WRITE_TRACKING) ||
-@@ -131,9 +133,10 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+@@ -115,7 +117,6 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+ 				  struct kvm_memory_slot *slot, gfn_t gfn,
+ 				  enum kvm_page_track_mode mode)
+ {
+-
+ 	if (WARN_ON(!page_track_mode_is_valid(mode)))
+ 		return;
+ 
+@@ -123,6 +124,8 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+ 		    !kvm_page_track_write_tracking_enabled(kvm)))
+ 		return;
+ 
++	pr_warn("CachePCTest: Tracking page: %llu\n", gfn);
++
+ 	update_gfn_track(slot, gfn, mode, 1);
+ 
+ 	/*
+@@ -131,9 +134,11 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
  	 */
  	kvm_mmu_gfn_disallow_lpage(slot, gfn);
  
@@ -183,26 +207,147 @@ index 2e09d1b6249f..9b40e71564bf 100644
 -			kvm_flush_remote_tlbs(kvm);
 +	if (sevstep_kvm_mmu_slot_gfn_protect(kvm,
 +			slot, gfn, PG_LEVEL_4K, mode)) {
++		pr_warn("CachePCTest: Flushing kvm TLBs\n");
 +		kvm_flush_remote_tlbs(kvm);
 +	}
  }
  EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
  
+diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
+index 7b9265d67131..749bbb2930f3 100644
+--- a/arch/x86/kvm/mmu/tdp_mmu.c
++++ b/arch/x86/kvm/mmu/tdp_mmu.c
+@@ -1810,13 +1810,8 @@ void kvm_tdp_mmu_zap_collapsible_sptes(struct kvm *kvm,
+ 		zap_collapsible_spte_range(kvm, root, slot);
+ }
+ 
+-/*
+- * Removes write access on the last level SPTE mapping this GFN and unsets the
+- * MMU-writable bit to ensure future writes continue to be intercepted.
+- * Returns true if an SPTE was set and a TLB flush is needed.
+- */
+-static bool write_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
+-			      gfn_t gfn, int min_level)
++static bool sevstep_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
++	gfn_t gfn, int min_level, int mode)
+ {
+ 	struct tdp_iter iter;
+ 	u64 new_spte;
+@@ -1831,8 +1826,14 @@ static bool write_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
+ 		    !is_last_spte(iter.old_spte, iter.level))
+ 			continue;
+ 
+-		new_spte = iter.old_spte &
+-			~(PT_WRITABLE_MASK | shadow_mmu_writable_mask);
++		pr_warn("Sevstep: tdp_protect_gfn\n");
++		new_spte = iter.old_spte & ~shadow_mmu_writable_mask;
++		new_spte &= ~PT_WRITABLE_MASK;
++		if (mode == KVM_PAGE_TRACK_ACCESS) {
++			new_spte &= ~PT_PRESENT_MASK;
++			new_spte &= ~PT_USER_MASK;
++			new_spte |= (0x1ULL << PT64_NX_SHIFT);
++		}
+ 
+ 		if (new_spte == iter.old_spte)
+ 			break;
+@@ -1846,6 +1847,58 @@ static bool write_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
+ 	return spte_set;
+ }
+ 
++bool sevstep_tdp_protect_gfn(struct kvm *kvm, struct kvm_memory_slot *slot,
++	gfn_t gfn, int min_level, int mode)
++{
++	struct kvm_mmu_page *root;
++	bool spte_set = false;
++
++	pr_warn("Sevstep: tdp_protect_gfn\n");
++
++	lockdep_assert_held_write(&kvm->mmu_lock);
++	for_each_tdp_mmu_root(kvm, root, slot->as_id)
++		spte_set |= sevstep_protect_gfn(kvm, root, gfn, min_level, mode);
++
++	return spte_set;
++}
++EXPORT_SYMBOL(sevstep_tdp_protect_gfn);
++
++/*
++ * Removes write access on the last level SPTE mapping this GFN and unsets the
++ * MMU-writable bit to ensure future writes continue to be intercepted.
++ * Returns true if an SPTE was set and a TLB flush is needed.
++ */
++// static bool write_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
++// 			      gfn_t gfn, int min_level)
++// {
++// 	struct tdp_iter iter;
++// 	u64 new_spte;
++// 	bool spte_set = false;
++// 
++// 	BUG_ON(min_level > KVM_MAX_HUGEPAGE_LEVEL);
++// 
++// 	rcu_read_lock();
++// 
++// 	for_each_tdp_pte_min_level(iter, root, min_level, gfn, gfn + 1) {
++// 		if (!is_shadow_present_pte(iter.old_spte) ||
++// 		    !is_last_spte(iter.old_spte, iter.level))
++// 			continue;
++// 
++// 		new_spte = iter.old_spte & ~shadow_mmu_writable_mask;
++// 		new_spte &= ~PT_WRITABLE_MASK;
++// 
++// 		if (new_spte == iter.old_spte)
++// 			break;
++// 
++// 		tdp_mmu_set_spte(kvm, &iter, new_spte);
++// 		spte_set = true;
++// 	}
++// 
++// 	rcu_read_unlock();
++// 
++// 	return spte_set;
++// }
++
+ /*
+  * Removes write access on the last level SPTE mapping this GFN and unsets the
+  * MMU-writable bit to ensure future writes continue to be intercepted.
+@@ -1855,14 +1908,16 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
+ 				   struct kvm_memory_slot *slot, gfn_t gfn,
+ 				   int min_level)
+ {
+-	struct kvm_mmu_page *root;
+-	bool spte_set = false;
++	return sevstep_tdp_protect_gfn(kvm, slot, gfn, min_level,
++		KVM_PAGE_TRACK_WRITE);
++	// struct kvm_mmu_page *root;
++	// bool spte_set = false;
+ 
+-	lockdep_assert_held_write(&kvm->mmu_lock);
+-	for_each_tdp_mmu_root(kvm, root, slot->as_id)
+-		spte_set |= write_protect_gfn(kvm, root, gfn, min_level);
++	// lockdep_assert_held_write(&kvm->mmu_lock);
++	// for_each_tdp_mmu_root(kvm, root, slot->as_id)
++	// 	spte_set |= write_protect_gfn(kvm, root, gfn, min_level);
+ 
+-	return spte_set;
++	// return spte_set;
+ }
+ 
+ /*
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index cf0bf456d520..1e1667dc8f96 100644
+index cf0bf456d520..c179012ab268 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
-@@ -2,6 +2,9 @@
+@@ -2,6 +2,10 @@
  
  #include <linux/kvm_host.h>
  
 +#include "cachepc/cachepc.h"
 +#include "cachepc/uspt.h"
++#include "cachepc/sevstep.h"
 +
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -2083,6 +2086,17 @@ static int smi_interception(struct kvm_vcpu *vcpu)
+@@ -2083,6 +2087,21 @@ static int smi_interception(struct kvm_vcpu *vcpu)
  
  static int intr_interception(struct kvm_vcpu *vcpu)
  {
@@ -215,12 +360,16 @@ index cf0bf456d520..1e1667dc8f96 100644
 +		err = sevstep_uspt_send_and_block(cachepc_last_fault_gfn,
 +			cachepc_last_fault_err);
 +		if (err) pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
++
++		if (!sevstep_track_single(vcpu, cachepc_last_fault_gfn,
++				KVM_PAGE_TRACK_ACCESS))
++			pr_warn("Sevstep: Failed to retrack page afer single step\n");
 +	}
 +
  	++vcpu->stat.irq_exits;
  	return 1;
  }
-@@ -3788,14 +3802,42 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3788,14 +3807,42 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  {
  	struct vcpu_svm *svm = to_svm(vcpu);
  	unsigned long vmcb_pa = svm->current_vmcb->pa;
@@ -240,7 +389,7 @@ index cf0bf456d520..1e1667dc8f96 100644
 +		cachepc_reset_pmc(CPC_RETINST_PMC);
 +
 +		if (cachepc_single_step)
-+			cachepc_apic_oneshot(10);
++			cachepc_apic_oneshot(150);
  		__svm_sev_es_vcpu_run(vmcb_pa);
 +		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC);
 +
@@ -263,7 +412,7 @@ index cf0bf456d520..1e1667dc8f96 100644
  		/*
  		 * Use a single vmcb (vmcb01 because it's always valid) for
  		 * context switching guest state via VMLOAD/VMSAVE, that way
-@@ -3803,10 +3845,20 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3803,10 +3850,20 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  		 * vmcb02 when switching vmcbs for nested virtualization.
  		 */
  		vmload(svm->vmcb01.pa);

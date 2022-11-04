@@ -267,9 +267,6 @@ cachepc_kvm_system_setup(void)
 	val |= 1 << 13;
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
 	printk("CachePC: Writing MSR %08llX: %016llX\n", reg_addr, val);
-
-	/* enable local apic */
-
 }
 
 int
@@ -568,7 +565,7 @@ cachepc_kvm_uspt_reset_ioctl(void __user *arg_user)
 int
 cachepc_kvm_poll_event_ioctl(void __user *arg_user)
 {
-	if (!sevstep_uspt_is_initialiized())
+	if (!sevstep_uspt_is_initialized())
 		return -EINVAL;
 
 	return sevstep_uspt_handle_poll_event(arg_user);
@@ -581,7 +578,7 @@ cachepc_kvm_uscpt_ack_event_ioctl(void __user *arg_user)
 
 	if (!arg_user) return -EINVAL;
 
-	if (!sevstep_uspt_is_initialiized())
+	if (!sevstep_uspt_is_initialized())
 		return -EINVAL;
 
 	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))

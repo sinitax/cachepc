@@ -25,7 +25,7 @@ sevstep_uspt_clear(void)
 }
 
 bool
-sevstep_uspt_is_initialiized()
+sevstep_uspt_is_initialized()
 {
 	return uspt_init;
 }
@@ -37,7 +37,7 @@ sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code)
 	ktime_t deadline;
 
 	read_lock(&event_lock);
-	if (!sevstep_uspt_is_initialiized()) {
+	if (!sevstep_uspt_is_initialized()) {
 		pr_warn("Sevstep: uspt_send_and_block: ctx not initialized!\n");
 		read_unlock(&event_lock);
 		return 1;
@@ -126,7 +126,7 @@ sevstep_uspt_handle_ack_event_ioctl(uint64_t eventid)
 		last_acked_eventid = last_sent_eventid;
 	} else {
 		err = 1;
-		pr_warn("Sevstep: ack'd event does not match sent: %llu %llu\n",
+		pr_warn("Sevstep: Ackd event does not match sent: %llu %llu\n",
 			last_sent_eventid, eventid);
 	}
 	write_unlock(&event_lock);

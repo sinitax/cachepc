@@ -15,7 +15,7 @@ extern bool have_event;
 
 extern bool uspt_init;
 
-bool sevstep_uspt_is_initialiized(void);
+bool sevstep_uspt_is_initialized(void);
 void sevstep_uspt_clear(void);
 
 int sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code);

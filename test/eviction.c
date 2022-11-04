@@ -12,7 +12,7 @@
 int
 main(int argc, const char **argv)
 {
-	uint16_t counts[64];
+	cpc_msrmt_t counts[L1_SETS];
 	uint32_t arg;
 	int i, fd, ret;
 

@@ -169,7 +169,7 @@ index d871b8dee7b3..bfeab994420e 100644
  	return false;
  }
 diff --git a/arch/x86/kvm/mmu/page_track.c b/arch/x86/kvm/mmu/page_track.c
-index 2e09d1b6249f..b139ea33b0e1 100644
+index 2e09d1b6249f..fb17064b5d53 100644
 --- a/arch/x86/kvm/mmu/page_track.c
 +++ b/arch/x86/kvm/mmu/page_track.c
 @@ -19,6 +19,8 @@
@@ -193,12 +193,12 @@ index 2e09d1b6249f..b139ea33b0e1 100644
  		    !kvm_page_track_write_tracking_enabled(kvm)))
  		return;
  
-+	pr_warn("CachePCTest: Tracking page: %llu\n", gfn);
++	//pr_warn("CachePCTest: Tracking page: %llu\n", gfn);
 +
  	update_gfn_track(slot, gfn, mode, 1);
  
  	/*
-@@ -131,9 +134,11 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+@@ -131,9 +134,10 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
  	 */
  	kvm_mmu_gfn_disallow_lpage(slot, gfn);
  
@@ -207,14 +207,13 @@ index 2e09d1b6249f..b139ea33b0e1 100644
 -			kvm_flush_remote_tlbs(kvm);
 +	if (sevstep_kvm_mmu_slot_gfn_protect(kvm,
 +			slot, gfn, PG_LEVEL_4K, mode)) {
-+		pr_warn("CachePCTest: Flushing kvm TLBs\n");
 +		kvm_flush_remote_tlbs(kvm);
 +	}
  }
  EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
  
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index 7b9265d67131..749bbb2930f3 100644
+index 7b9265d67131..ba7af6bcc33e 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -1810,13 +1810,8 @@ void kvm_tdp_mmu_zap_collapsible_sptes(struct kvm *kvm,
@@ -239,7 +238,7 @@ index 7b9265d67131..749bbb2930f3 100644
  
 -		new_spte = iter.old_spte &
 -			~(PT_WRITABLE_MASK | shadow_mmu_writable_mask);
-+		pr_warn("Sevstep: tdp_protect_gfn\n");
++		//pr_warn("Sevstep: tdp_protect_gfn\n");
 +		new_spte = iter.old_spte & ~shadow_mmu_writable_mask;
 +		new_spte &= ~PT_WRITABLE_MASK;
 +		if (mode == KVM_PAGE_TRACK_ACCESS) {
@@ -260,7 +259,7 @@ index 7b9265d67131..749bbb2930f3 100644
 +	struct kvm_mmu_page *root;
 +	bool spte_set = false;
 +
-+	pr_warn("Sevstep: tdp_protect_gfn\n");
++	// pr_warn("Sevstep: tdp_protect_gfn\n");
 +
 +	lockdep_assert_held_write(&kvm->mmu_lock);
 +	for_each_tdp_mmu_root(kvm, root, slot->as_id)
@@ -333,7 +332,7 @@ index 7b9265d67131..749bbb2930f3 100644
  
  /*
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index cf0bf456d520..c179012ab268 100644
+index cf0bf456d520..dc6f2e6e52d1 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,10 @@
@@ -347,29 +346,42 @@ index cf0bf456d520..c179012ab268 100644
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -2083,6 +2087,21 @@ static int smi_interception(struct kvm_vcpu *vcpu)
+@@ -2083,6 +2087,34 @@ static int smi_interception(struct kvm_vcpu *vcpu)
  
  static int intr_interception(struct kvm_vcpu *vcpu)
  {
-+	int err;
-+
 +	if (cachepc_track_single_step && cachepc_single_step) {
-+		pr_warn("CachePC: Caught single step interrupt\n");
 +		cachepc_single_step = false;
 +
-+		err = sevstep_uspt_send_and_block(cachepc_last_fault_gfn,
-+			cachepc_last_fault_err);
-+		if (err) pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
++		if (cachepc_data_fault_avail) {
++			pr_warn("CachePC: Caught single step WITH data!\n");
 +
-+		if (!sevstep_track_single(vcpu, cachepc_last_fault_gfn,
-+				KVM_PAGE_TRACK_ACCESS))
-+			pr_warn("Sevstep: Failed to retrack page afer single step\n");
++			sevstep_uspt_send_and_block(
++				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
++				cachepc_data_fault_gfn, cachepc_data_fault_err);
++
++			sevstep_track_single(vcpu, cachepc_data_fault_gfn,
++				KVM_PAGE_TRACK_ACCESS);
++			cachepc_data_fault_avail = false;
++
++			sevstep_track_single(vcpu, cachepc_inst_fault_gfn,
++				KVM_PAGE_TRACK_ACCESS);
++			cachepc_inst_fault_avail = false;
++		} else if (cachepc_inst_fault_avail) {
++			pr_warn("CachePC: Caught single step WITHOUT data!\n");
++
++			sevstep_track_single(vcpu, cachepc_inst_fault_gfn,
++				KVM_PAGE_TRACK_ACCESS);
++			cachepc_inst_fault_avail = false;
++		} else {
++			pr_warn("CachePC: Unexpected single step\n");
++		}
 +	}
 +
  	++vcpu->stat.irq_exits;
  	return 1;
  }
-@@ -3788,14 +3807,42 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3788,14 +3820,39 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  {
  	struct vcpu_svm *svm = to_svm(vcpu);
  	unsigned long vmcb_pa = svm->current_vmcb->pa;
@@ -387,9 +399,6 @@ index cf0bf456d520..c179012ab268 100644
 +		cachepc_reset_pmc(CPC_L1MISS_PMC);
 +
 +		cachepc_reset_pmc(CPC_RETINST_PMC);
-+
-+		if (cachepc_single_step)
-+			cachepc_apic_oneshot(150);
  		__svm_sev_es_vcpu_run(vmcb_pa);
 +		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC);
 +
@@ -412,12 +421,7 @@ index cf0bf456d520..c179012ab268 100644
  		/*
  		 * Use a single vmcb (vmcb01 because it's always valid) for
  		 * context switching guest state via VMLOAD/VMSAVE, that way
-@@ -3803,10 +3850,20 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
- 		 * vmcb02 when switching vmcbs for nested virtualization.
- 		 */
- 		vmload(svm->vmcb01.pa);
-+		if (cachepc_single_step)
-+			cachepc_apic_oneshot(100);
+@@ -3806,7 +3863,15 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  		__svm_vcpu_run(vmcb_pa, (unsigned long *)&vcpu->arch.regs);
  		vmsave(svm->vmcb01.pa);
  

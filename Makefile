@@ -24,13 +24,16 @@ load:
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm.ko
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm-amd.ko
 
+freq:
+	sudo cpupower frequency-set -f 2.60GHz
+
+update:
+	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff
+
 test/aes-detect_%: test/aes-detect_%.c test/aes-detect.c
 	clang -o $@ $< $(CFLAGS) -I test/libkcapi/lib -L test/libkcapi/.libs -lkcapi -static
 
 test/%: test/%.c cachepc/uapi.h
 	clang -o $@ $< $(CFLAGS)  -fsanitize=address
 
-update:
-	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff
-
-.PHONY: all clean build load update
+.PHONY: all clean build load freq update

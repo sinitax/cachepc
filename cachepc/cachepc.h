@@ -128,10 +128,13 @@ extern uint64_t cachepc_retinst;
 
 extern bool cachepc_single_step;
 extern bool cachepc_track_single_step;
+extern uint32_t cachepc_apic_timer;
 extern bool cachepc_inst_fault_avail;
 extern uint64_t cachepc_inst_fault_gfn;
+extern uint32_t cachepc_inst_fault_err;
 extern bool cachepc_data_fault_avail;
 extern uint64_t cachepc_data_fault_gfn;
+extern uint32_t cachepc_data_fault_err;
 
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;

@@ -18,7 +18,8 @@ extern bool uspt_init;
 bool sevstep_uspt_is_initialized(void);
 void sevstep_uspt_clear(void);
 
-int sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code);
+int sevstep_uspt_send_and_block(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
+	uint64_t data_fault_gfn, uint32_t data_fault_err);
 int sevstep_uspt_is_event_done(uint64_t id);
 
 int sevstep_uspt_handle_poll_event(struct cpc_track_event *userpace_mem);

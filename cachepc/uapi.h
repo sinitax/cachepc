@@ -55,9 +55,12 @@ struct cpc_track_config {
 };
 
 struct cpc_track_event {
-	__u64 id; /* filled automatically */
-	__u64 fault_gfn;
-	__u32 fault_err;
+	__u64 id;
+	__u64 inst_fault_gfn;
+	__u64 inst_fault_err;
+	__u32 data_fault_avail;
+	__u64 data_fault_gfn;
+	__u32 data_fault_err;
 	__u64 timestamp_ns;
 	__u64 retinst;
 };

@@ -31,14 +31,15 @@ sevstep_uspt_is_initialized()
 }
 
 int
-sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code)
+sevstep_uspt_send_and_block(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
+	uint64_t data_fault_gfn, uint32_t data_fault_err)
 {
 	struct cpc_track_event event;
 	ktime_t deadline;
 
 	read_lock(&event_lock);
 	if (!sevstep_uspt_is_initialized()) {
-		pr_warn("Sevstep: uspt_send_and_block: ctx not initialized!\n");
+		pr_warn("Sevstep: ctx not initialized!\n");
 		read_unlock(&event_lock);
 		return 1;
 	}
@@ -46,16 +47,18 @@ sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code)
 
 	write_lock(&event_lock);
 	 if (last_sent_eventid != last_acked_eventid) {
-		pr_warn("Sevstep: uspt_send_and_block: "
-			"event id_s out of sync, aborting. Fix this later\n");
+		pr_warn("Sevstep: event id_s out of sync, aborting\n");
 		write_unlock(&event_lock);
 		return 1;
 	} else {
 		last_sent_eventid++;
 	}
 	event.id = last_sent_eventid;
-	event.fault_gfn = fault_gfn;
-	event.fault_err = error_code;
+	event.inst_fault_gfn = inst_fault_gfn;
+	event.inst_fault_err = inst_fault_err;
+	event.data_fault_avail = (data_fault_err != 0);
+	event.data_fault_gfn = data_fault_gfn;
+	event.data_fault_err = data_fault_err;
 	event.timestamp_ns = ktime_get_real_ns();
 	event.retinst = cachepc_retinst;
 
@@ -64,12 +67,11 @@ sevstep_uspt_send_and_block(uint64_t fault_gfn, uint32_t error_code)
 	write_unlock(&event_lock);
 
 	/* wait for ack with timeout */
-	pr_warn("Sevstep: uspt_send_and_block: Begin wait for event ack");
+	// pr_warn("Sevstep: uspt_send_and_block: Begin wait for event ack");
 	deadline = ktime_get_ns() + 2000000000ULL; /* 1s in ns */
 	while (!sevstep_uspt_is_event_done(sent_event.id)) {
 		if (ktime_get_ns() > deadline) {
-			pr_warn("Sevstep: uspt_send_and_block: "
-				"Waiting for ack of event %llu timed out",
+			pr_warn("Sevstep: Timeout waiting for ack of event %llu ",
 				sent_event.id);
 			return 3;
 		}

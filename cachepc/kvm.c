@@ -27,16 +27,24 @@ EXPORT_SYMBOL(cachepc_retinst);
 
 bool cachepc_single_step = false;
 bool cachepc_track_single_step = false;
-bool cachepc_inst_fault_avail = false;
-uint64_t cachepc_inst_fault_gfn = 0;
-bool cachepc_data_fault_avail = false;
-uint64_t cachepc_data_fault_gfn = 0;
+uint32_t cachepc_apic_timer = 0;
 EXPORT_SYMBOL(cachepc_single_step);
 EXPORT_SYMBOL(cachepc_track_single_step);
+EXPORT_SYMBOL(cachepc_apic_timer);
+
+bool cachepc_inst_fault_avail = false;
+uint64_t cachepc_inst_fault_gfn = 0;
+uint32_t cachepc_inst_fault_err = 0;
 EXPORT_SYMBOL(cachepc_inst_fault_avail);
 EXPORT_SYMBOL(cachepc_inst_fault_gfn);
+EXPORT_SYMBOL(cachepc_inst_fault_err);
+
+bool cachepc_data_fault_avail = false;
+uint64_t cachepc_data_fault_gfn = 0;
+uint32_t cachepc_data_fault_err = 0;
 EXPORT_SYMBOL(cachepc_data_fault_avail);
 EXPORT_SYMBOL(cachepc_data_fault_gfn);
+EXPORT_SYMBOL(cachepc_data_fault_err);
 
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
@@ -254,7 +262,8 @@ cachepc_kvm_system_setup(void)
 	val = (uint64_t) lo | ((uint64_t) hi << 32);
 	val |= 1 << 13;
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
-	printk("CachePC: Writing MSR %08llX: %016llX\n", reg_addr, val);
+	printk("CachePC: Disabling streaming store (MSR %08llX: %016llX)\n",
+		reg_addr, val);
 
 	/* disable speculative data cache tlb reloads */
 	reg_addr = 0xc0011022;
@@ -262,7 +271,8 @@ cachepc_kvm_system_setup(void)
 	val = (uint64_t) lo | ((uint64_t) hi << 32);
 	val |= 1 << 4;
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
-	printk("CachePC: Writing MSR %08llX: %016llX\n", reg_addr, val);
+	printk("CachePC: Disabling speculative reloads (MSR %08llX: %016llX)\n",
+		reg_addr, val);
 
 	/* disable data cache hardware prefetcher */
 	reg_addr = 0xc0011022;
@@ -270,7 +280,8 @@ cachepc_kvm_system_setup(void)
 	val = (uint64_t) lo | ((uint64_t) hi << 32);
 	val |= 1 << 13;
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
-	printk("CachePC: Writing MSR %08llX: %016llX\n", reg_addr, val);
+	printk("CachePC: Disabling HWPF (MSR %08llX: %016llX)\n",
+		reg_addr, val);
 }
 
 int
@@ -675,10 +686,10 @@ cachepc_kvm_init(void)
 
 	cachepc_single_step = false;
 	cachepc_track_single_step = false;
+	cachepc_apic_timer = 200;
+
 	cachepc_data_fault_avail = false;
-	cachepc_data_fault_gfn = 0;
 	cachepc_inst_fault_avail = false;
-	cachepc_inst_fault_gfn = 0;
 
 	cachepc_msrmts_count = L1_SETS;
 	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);

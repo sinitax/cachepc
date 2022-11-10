@@ -33,8 +33,7 @@
 #define TARGET_CORE 2
 #define SECONDARY_CORE 3
 
-#define TARGET_SET1 14
-#define TARGET_SET2 15
+#define TARGET_SET 15
 
 struct kvm {
 	int vmfd, vcpufd;
@@ -115,12 +114,36 @@ hexdump(void *data, int len)
 __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
+	/* counter starts at 10 */
+	// asm volatile("mov $10, %%ebx" : : : "ebx");
+	asm volatile("mov (%0), %%al" : :
+		"r"(L1_LINESIZE * L1_SETS * 3) : "al");
+	asm volatile("mov (%0), %%al" : :
+		"r"(L1_LINESIZE * L1_SETS * 3) : "al");
+
 	while (1) {
-		asm volatile("mov (%[v]), %%bl"
-			: : [v] "r" (L1_LINESIZE * (L1_SETS + TARGET_SET1)));
-		asm volatile("mov (%[v]), %%bl"
-			: : [v] "r" (L1_LINESIZE * (L1_SETS * 2 + TARGET_SET2)));
+		/* read from n'th page */
+		// asm volatile("mov %0, %%ecx" : : "r" (L1_LINESIZE * L1_SETS) : "ecx");
+		// asm volatile("mov %%ebx, %%eax" : : : "ebx", "eax");
+		// asm volatile("imul %%ecx" : : : "ecx");
+		// asm volatile("mov (%%eax), %%al" : : : "rax");
+
+		/* increment counter (n) */
+		// asm volatile("inc %%ebx" : : : "ebx");
+
+		/* modulo 16 */
+		// asm volatile("xor %%edx, %%edx" : : : "edx");
+		// asm volatile("mov %%ebx, %%eax" : : : "ebx", "eax");
+		// asm volatile("mov $16, %%ecx" : : : "ecx");
+		// asm volatile("idiv %%ecx" : : : "ecx");
+		// asm volatile("mov %%edx, %%ebx" : : : "ebx", "edx");
+
+		/* L1_LINESIZE * (L1_SETS * 2 + TARGET_SET) = 0x23c0 */
+		//asm volatile("movq $0x23c0, %%rcx; mov %%eax, (%%rcx); inc %%eax"
+		//	: : : "eax", "ebx", "rcx");
 	}
+
+	asm volatile("hlt");
 }
 
 bool
@@ -212,15 +235,19 @@ sev_get_measure(int vmfd)
 
 	memset(&msrmt, 0, sizeof(msrmt));
 	ret = sev_ioctl(vmfd, KVM_SEV_LAUNCH_MEASURE, &msrmt, &fwerr);
-	if (ret < 0 && fwerr != SEV_RET_INVALID_LEN)
-		errx(1, "LAUNCH_MEASURE: (%s) %s", strerror(errno), sev_fwerr_str(fwerr));
+	if (ret < 0 && fwerr != SEV_RET_INVALID_LEN) {
+		errx(1, "LAUNCH_MEASURE: (%s) %s",
+			strerror(errno), sev_fwerr_str(fwerr));
+	}
 
 	data = malloc(msrmt.len);
 	msrmt.uaddr = (uintptr_t) data;
 
 	ret = sev_ioctl(vmfd, KVM_SEV_LAUNCH_MEASURE, &msrmt, &fwerr);
-	if (ret < 0)
-		errx(1, "LAUNCH_MEASURE: (%s) %s", strerror(errno), sev_fwerr_str(fwerr));
+	if (ret < 0) {
+		errx(1, "LAUNCH_MEASURE: (%s) %s",
+			strerror(errno), sev_fwerr_str(fwerr));
+	}
 
 	return data;
 }
@@ -247,9 +274,11 @@ sev_dbg_encrypt(int vmfd, void *dst, void *src, size_t size)
 	struct kvm_sev_dbg enc;
 	int ret, fwerr;
 
+	memset(&enc, 0, sizeof(struct kvm_sev_dbg));
 	enc.src_uaddr = (uintptr_t) src;
 	enc.dst_uaddr = (uintptr_t) dst;
 	enc.len = size;
+
 	ret = sev_ioctl(vmfd, KVM_SEV_DBG_ENCRYPT, &enc, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_DBG_ENCRYPT: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
@@ -261,9 +290,11 @@ sev_dbg_decrypt(int vmfd, void *dst, void *src, size_t size)
 	struct kvm_sev_dbg enc;
 	int ret, fwerr;
 
+	memset(&enc, 0, sizeof(struct kvm_sev_dbg));
 	enc.src_uaddr = (uintptr_t) src;
 	enc.dst_uaddr = (uintptr_t) dst;
 	enc.len = size;
+
 	ret = sev_ioctl(vmfd, KVM_SEV_DBG_DECRYPT, &enc, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_DBG_DECRYPT: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
@@ -319,8 +350,8 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	kvm->run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
 		MAP_SHARED, kvm->vcpufd, 0);
 	if (!kvm->run) err(1, "mmap vcpu");
-	
-	/* Initialize segment regs */	
+
+	/* Initialize segment regs */
 	memset(&sregs, 0, sizeof(sregs));
 	ret = ioctl(kvm->vcpufd, KVM_GET_SREGS, &sregs);
 	if (ret < 0) err(1, "KVM_GET_SREGS");
@@ -328,12 +359,12 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	sregs.cs.selector = 0;
 	ret = ioctl(kvm->vcpufd, KVM_SET_SREGS, &sregs);
 	if (ret < 0) err(1, "KVM_SET_SREGS");
-	
-	/* Initialize rest of registers */	
+
+	/* Initialize rest of registers */
 	memset(&regs, 0, sizeof(regs));
 	regs.rip = 0;
-	regs.rsp = kvm->memsize - 8;
-	regs.rbp = kvm->memsize - 8;
+	regs.rsp = kvm->memsize - L1_SETS * L1_LINESIZE - 8;
+	regs.rbp = kvm->memsize - L1_SETS * L1_LINESIZE - 8;
 	ret = ioctl(kvm->vcpufd, KVM_SET_REGS, &regs);
 	if (ret < 0) err(1, "KVM_SET_REGS");
 
@@ -345,7 +376,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_START, &start, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_START: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
-	
+
 	/* Prepare the vm memory (by encrypting it) */
 	memset(&update, 0, sizeof(update));
 	update.uaddr = (uintptr_t) kvm->mem;
@@ -353,7 +384,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_DATA, &update, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
-	
+
 	/* Prepare the vm save area */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_VMSA, NULL, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_UPDATE_VMSA: (%s) %s",
@@ -366,7 +397,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 	/* Finalize launch process */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_FINISH, 0, &fwerr);
 	if (ret < 0) errx(1, "KVM_SEV_LAUNCH_FINISH: (%s) %s",
-	strerror(errno), sev_fwerr_str(fwerr));	
+		strerror(errno), sev_fwerr_str(fwerr));
 	ret = sev_guest_state(kvm->vmfd, start.handle);
 	if (ret != GSTATE_RUNNING)
 		errx(1, "Bad guest state: %s", sev_gstate_str(fwerr));
@@ -411,10 +442,8 @@ print_counts(cpc_msrmt_t *counts)
 			printf("\x1b[0m");
 	}
 	printf("\n");
-	printf(" Target Set 1 %i Count: %llu\n",
-		TARGET_SET1, counts[TARGET_SET1]);
-	printf(" Target Set 2 %i Count: %llu\n",
-		TARGET_SET2, counts[TARGET_SET2]);
+	printf(" Target Set %i Count: %llu\n",
+		TARGET_SET, counts[TARGET_SET]);
 	printf("\n");
 }
 
@@ -436,23 +465,42 @@ svm_dbg_rip(struct kvm *kvm)
 }
 
 int
-monitor(struct kvm *kvm)
+monitor(struct kvm *kvm, bool baseline)
 {
 	struct cpc_track_event event;
 	cpc_msrmt_t counts[64];
-	int ret;
+	uint64_t counter_addr;
+	uint64_t counter;
+	int ret, i;
 
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (!ret) {
-		printf("Event: gpa:%llu retinst:%llu err:%i rip:%lu\n",
-			event.fault_gfn, event.retinst,
-			event.fault_err, svm_dbg_rip(kvm));
+		if (baseline && event.data_fault_avail)
+			errx(1, "Baseline measurement has data fault\n");
+
+		if (!baseline) {
+			counter_addr = L1_LINESIZE * (L1_SETS + TARGET_SET);
+			memcpy(&counter, kvm->mem + counter_addr, 8);
+			//sev_dbg_decrypt(kvm->vmfd, &counter, &counter_enc, 8);
+			printf("Event: inst:%llu data:%llu retired:%llu cnt:%16llX\n",
+				event.inst_fault_gfn, event.data_fault_gfn,
+				event.retinst, counter);
+		}
 		faultcnt++;
 
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 		if (ret == -1) err(1, "ioctl READ_COUNTS");
-		print_counts(counts);
+
+		if (!baseline)
+			print_counts(counts);
+
+		for (i = 0; i < 64; i++) {
+			if (counts[i] > 8) {
+				errx(1, "Invalid count for set %i (%llu)",
+					i, counts[i]);
+			}
+		}
 
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
@@ -473,8 +521,8 @@ main(int argc, const char **argv)
 	uint32_t arg;
 	struct cpc_track_event event;
 	cpc_msrmt_t baseline[64];
-	int ret;
-	
+	int ret, i;
+
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	pin_process(0, TARGET_CORE, true);
@@ -517,6 +565,7 @@ main(int argc, const char **argv)
 
 		printf("VMRUN\n");
 		runonce(&kvm_with_access);
+		printf("VMRUN DONE\n");
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
 		printf("PINNED\n");
@@ -526,8 +575,8 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
 
 		faultcnt = 0;
-		while (faultcnt < 20) {
-			if (monitor(&kvm_with_access)) break;
+		while (faultcnt < 100) {
+			if (monitor(&kvm_with_access, true)) break;
 		}
 
 		do {
@@ -547,6 +596,12 @@ main(int argc, const char **argv)
 		print_counts(baseline);
 		printf("\n");
 
+		/* check baseline for saturated sets */
+		for (i = 0; i < 64; i++) {
+			if (baseline[i] >= 8)
+				printf("!!! Baseline set %i full\n", i);
+		}
+
 		arg = true;
 		ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
 		if (ret == -1) err(1, "ioctl SUB_BASELINE");
@@ -559,8 +614,8 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl TRACK_SINGLE_STEP");
 
 		faultcnt = 0;
-		while (faultcnt < 100) {
-			if (monitor(&kvm_with_access)) break;
+		while (faultcnt < 10) {
+			if (monitor(&kvm_with_access, false)) break;
 		}
 
 		kill(ppid, SIGTERM);

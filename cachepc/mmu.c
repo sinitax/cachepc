@@ -19,24 +19,31 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 
 		if (cachepc_track_single_step) {
 			if (cachepc_single_step && cachepc_inst_fault_avail) {
-				/* faulted during single step => data address */
-				pr_warn("Sevstep: Got data fault gfn:%llu\n", fault->gfn);
+				/* second fault from data access */
+				pr_warn("Sevstep: Got data fault gfn:%llu err:%u\n",
+					fault->gfn, fault->error_code);
 
-				BUG_ON(!cachepc_inst_fault_avail);
 				cachepc_data_fault_gfn = fault->gfn;
+				cachepc_data_fault_err = fault->error_code;
 				cachepc_data_fault_avail = true;
+
+				cachepc_apic_timer = 170;
 			} else {
 				/* first fault from instruction fetch */
-				pr_warn("Sevstep: Got inst fault gfn:%llu\n", fault->gfn);
+				pr_warn("Sevstep: Got inst fault gfn:%llu err:%u\n",
+					fault->gfn, fault->error_code);
 
 				cachepc_inst_fault_gfn = fault->gfn;
+				cachepc_inst_fault_err = fault->error_code;
 				cachepc_inst_fault_avail = true;
 				cachepc_data_fault_avail = false;
-				cachepc_single_step = true;
+
+				cachepc_single_step = true; /* TODO try inverse */
+				cachepc_apic_timer = 130;
 			}
 		} else {
 			sevstep_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
-			if (sevstep_uspt_send_and_block(fault->gfn, 0))
+			if (sevstep_uspt_send_and_block(fault->gfn, fault->error_code, 0, 0))
 				pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
 		}
 	}
@@ -129,7 +136,8 @@ sevstep_kvm_mmu_slot_gfn_protect(struct kvm *kvm, struct kvm_memory_slot *slot,
 		pr_err("CachePC: Tracking unsupported!\n");
 	}
 
-	return protected;
+	return true;
+	//return protected;
 }
 EXPORT_SYMBOL(sevstep_kvm_mmu_slot_gfn_protect);
 

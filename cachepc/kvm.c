@@ -29,10 +29,10 @@ uint64_t cachepc_retinst = 0;
 EXPORT_SYMBOL(cachepc_retinst);
 
 bool cachepc_single_step = false;
-bool cachepc_track_single_step = false;
+uint32_t cachepc_track_mode = false;
 uint32_t cachepc_apic_timer = 0;
 EXPORT_SYMBOL(cachepc_single_step);
-EXPORT_SYMBOL(cachepc_track_single_step);
+EXPORT_SYMBOL(cachepc_track_mode);
 EXPORT_SYMBOL(cachepc_apic_timer);
 
 bool cachepc_inst_fault_avail = false;
@@ -91,7 +91,7 @@ static int cachepc_kvm_measure_baseline_ioctl(void __user *arg_user);
 static int cachepc_kvm_read_baseline_ioctl(void __user *arg_user);
 static int cachepc_kvm_sub_baseline_ioctl(void __user *arg_user);
 static int cachepc_kvm_single_step_ioctl(void __user *arg_user);
-static int cachepc_kvm_track_single_step_ioctl(void __user *arg_user);
+static int cachepc_kvm_track_mode_ioctl(void __user *arg_user);
 
 static int cachepc_kvm_track_page_ioctl(void __user *arg_user);
 static int cachepc_kvm_track_all_ioctl(void __user *arg_user);
@@ -478,16 +478,16 @@ cachepc_kvm_single_step_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_track_single_step_ioctl(void __user *arg_user)
+cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 {
-	uint32_t state;
+	uint32_t mode;
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&state, arg_user, sizeof(state)))
+	if (copy_from_user(&mode, arg_user, sizeof(mode)))
 		return -EFAULT;
 
-	cachepc_track_single_step = state;
+	cachepc_track_mode = mode;
 
 	return 0;
 }
@@ -649,8 +649,8 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_sub_baseline_ioctl(arg_user);
 	case KVM_CPC_SINGLE_STEP:
 		return cachepc_kvm_single_step_ioctl(arg_user);
-	case KVM_CPC_TRACK_SINGLE_STEP:
-		return cachepc_kvm_track_single_step_ioctl(arg_user);
+	case KVM_CPC_TRACK_MODE:
+		return cachepc_kvm_track_mode_ioctl(arg_user);
 	case KVM_CPC_VMSA_READ:
 		return cachepc_kvm_vmsa_read_ioctl(arg_user);
 	case KVM_CPC_TRACK_PAGE:
@@ -707,7 +707,7 @@ cachepc_kvm_init(void)
 	cachepc_retinst = 0;
 
 	cachepc_single_step = false;
-	cachepc_track_single_step = false;
+	cachepc_track_mode = CPC_TRACK_ACCESS;
 	cachepc_apic_timer = 200;
 
 	cachepc_data_fault_avail = false;

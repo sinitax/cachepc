@@ -31,7 +31,7 @@
 #define KVM_CPC_READ_BASELINE _IOR(KVMIO, 0x27, __u64)
 #define KVM_CPC_SUB_BASELINE _IOR(KVMIO, 0x28, __u32)
 #define KVM_CPC_SINGLE_STEP _IO(KVMIO, 0x29)
-#define KVM_CPC_TRACK_SINGLE_STEP _IOWR(KVMIO, 0x2A, __u32)
+#define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x2A, __u32)
 #define KVM_CPC_VMSA_READ _IOR(KVMIO, 0x2B, __u64)
 
 #define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, struct cpc_track_config)
@@ -40,6 +40,12 @@
 #define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x33)
 #define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x34, struct cpc_track_event)
 #define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x35, __u64)
+
+enum {
+	CPC_TRACK_ACCESS,
+	CPC_TRACK_DATA_ACCESS,
+	CPC_TRACK_EXEC_PAGES
+};
 
 enum kvm_page_track_mode {
 	KVM_PAGE_TRACK_WRITE,

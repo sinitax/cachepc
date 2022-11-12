@@ -8,44 +8,56 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 {
 	int err;
 
-	if (kvm_slot_page_track_is_active(vcpu->kvm,
-			fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS)) {
-		pr_warn("Sevstep: Tracked page fault (gfn:%llu err:%u)\n",
-			fault->gfn, fault->error_code);
-		//pr_warn("Sevstep: Tracked page fault attrs %i %i %i\n",
-		//	fault->present, fault->write, fault->user);
+	if (!kvm_slot_page_track_is_active(vcpu->kvm,
+			fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS))
+		return;
 
-		sevstep_untrack_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
+	pr_warn("Sevstep: Tracked page fault (gfn:%llu err:%u)\n",
+		fault->gfn, fault->error_code);
+	//pr_warn("Sevstep: Tracked page fault attrs %i %i %i\n",
+	//	fault->present, fault->write, fault->user);
 
-		if (cachepc_track_single_step) {
-			if (cachepc_single_step && cachepc_inst_fault_avail) {
-				/* second fault from data access */
-				pr_warn("Sevstep: Got data fault gfn:%llu err:%u\n",
-					fault->gfn, fault->error_code);
+	sevstep_untrack_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
 
-				cachepc_data_fault_gfn = fault->gfn;
-				cachepc_data_fault_err = fault->error_code;
-				cachepc_data_fault_avail = true;
+	if (cachepc_track_mode == CPC_TRACK_DATA_ACCESS) {
+		if (cachepc_single_step && cachepc_inst_fault_avail) {
+			/* second fault from data access */
+			pr_warn("Sevstep: Got data fault gfn:%llu err:%u\n",
+				fault->gfn, fault->error_code);
 
-				cachepc_apic_timer = 160;
-			} else {
-				/* first fault from instruction fetch */
-				pr_warn("Sevstep: Got inst fault gfn:%llu err:%u\n",
-					fault->gfn, fault->error_code);
+			cachepc_data_fault_gfn = fault->gfn;
+			cachepc_data_fault_err = fault->error_code;
+			cachepc_data_fault_avail = true;
 
-				cachepc_inst_fault_gfn = fault->gfn;
-				cachepc_inst_fault_err = fault->error_code;
-				cachepc_inst_fault_avail = true;
-				cachepc_data_fault_avail = false;
-
-				cachepc_single_step = true;
-				cachepc_apic_timer = 170;
-			}
+			cachepc_apic_timer = 160;
 		} else {
-			sevstep_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
-			if (sevstep_uspt_send_and_block(fault->gfn, fault->error_code, 0, 0))
-				pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
+			/* first fault from instruction fetch */
+			pr_warn("Sevstep: Got inst fault gfn:%llu err:%u\n",
+				fault->gfn, fault->error_code);
+
+			cachepc_inst_fault_gfn = fault->gfn;
+			cachepc_inst_fault_err = fault->error_code;
+			cachepc_inst_fault_avail = true;
+			cachepc_data_fault_avail = false;
+
+			cachepc_single_step = true;
+			cachepc_apic_timer = 170;
 		}
+	} else if (cachepc_track_mode == CPC_TRACK_EXEC_PAGES) {
+		/* TODO: skip if not exec */
+		/* TODO: calculate retired instructions (save and subtract global counter) */
+		if (cachepc_inst_fault_avail) {
+			sevstep_track_single(vcpu, cachepc_inst_fault_gfn,
+				KVM_PAGE_TRACK_ACCESS);
+		}
+		cachepc_inst_fault_gfn = fault->gfn;
+		cachepc_inst_fault_err = fault->error_code;
+		if (sevstep_uspt_send_and_block(fault->gfn, fault->error_code, 0, 0))
+			pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
+	} else if (cachepc_track_mode == CPC_TRACK_ACCESS) {
+		sevstep_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
+		if (sevstep_uspt_send_and_block(fault->gfn, fault->error_code, 0, 0))
+			pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
 	}
 }
 

@@ -629,7 +629,7 @@ monitor(struct kvm *kvm, bool baseline)
 	if (!ret) {
 		if (!baseline) {
 			rip = sev_dbg_rip(kvm->vmfd);
-			printf("Event: inst:%llu data:%llu retired:%llu rip:%llu\n",
+			printf("Event: inst:%llu data:%llu retired:%llu rip:%lu\n",
 				event.inst_fault_gfn, event.data_fault_gfn,
 				event.retinst, rip);
 		}
@@ -701,9 +701,9 @@ main(int argc, const char **argv)
 	if (ret == -1) err(1, "ioctl RESET_TRACKING");
 
 	/* Do data access stepping */
-	arg = true;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_SINGLE_STEP, &arg);
-	if (ret == -1) err(1, "ioctl TRACK_SINGLE_STEP");
+	arg = CPC_TRACK_DATA_ACCESS;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	if (ret == -1) err(1, "ioctl TRACK_MODE");
 
 	/* Init page tracking */
 	track_mode = KVM_PAGE_TRACK_ACCESS;

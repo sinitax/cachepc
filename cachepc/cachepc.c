@@ -315,7 +315,8 @@ cachepc_update_baseline(void)
 void __attribute__((optimize(1))) // prevent instruction reordering
 cachepc_prime_vcall(uintptr_t ret, cacheline *cl)
 {
-	cachepc_apic_oneshot(cachepc_apic_timer);
+	if (cachepc_single_step)
+		cachepc_apic_oneshot(cachepc_apic_timer);
 	cachepc_prime(cl);
 	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
 }

@@ -116,12 +116,125 @@ vm_guest_with(void)
 {
 	/* counter starts at 10 */
 	// asm volatile("mov $10, %%ebx" : : : "ebx");
-	asm volatile("mov (%0), %%al" : :
-		"r"(L1_LINESIZE * L1_SETS * 3) : "al");
-	asm volatile("mov (%0), %%al" : :
-		"r"(L1_LINESIZE * L1_SETS * 3) : "al");
 
-	while (1) {
+	//while (1) {
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
+		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
+		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
+
 		/* read from n'th page */
 		// asm volatile("mov %0, %%ecx" : : "r" (L1_LINESIZE * L1_SETS) : "ecx");
 		// asm volatile("mov %%ebx, %%eax" : : : "ebx", "eax");
@@ -141,7 +254,7 @@ vm_guest_with(void)
 		/* L1_LINESIZE * (L1_SETS * 2 + TARGET_SET) = 0x23c0 */
 		//asm volatile("movq $0x23c0, %%rcx; mov %%eax, (%%rcx); inc %%eax"
 		//	: : : "eax", "ebx", "rcx");
-	}
+	//}
 
 	asm volatile("hlt");
 }
@@ -300,6 +413,29 @@ sev_dbg_decrypt(int vmfd, void *dst, void *src, size_t size)
 		strerror(errno), sev_fwerr_str(fwerr));
 }
 
+uint64_t
+sev_dbg_rip(int vmfd)
+{
+	void *vmsa;
+	uint64_t rip;
+	uint8_t buf[16];
+	int ret;
+
+	vmsa = NULL;
+	if (posix_memalign(&vmsa, PAGE_SIZE, PAGE_SIZE))
+		err(1, "memalign");
+
+	ret = ioctl(kvm_dev, KVM_CPC_VMSA_READ, vmsa);
+	if (ret == -1) err(1, "ioctl VMSA_READ");
+
+	sev_dbg_decrypt(vmfd, buf, vmsa + 0x160, 16);
+	hexdump(buf, 16);
+
+	free(vmsa);
+
+	return rip;
+}
+
 void
 sev_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 {
@@ -442,8 +578,24 @@ print_counts(cpc_msrmt_t *counts)
 			printf("\x1b[0m");
 	}
 	printf("\n");
-	printf(" Target Set %i Count: %llu\n",
-		TARGET_SET, counts[TARGET_SET]);
+}
+
+void
+print_counts_raw(cpc_msrmt_t *counts)
+{
+	int i;
+
+	for (i = 0; i < 64; i++) {
+		if (i % 16 == 0 && i)
+			printf("\n");
+		if (counts[i] == 1)
+			printf("\x1b[38;5;88m");
+		else if (counts[i] > 1)
+			printf("\x1b[38;5;196m");
+		printf("%02X ", (uint8_t) counts[i]);
+		if (counts[i] > 0)
+			printf("\x1b[0m");
+	}
 	printf("\n");
 }
 
@@ -469,31 +621,27 @@ monitor(struct kvm *kvm, bool baseline)
 {
 	struct cpc_track_event event;
 	cpc_msrmt_t counts[64];
-	uint64_t counter_addr;
-	uint64_t counter;
+	uint64_t rip;
 	int ret, i;
 
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (!ret) {
-		if (baseline && event.data_fault_avail)
-			errx(1, "Baseline measurement has data fault\n");
-
 		if (!baseline) {
-			counter_addr = L1_LINESIZE * (L1_SETS + TARGET_SET);
-			memcpy(&counter, kvm->mem + counter_addr, 8);
-			//sev_dbg_decrypt(kvm->vmfd, &counter, &counter_enc, 8);
-			printf("Event: inst:%llu data:%llu retired:%llu cnt:%16llX\n",
+			rip = sev_dbg_rip(kvm->vmfd);
+			printf("Event: inst:%llu data:%llu retired:%llu rip:%llu\n",
 				event.inst_fault_gfn, event.data_fault_gfn,
-				event.retinst, counter);
+				event.retinst, rip);
 		}
 		faultcnt++;
 
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 		if (ret == -1) err(1, "ioctl READ_COUNTS");
 
-		if (!baseline)
+		if (!baseline) {
 			print_counts(counts);
+			printf("\n");
+		}
 
 		for (i = 0; i < 64; i++) {
 			if (counts[i] > 8) {
@@ -552,6 +700,11 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
 	if (ret == -1) err(1, "ioctl RESET_TRACKING");
 
+	/* Do data access stepping */
+	arg = true;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_SINGLE_STEP, &arg);
+	if (ret == -1) err(1, "ioctl TRACK_SINGLE_STEP");
+
 	/* Init page tracking */
 	track_mode = KVM_PAGE_TRACK_ACCESS;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
@@ -575,7 +728,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
 
 		faultcnt = 0;
-		while (faultcnt < 100) {
+		while (faultcnt < 20) {
 			if (monitor(&kvm_with_access, true)) break;
 		}
 
@@ -595,11 +748,13 @@ main(int argc, const char **argv)
 		printf("\n>>> BASELINE:\n");
 		print_counts(baseline);
 		printf("\n");
+		print_counts_raw(baseline);
+		printf("\n");
 
-		/* check baseline for saturated sets */
+		/* Check baseline for saturated sets */
 		for (i = 0; i < 64; i++) {
 			if (baseline[i] >= 8)
-				printf("!!! Baseline set %i full\n", i);
+				errx(1, "!!! Baseline set %i full\n", i);
 		}
 
 		arg = true;
@@ -609,12 +764,8 @@ main(int argc, const char **argv)
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 
-		arg = true;
-		ret = ioctl(kvm_dev, KVM_CPC_TRACK_SINGLE_STEP, &arg);
-		if (ret == -1) err(1, "ioctl TRACK_SINGLE_STEP");
-
 		faultcnt = 0;
-		while (faultcnt < 10) {
+		while (faultcnt < 20) {
 			if (monitor(&kvm_with_access, false)) break;
 		}
 

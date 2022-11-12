@@ -4,10 +4,13 @@
 #include "sevstep.h"
 #include "uapi.h"
 
+#include "svm/svm.h"
+
 #include <linux/kvm_host.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/init.h>
+#include <linux/sev.h>
 #include <asm/uaccess.h>
 
 cpc_msrmt_t *cachepc_msrmts = NULL;
@@ -516,6 +519,23 @@ cachepc_kvm_track_page_ioctl(void __user *arg_user)
 }
 
 int
+cachepc_kvm_vmsa_read_ioctl(void __user *arg_user)
+{
+	struct kvm_vcpu *vcpu;
+	struct vcpu_svm *svm;
+
+	if (!main_vm || !arg_user) return -EINVAL;
+
+	vcpu = xa_load(&main_vm->vcpu_array, 0);
+	svm = to_svm(vcpu);
+
+	if (copy_to_user(arg_user, svm->sev_es.vmsa, PAGE_SIZE))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
 cachepc_kvm_track_all_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
@@ -631,6 +651,8 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_single_step_ioctl(arg_user);
 	case KVM_CPC_TRACK_SINGLE_STEP:
 		return cachepc_kvm_track_single_step_ioctl(arg_user);
+	case KVM_CPC_VMSA_READ:
+		return cachepc_kvm_vmsa_read_ioctl(arg_user);
 	case KVM_CPC_TRACK_PAGE:
 		return cachepc_kvm_track_page_ioctl(arg_user);
 	case KVM_CPC_TRACK_ALL:

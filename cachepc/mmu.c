@@ -27,7 +27,7 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 				cachepc_data_fault_err = fault->error_code;
 				cachepc_data_fault_avail = true;
 
-				cachepc_apic_timer = 170;
+				cachepc_apic_timer = 160;
 			} else {
 				/* first fault from instruction fetch */
 				pr_warn("Sevstep: Got inst fault gfn:%llu err:%u\n",
@@ -38,8 +38,8 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 				cachepc_inst_fault_avail = true;
 				cachepc_data_fault_avail = false;
 
-				cachepc_single_step = true; /* TODO try inverse */
-				cachepc_apic_timer = 130;
+				cachepc_single_step = true;
+				cachepc_apic_timer = 170;
 			}
 		} else {
 			sevstep_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);

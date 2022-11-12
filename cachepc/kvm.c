@@ -1,7 +1,7 @@
 #include "kvm.h"
 #include "events.h"
 #include "cachepc.h"
-#include "sevstep.h"
+#include "tracking.h"
 #include "uapi.h"
 
 #include "svm/svm.h"
@@ -510,8 +510,8 @@ cachepc_kvm_track_page_ioctl(void __user *arg_user)
 		return -EINVAL;
 
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!sevstep_track_single(vcpu, cfg.gfn, cfg.mode)) {
-		printk("KVM_TRACK_PAGE: sevstep_track_single failed");
+	if (!cachepc_track_single(vcpu, cfg.gfn, cfg.mode)) {
+		printk("KVM_TRACK_PAGE: cachepc_track_single failed");
 		return -EFAULT;
 	}
 
@@ -553,7 +553,7 @@ cachepc_kvm_track_all_ioctl(void __user *arg_user)
 		return -EINVAL;
 
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!sevstep_track_all(vcpu, mode))
+	if (!cachepc_track_all(vcpu, mode))
 		return -EFAULT;
 
 	return 0;
@@ -577,7 +577,7 @@ cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
 		return -EINVAL;
 
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!sevstep_untrack_all(vcpu, mode))
+	if (!cachepc_untrack_all(vcpu, mode))
 		return -EFAULT;
 
 	return 0;
@@ -590,9 +590,9 @@ cachepc_kvm_uspt_reset_ioctl(void __user *arg_user)
 
 	cachepc_events_reset();
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	sevstep_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
-	sevstep_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
-	sevstep_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
+	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
+	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
+	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
 
 	return 0;
 }

@@ -1,13 +1,11 @@
 #include "../cachepc/sevstep.h"
 #include "../cachepc/cachepc.h"
-#include "../cachepc/uspt.h"
+#include "../cachepc/events.h"
 
 static void
 sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 	struct kvm_page_fault *fault)
 {
-	int err;
-
 	if (!kvm_slot_page_track_is_active(vcpu->kvm,
 			fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS))
 		return;
@@ -52,12 +50,10 @@ sevstep_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 		}
 		cachepc_inst_fault_gfn = fault->gfn;
 		cachepc_inst_fault_err = fault->error_code;
-		if (sevstep_uspt_send_and_block(fault->gfn, fault->error_code, 0, 0))
-			pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
+		cachepc_send_tracking_event(fault->gfn, fault->error_code, 0, 0);
 	} else if (cachepc_track_mode == CPC_TRACK_ACCESS) {
 		sevstep_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
-		if (sevstep_uspt_send_and_block(fault->gfn, fault->error_code, 0, 0))
-			pr_warn("Sevstep: uspt_send_and_block failed (%d)\n", err);
+		cachepc_send_tracking_event(fault->gfn, fault->error_code, 0, 0);
 	}
 }
 

@@ -1,5 +1,5 @@
 #include "kvm.h"
-#include "uspt.h"
+#include "events.h"
 #include "cachepc.h"
 #include "sevstep.h"
 #include "uapi.h"
@@ -59,20 +59,20 @@ uint64_t cachepc_regs_vm[16];
 EXPORT_SYMBOL(cachepc_regs_tmp);
 EXPORT_SYMBOL(cachepc_regs_vm);
 
-uint64_t last_sent_eventid;
-uint64_t last_acked_eventid;
-DEFINE_RWLOCK(event_lock);
-EXPORT_SYMBOL(last_sent_eventid);
-EXPORT_SYMBOL(last_acked_eventid);
-EXPORT_SYMBOL(event_lock);
+uint64_t cachepc_last_event_sent;
+uint64_t cachepc_last_event_acked;
+DEFINE_RWLOCK(cachepc_event_lock);
+EXPORT_SYMBOL(cachepc_last_event_sent);
+EXPORT_SYMBOL(cachepc_last_event_acked);
+EXPORT_SYMBOL(cachepc_event_lock);
 
-struct cpc_track_event sent_event;
-bool have_event;
-EXPORT_SYMBOL(sent_event);
-EXPORT_SYMBOL(have_event);
+struct cpc_track_event cachepc_event;
+bool cachepc_event_avail;
+EXPORT_SYMBOL(cachepc_event);
+EXPORT_SYMBOL(cachepc_event_avail);
 
-bool uspt_init;
-EXPORT_SYMBOL(uspt_init);
+bool cachepc_events_init;
+EXPORT_SYMBOL(cachepc_events_init);
 
 static void cachepc_kvm_prime_probe_test(void *p);
 static void cachepc_kvm_stream_hwpf_test(void *p);
@@ -588,7 +588,7 @@ cachepc_kvm_uspt_reset_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
 
-	sevstep_uspt_clear();
+	cachepc_events_reset();
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	sevstep_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
 	sevstep_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
@@ -600,10 +600,10 @@ cachepc_kvm_uspt_reset_ioctl(void __user *arg_user)
 int
 cachepc_kvm_poll_event_ioctl(void __user *arg_user)
 {
-	if (!sevstep_uspt_is_initialized())
+	if (!cachepc_events_init)
 		return -EINVAL;
 
-	return sevstep_uspt_handle_poll_event(arg_user);
+	return cachepc_handle_poll_event_ioctl(arg_user);
 }
 
 int
@@ -613,13 +613,13 @@ cachepc_kvm_uscpt_ack_event_ioctl(void __user *arg_user)
 
 	if (!arg_user) return -EINVAL;
 
-	if (!sevstep_uspt_is_initialized())
+	if (!cachepc_events_init)
 		return -EINVAL;
 
 	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))
 		return -EINVAL;
 
-	return sevstep_uspt_handle_ack_event_ioctl(eventid);
+	return cachepc_handle_ack_event_ioctl(eventid);
 }
 
 long

@@ -446,7 +446,7 @@ collect(struct kvm *kvm)
 		memset(&regs, 0, sizeof(regs));
 		ret = ioctl(kvm->vcpufd, KVM_GET_REGS, &regs);
 		if (ret < 0) err(1, "KVM_GET_REGS");
-		errx(1, "KVM_EXTI_MMIO: Victim %s at 0x%08llx: rip=0x%08llx\n",
+		errx(1, "KVM_EXIT_MMIO: Victim %s at 0x%08llx: rip=0x%08llx\n",
 			kvm->run->mmio.is_write ? "write" : "read",
 			kvm->run->mmio.phys_addr, regs.rip);
 	} else if (kvm->run->exit_reason != KVM_EXIT_HLT) {

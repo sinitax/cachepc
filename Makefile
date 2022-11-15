@@ -25,7 +25,7 @@ load:
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm-amd.ko
 
 freq:
-	sudo cpupower frequency-set -f 2.60GHz
+	sudo cpupower frequency-set -f 1.5GHz
 
 update:
 	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff

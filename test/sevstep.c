@@ -114,149 +114,10 @@ hexdump(void *data, int len)
 __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
-	/* counter starts at 10 */
-	// asm volatile("mov $10, %%ebx" : : : "ebx");
-
-	//while (1) {
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		asm volatile("mov $0x3140, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x3180, %%rax; mov (%%rax), %%al" : : : "rax");
-		asm volatile("mov $0x31c0, %%rax; mov (%%rax), %%al" : : : "rax");
-
-		/* read from n'th page */
-		// asm volatile("mov %0, %%ecx" : : "r" (L1_LINESIZE * L1_SETS) : "ecx");
-		// asm volatile("mov %%ebx, %%eax" : : : "ebx", "eax");
-		// asm volatile("imul %%ecx" : : : "ecx");
-		// asm volatile("mov (%%eax), %%al" : : : "rax");
-
-		/* increment counter (n) */
-		// asm volatile("inc %%ebx" : : : "ebx");
-
-		/* modulo 16 */
-		// asm volatile("xor %%edx, %%edx" : : : "edx");
-		// asm volatile("mov %%ebx, %%eax" : : : "ebx", "eax");
-		// asm volatile("mov $16, %%ecx" : : : "ecx");
-		// asm volatile("idiv %%ecx" : : : "ecx");
-		// asm volatile("mov %%edx, %%ebx" : : : "ebx", "edx");
-
-		/* L1_LINESIZE * (L1_SETS * 2 + TARGET_SET) = 0x23c0 */
-		//asm volatile("movq $0x23c0, %%rcx; mov %%eax, (%%rcx); inc %%eax"
-		//	: : : "eax", "ebx", "rcx");
-	//}
-
-	asm volatile("hlt");
+	while (1) {
+		asm volatile("mov (%0), %%eax" : :
+			"r" (L1_LINESIZE * (L1_SETS * 3 + TARGET_SET)) : "rax");
+	}
 }
 
 bool
@@ -418,18 +279,20 @@ sev_dbg_rip(int vmfd)
 {
 	void *vmsa;
 	uint64_t rip;
-	uint8_t buf[16];
 	int ret;
 
 	vmsa = NULL;
 	if (posix_memalign(&vmsa, PAGE_SIZE, PAGE_SIZE))
 		err(1, "memalign");
+	memset(vmsa, 0, PAGE_SIZE);
 
 	ret = ioctl(kvm_dev, KVM_CPC_VMSA_READ, vmsa);
 	if (ret == -1) err(1, "ioctl VMSA_READ");
 
-	sev_dbg_decrypt(vmfd, buf, vmsa + 0x160, 16);
-	hexdump(buf, 16);
+	sev_dbg_decrypt(vmfd, vmsa, CPC_VMSA_MAGIC_ADDR, PAGE_SIZE);
+	// hexdump(vmsa, PAGE_SIZE);
+
+	rip = *(uint64_t *)(vmsa + 0x178);
 
 	free(vmsa);
 
@@ -551,12 +414,18 @@ cpc_msrmt_t *
 read_counts()
 {
 	cpc_msrmt_t *counts;
-	int ret;
+	int i, ret;
 
-	counts = malloc(64 * sizeof(cpc_msrmt_t));
+	counts = malloc(L1_SETS * sizeof(cpc_msrmt_t));
 	if (!counts) err(1, "malloc");
+
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 	if (ret == -1) err(1, "ioctl READ_COUNTS");
+
+	for (i = 0; i < L1_SETS; i++) {
+		if (counts[i] > 8)
+			errx(1, "Invalid counts set %i", i);
+	}	
 
 	return counts;
 }
@@ -606,14 +475,6 @@ runonce(struct kvm *kvm)
 
 	ret = ioctl(kvm->vcpufd, KVM_RUN, NULL);
 	if (ret < 0) err(1, "KVM_RUN");
-}
-
-uint64_t
-svm_dbg_rip(struct kvm *kvm)
-{
-	/* TODO: decrypt vmsa */
-
-	return 0;
 }
 
 int
@@ -728,7 +589,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
 
 		faultcnt = 0;
-		while (faultcnt < 20) {
+		while (faultcnt < 30) {
 			if (monitor(&kvm_with_access, true)) break;
 		}
 
@@ -765,7 +626,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 
 		faultcnt = 0;
-		while (faultcnt < 20) {
+		while (faultcnt < 30) {
 			if (monitor(&kvm_with_access, false)) break;
 		}
 

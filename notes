@@ -1,7 +1,4 @@
 Observations:
-- some times get extra faults with race condition.. think there is
-  a race cond with track_page and something is untracking the pages again
-- on
 
 Questions:
 - test/sevstep: why 0 then 15, arent both accesses in the first page?
@@ -18,9 +15,13 @@ Next steps:
 - try adjusting timer for single stepping
 - Try to setup the non-baseline step without apic, but remapping page
   such that we see the relevant page faults and the gfn increment
-- need to not retrack, allow the page to get remapped
-  (return false from sevstep_uspt_track.. caller) and enable single_step,
-  THEN when interrupt hits retrack the page
 - test/sevstep: implement counter.. read program memory to see
   how many instructions were executed on apic timer
 - add warning for high values in baseline
+
+Meeting questions:
+- Why is decrypted rip sometimes off-by-one?
+	=> 
+- VM gets interrupted independent of our APIC (by the scheduler) is this a problem?
+	=>
+- 

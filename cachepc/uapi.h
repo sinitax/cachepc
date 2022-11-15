@@ -21,6 +21,8 @@
 
 #define CPC_MSRMT_MAX (~((cpc_msrmt_t) 0))
 
+#define CPC_VMSA_MAGIC_ADDR ((void *) 0xC0FFEE)
+
 #define KVM_CPC_TEST_ACCESS _IOWR(KVMIO, 0x20, __u32)
 #define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x21, __u32)
 #define KVM_CPC_INIT_PMC _IOW(KVMIO, 0x22, __u32)
@@ -45,6 +47,12 @@ enum {
 	CPC_TRACK_ACCESS,
 	CPC_TRACK_DATA_ACCESS,
 	CPC_TRACK_EXEC_PAGES
+};
+
+enum {
+	CPC_TRACK_AWAIT_INST_FAULT,
+	CPC_TRACK_AWAIT_DATA_FAULT,
+	CPC_TRACK_AWAIT_STEP_INTR
 };
 
 enum kvm_page_track_mode {

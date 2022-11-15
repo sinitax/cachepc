@@ -3,35 +3,31 @@
 #include "../cachepc/event.h"
 
 static void
-cachepc_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
+cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 	struct kvm_page_fault *fault)
 {
+	bool inst_fetch;
+
 	if (!kvm_slot_page_track_is_active(vcpu->kvm,
 			fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS))
 		return;
 
-	pr_warn("Sevstep: Tracked page fault (gfn:%llu err:%u)\n",
+	pr_warn("CachePC: Tracked page fault (gfn:%llu err:%u)\n",
 		fault->gfn, fault->error_code);
-	//pr_warn("Sevstep: Tracked page fault attrs %i %i %i\n",
-	//	fault->present, fault->write, fault->user);
+
+	inst_fetch = fault->error_code & PFERR_FETCH_MASK;
+	pr_warn("CachePC: Tracked page fault attrs p:%i w:%i x:%i f:%i\n",
+		fault->present, inst_fetch, fault->write, fault->exec);
 
 	cachepc_untrack_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
 
 	if (cachepc_track_mode == CPC_TRACK_DATA_ACCESS) {
-		if (cachepc_single_step && cachepc_inst_fault_avail) {
-			/* second fault from data access */
-			pr_warn("Sevstep: Got data fault gfn:%llu err:%u\n",
-				fault->gfn, fault->error_code);
-
-			cachepc_data_fault_gfn = fault->gfn;
-			cachepc_data_fault_err = fault->error_code;
-			cachepc_data_fault_avail = true;
-
-			cachepc_apic_timer = 160;
-		} else {
+		if (cachepc_track_state == CPC_TRACK_AWAIT_INST_FAULT) {
 			/* first fault from instruction fetch */
-			pr_warn("Sevstep: Got inst fault gfn:%llu err:%u\n",
+			pr_warn("CachePC: Got inst fault gfn:%llu err:%u\n",
 				fault->gfn, fault->error_code);
+			if (!inst_fetch)
+				pr_err("CachePC: Expected inst fault but was not on fetch\n");
 
 			cachepc_inst_fault_gfn = fault->gfn;
 			cachepc_inst_fault_err = fault->error_code;
@@ -39,12 +35,55 @@ cachepc_uspt_page_fault_handle(struct kvm_vcpu *vcpu,
 			cachepc_data_fault_avail = false;
 
 			cachepc_single_step = true;
-			cachepc_apic_timer = 170;
+			cachepc_apic_timer = 10;
+
+			cachepc_track_state_next = CPC_TRACK_AWAIT_DATA_FAULT;
+		} else if (cachepc_track_state == CPC_TRACK_AWAIT_DATA_FAULT) {
+			/* second fault from data access */
+			pr_warn("CachePC: Got data fault gfn:%llu err:%u\n",
+				fault->gfn, fault->error_code);
+
+			cachepc_data_fault_gfn = fault->gfn;
+			cachepc_data_fault_err = fault->error_code;
+			cachepc_data_fault_avail = true;
+
+			cachepc_single_step = true;
+			cachepc_apic_timer = 10;
+
+			cachepc_track_state_next = CPC_TRACK_AWAIT_STEP_INTR;
+		} else if (cachepc_track_state == CPC_TRACK_AWAIT_STEP_INTR) {
+			/* unexpected extra fault before APIC interrupt */
+			pr_err("CachePC: Got unexpected data fault gfn:%llu err:%u\n",
+				fault->gfn, fault->error_code);
+			pr_err("CachePC: Data access step apic timer too large?\n");
+
+			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
+				KVM_PAGE_TRACK_ACCESS);
+			cachepc_inst_fault_avail = false;
+
+			cachepc_track_single(vcpu, cachepc_data_fault_gfn,
+				KVM_PAGE_TRACK_ACCESS);
+			cachepc_data_fault_avail = false;
+
+			/* retrack fault we just got so we can start from scratch */
+			cachepc_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
+
+			cachepc_send_tracking_event(
+				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
+				cachepc_data_fault_gfn, cachepc_data_fault_err);
+	
+			cachepc_single_step = false;
+
+			cachepc_track_state_next = CPC_TRACK_AWAIT_INST_FAULT;
+		} else {
+			pr_err("CachePC: Invalid tracking state: %i\n", cachepc_track_state);
+			cachepc_track_state_next = CPC_TRACK_AWAIT_INST_FAULT;
 		}
 	} else if (cachepc_track_mode == CPC_TRACK_EXEC_PAGES) {
-		/* TODO: skip if not exec */
+		/* TODO: skip if not instruction decode fault */
 		/* TODO: calculate retired instructions (save and subtract global counter) */
 		if (cachepc_inst_fault_avail) {
+			/* track previous faulted page, current stays untracked */
 			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
 				KVM_PAGE_TRACK_ACCESS);
 		}
@@ -63,7 +102,7 @@ cachepc_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	u64 spte;
 	bool flush;
 
-	// pr_warn("Sevstep: spte_protect\n");
+	// pr_warn("CachePC: spte_protect\n");
 
 	spte = *sptep;
 	if (!is_writable_pte(spte) && !(pt_protect && is_mmu_writable_spte(spte)))
@@ -98,7 +137,7 @@ cachepc_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	}
 	flush |= mmu_spte_update(sptep, spte);
 
-	// pr_warn("Sevstep: spte_protect flush:%i\n", flush);
+	// pr_warn("CachePC: spte_protect flush:%i\n", flush);
 
 	return flush;
 }
@@ -130,7 +169,7 @@ cachepc_kvm_mmu_slot_gfn_protect(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 	protected = false;
 
-	// pr_warn("Sevstep: mmu_slot_gfn_protect gfn:%llu\n", gfn);
+	// pr_warn("CachePC: mmu_slot_gfn_protect gfn:%llu\n", gfn);
 
 	if (kvm_memslots_have_rmaps(kvm)) {
 		for (i = min_level; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {

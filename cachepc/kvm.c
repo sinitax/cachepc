@@ -1,8 +1,8 @@
 #include "kvm.h"
-#include "events.h"
-#include "cachepc.h"
-#include "tracking.h"
 #include "uapi.h"
+#include "cachepc.h"
+#include "event.h"
+#include "track.h"
 
 #include "svm/svm.h"
 
@@ -34,6 +34,11 @@ uint32_t cachepc_apic_timer = 0;
 EXPORT_SYMBOL(cachepc_single_step);
 EXPORT_SYMBOL(cachepc_track_mode);
 EXPORT_SYMBOL(cachepc_apic_timer);
+
+uint32_t cachepc_track_state;
+uint32_t cachepc_track_state_next;
+EXPORT_SYMBOL(cachepc_track_state);
+EXPORT_SYMBOL(cachepc_track_state_next);
 
 bool cachepc_inst_fault_avail = false;
 uint64_t cachepc_inst_fault_gfn = 0;
@@ -708,7 +713,8 @@ cachepc_kvm_init(void)
 
 	cachepc_single_step = false;
 	cachepc_track_mode = CPC_TRACK_ACCESS;
-	cachepc_apic_timer = 200;
+
+	cachepc_track_state = CPC_TRACK_AWAIT_INST_FAULT;
 
 	cachepc_data_fault_avail = false;
 	cachepc_inst_fault_avail = false;

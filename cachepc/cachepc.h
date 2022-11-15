@@ -130,6 +130,9 @@ extern bool cachepc_single_step;
 extern uint32_t cachepc_track_mode;
 extern uint32_t cachepc_apic_timer;
 
+extern uint32_t cachepc_track_state;
+extern uint32_t cachepc_track_state_next;
+
 extern bool cachepc_inst_fault_avail;
 extern uint64_t cachepc_inst_fault_gfn;
 extern uint32_t cachepc_inst_fault_err;
@@ -287,6 +290,6 @@ void
 cachepc_apic_oneshot(uint32_t interval)
 {
 	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
-	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_2);
+	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_128);
 	native_apic_mem_write(APIC_TMICT, interval);
 }

@@ -1,6 +1,6 @@
-#include "../cachepc/tracking.h"
 #include "../cachepc/cachepc.h"
-#include "../cachepc/events.h"
+#include "../cachepc/track.h"
+#include "../cachepc/event.h"
 
 static void
 cachepc_uspt_page_fault_handle(struct kvm_vcpu *vcpu,

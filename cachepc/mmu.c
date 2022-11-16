@@ -35,20 +35,22 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			cachepc_data_fault_avail = false;
 
 			cachepc_single_step = true;
-			cachepc_apic_timer = 10;
+			cachepc_apic_timer = 390;
 
 			cachepc_track_state_next = CPC_TRACK_AWAIT_DATA_FAULT;
 		} else if (cachepc_track_state == CPC_TRACK_AWAIT_DATA_FAULT) {
 			/* second fault from data access */
 			pr_warn("CachePC: Got data fault gfn:%llu err:%u\n",
 				fault->gfn, fault->error_code);
+			if (!cachepc_inst_fault_avail)
+				pr_err("CachePC: Waiting for data fault without inst\n");
 
 			cachepc_data_fault_gfn = fault->gfn;
 			cachepc_data_fault_err = fault->error_code;
 			cachepc_data_fault_avail = true;
 
 			cachepc_single_step = true;
-			cachepc_apic_timer = 10;
+			cachepc_apic_timer = 390;
 
 			cachepc_track_state_next = CPC_TRACK_AWAIT_STEP_INTR;
 		} else if (cachepc_track_state == CPC_TRACK_AWAIT_STEP_INTR) {
@@ -80,7 +82,9 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			cachepc_track_state_next = CPC_TRACK_AWAIT_INST_FAULT;
 		}
 	} else if (cachepc_track_mode == CPC_TRACK_EXEC_PAGES) {
-		/* TODO: skip if not instruction decode fault */
+		/* untrack pages that are not code (could be a problem for WX */
+		if (!inst_fetch) return;
+
 		/* TODO: calculate retired instructions (save and subtract global counter) */
 		if (cachepc_inst_fault_avail) {
 			/* track previous faulted page, current stays untracked */

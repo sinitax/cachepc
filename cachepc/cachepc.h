@@ -290,6 +290,6 @@ void
 cachepc_apic_oneshot(uint32_t interval)
 {
 	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
-	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_128);
+	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_2);
 	native_apic_mem_write(APIC_TMICT, interval);
 }

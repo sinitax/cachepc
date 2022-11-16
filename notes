@@ -6,9 +6,6 @@ Questions:
 - test/sevstep: why does it seem to work with event race but not without?
 	=> it doesnt (anymore)
 
-Tried:
-- try invalidating tlbs (no effect, prob was already)
-
 Next steps:
 - enable single-steping with multiple page faults (only one ends up in
   last_fault_gfn and others stay untracked)
@@ -17,11 +14,15 @@ Next steps:
   such that we see the relevant page faults and the gfn increment
 - test/sevstep: implement counter.. read program memory to see
   how many instructions were executed on apic timer
-- add warning for high values in baseline
 
 Meeting questions:
 - Why is decrypted rip sometimes off-by-one?
 	=> 
-- VM gets interrupted independent of our APIC (by the scheduler) is this a problem?
+- VM gets interrupted independent of our APIC (by the scheduler?) was this a problem for you?
 	=>
-- 
+- Is supplementing apic with waiting for next fault viable? (seems to work well actually)
+	=> 
+- How does single stepping work with fixed cpu frequency when we always step less than one instruction?
+	=>
+
+

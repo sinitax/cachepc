@@ -480,6 +480,7 @@ runonce(struct kvm *kvm)
 int
 monitor(struct kvm *kvm, bool baseline)
 {
+	static uint64_t rip_prev = 1;
 	struct cpc_track_event event;
 	cpc_msrmt_t counts[64];
 	uint64_t rip;
@@ -488,20 +489,17 @@ monitor(struct kvm *kvm, bool baseline)
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (!ret) {
-		if (!baseline) {
-			rip = sev_dbg_rip(kvm->vmfd);
-			printf("Event: inst:%llu data:%llu retired:%llu rip:%lu\n",
-				event.inst_fault_gfn, event.data_fault_gfn,
-				event.retinst, rip);
-		}
-		faultcnt++;
-
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 		if (ret == -1) err(1, "ioctl READ_COUNTS");
 
-		if (!baseline) {
+		rip = sev_dbg_rip(kvm->vmfd);
+		if (!baseline && rip != rip_prev) {
+			printf("Event: inst:%llu data:%llu retired:%llu rip:%lu\n",
+				event.inst_fault_gfn, event.data_fault_gfn,
+				event.retinst, rip);
 			print_counts(counts);
 			printf("\n");
+			rip_prev = rip;
 		}
 
 		for (i = 0; i < 64; i++) {
@@ -513,6 +511,8 @@ monitor(struct kvm *kvm, bool baseline)
 
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
+
+		faultcnt++;
 	} else if (errno != EAGAIN) {
 		perror("ioctl POLL_EVENT");
 		return 1;
@@ -589,7 +589,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
 
 		faultcnt = 0;
-		while (faultcnt < 30) {
+		while (faultcnt < 50) {
 			if (monitor(&kvm_with_access, true)) break;
 		}
 
@@ -626,7 +626,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 
 		faultcnt = 0;
-		while (faultcnt < 30) {
+		while (faultcnt < 50) {
 			if (monitor(&kvm_with_access, false)) break;
 		}
 

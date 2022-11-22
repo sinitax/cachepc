@@ -4,6 +4,7 @@ PWD := $(shell pwd)
 TARGETS = build test/eviction test/access test/kvm test/sev test/sev-es test/sevstep 
 TARGETS += test/aes-detect_guest test/aes-detect_host
 TARGETS += test/access-detect_guest test/access-detect_host
+TARGETS += test/readsvme
 
 CFLAGS = -I . -I test -Wunused-variable -Wunknown-pragmas
 

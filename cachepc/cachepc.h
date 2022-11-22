@@ -278,7 +278,7 @@ cachepc_read_pmc(uint64_t event)
 		: "=a" (lo), "=d" (hi)
 		: "c"(event)
 	);
-	res = ((uint64_t) hi << 32) | (uint64_t) lo;
+	res = (((uint64_t) hi) << 32) | (uint64_t) lo;
 
 	cachepc_mfence();
 	cachepc_cpuid();

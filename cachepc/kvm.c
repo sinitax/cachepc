@@ -541,6 +541,29 @@ cachepc_kvm_vmsa_read_ioctl(void __user *arg_user)
 }
 
 int
+cachepc_kvm_svme_read_ioctl(void __user *arg_user)
+{
+	uint32_t lo, hi;
+	uint64_t res;
+	uint32_t svme;
+
+	if (!arg_user) return -EINVAL;
+
+	asm volatile (
+		"rdmsr"
+		: "=a" (lo), "=d" (hi)
+		: "c" (0xC0000080)
+	);
+	res = (((uint64_t) hi) << 32) | (uint64_t) lo;
+
+	svme = (res >> 12) & 1;
+	if (copy_to_user(arg_user, &svme, sizeof(uint32_t)))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
 cachepc_kvm_track_all_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
@@ -658,6 +681,8 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_track_mode_ioctl(arg_user);
 	case KVM_CPC_VMSA_READ:
 		return cachepc_kvm_vmsa_read_ioctl(arg_user);
+	case KVM_CPC_SVME_READ:
+		return cachepc_kvm_svme_read_ioctl(arg_user);
 	case KVM_CPC_TRACK_PAGE:
 		return cachepc_kvm_track_page_ioctl(arg_user);
 	case KVM_CPC_TRACK_ALL:

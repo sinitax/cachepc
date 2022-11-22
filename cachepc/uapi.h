@@ -45,6 +45,7 @@
 #define KVM_CPC_SINGLE_STEP _IO(KVMIO, 0x29)
 #define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x2A, __u32)
 #define KVM_CPC_VMSA_READ _IOR(KVMIO, 0x2B, __u64)
+#define KVM_CPC_SVME_READ _IOR(KVMIO, 0x2C, __u32)
 
 #define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, struct cpc_track_config)
 #define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x31, __u64)

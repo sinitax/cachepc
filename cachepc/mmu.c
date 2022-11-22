@@ -26,8 +26,6 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			/* first fault from instruction fetch */
 			pr_warn("CachePC: Got inst fault gfn:%llu err:%u\n",
 				fault->gfn, fault->error_code);
-			//if (!inst_fetch)
-			//	pr_err("CachePC: Expected inst fault but was not on fetch\n");
 
 			cachepc_inst_fault_gfn = fault->gfn;
 			cachepc_inst_fault_err = fault->error_code;

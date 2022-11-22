@@ -26,8 +26,8 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			/* first fault from instruction fetch */
 			pr_warn("CachePC: Got inst fault gfn:%llu err:%u\n",
 				fault->gfn, fault->error_code);
-			if (!inst_fetch)
-				pr_err("CachePC: Expected inst fault but was not on fetch\n");
+			//if (!inst_fetch)
+			//	pr_err("CachePC: Expected inst fault but was not on fetch\n");
 
 			cachepc_inst_fault_gfn = fault->gfn;
 			cachepc_inst_fault_err = fault->error_code;
@@ -35,7 +35,7 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			cachepc_data_fault_avail = false;
 
 			cachepc_single_step = true;
-			cachepc_apic_timer = 390;
+			cachepc_apic_timer = 100; /* starting value */
 
 			cachepc_track_state_next = CPC_TRACK_AWAIT_DATA_FAULT;
 		} else if (cachepc_track_state == CPC_TRACK_AWAIT_DATA_FAULT) {
@@ -50,7 +50,7 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			cachepc_data_fault_avail = true;
 
 			cachepc_single_step = true;
-			cachepc_apic_timer = 390;
+			cachepc_apic_timer = 100; /* reset in-case part of inst done */
 
 			cachepc_track_state_next = CPC_TRACK_AWAIT_STEP_INTR;
 		} else if (cachepc_track_state == CPC_TRACK_AWAIT_STEP_INTR) {
@@ -70,7 +70,7 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			/* retrack fault we just got so we can start from scratch */
 			cachepc_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
 
-			cachepc_send_tracking_event(
+			cachepc_send_track_event(
 				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
 				cachepc_data_fault_gfn, cachepc_data_fault_err);
 	
@@ -93,10 +93,10 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 		}
 		cachepc_inst_fault_gfn = fault->gfn;
 		cachepc_inst_fault_err = fault->error_code;
-		cachepc_send_tracking_event(fault->gfn, fault->error_code, 0, 0);
+		cachepc_send_track_event(fault->gfn, fault->error_code, 0, 0);
 	} else if (cachepc_track_mode == CPC_TRACK_ACCESS) {
 		cachepc_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
-		cachepc_send_tracking_event(fault->gfn, fault->error_code, 0, 0);
+		cachepc_send_track_event(fault->gfn, fault->error_code, 0, 0);
 	}
 }
 

@@ -3,6 +3,7 @@ PWD := $(shell pwd)
 
 TARGETS = build test/eviction test/access test/kvm test/sev test/sev-es test/sevstep 
 TARGETS += test/aes-detect_guest test/aes-detect_host
+TARGETS += test/access-detect_guest test/access-detect_host
 
 CFLAGS = -I . -I test -Wunused-variable -Wunknown-pragmas
 
@@ -26,6 +27,8 @@ load:
 
 freq:
 	sudo cpupower frequency-set -f 1.5GHz
+	sudo cpupower frequency-set -u 1.5GHz
+	sudo cpupower frequency-set -d 1.5GHz
 
 update:
 	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff

@@ -1,5 +1,5 @@
-#include "events.h"
-#include "tracking.h"
+#include "event.h"
+#include "track.h"
 #include "cachepc.h"
 #include "uapi.h"
 
@@ -25,10 +25,8 @@ cachepc_events_reset(void)
 }
 
 int
-cachepc_send_tracking_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
-	uint64_t data_fault_gfn, uint32_t data_fault_err)
+cachepc_send_event(struct cpc_event event)
 {
-	struct cpc_track_event event;
 	ktime_t deadline;
 
 	read_lock(&cachepc_event_lock);
@@ -47,15 +45,8 @@ cachepc_send_tracking_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
 	} else {
 		cachepc_last_event_sent++;
 	}
-	event.id = cachepc_last_event_sent;
-	event.inst_fault_gfn = inst_fault_gfn;
-	event.inst_fault_err = inst_fault_err;
-	event.data_fault_avail = (data_fault_err != 0);
-	event.data_fault_gfn = data_fault_gfn;
-	event.data_fault_err = data_fault_err;
-	event.timestamp_ns = ktime_get_real_ns();
-	event.retinst = cachepc_retinst;
 
+	event.id = cachepc_last_event_sent;
 	cachepc_event_avail = true;
 	cachepc_event = event;
 	write_unlock(&cachepc_event_lock);
@@ -73,6 +64,36 @@ cachepc_send_tracking_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
 	return 0;
 }
 
+int
+cachepc_send_cpuid_event(uint8_t type, uint32_t val)
+{
+	struct cpc_event event;
+
+	event.type = CPC_EVENT_CPUID;
+	event.cpuid.type = type;
+	event.cpuid.val = val;
+
+	return cachepc_send_event(event);
+}
+
+int
+cachepc_send_track_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
+	uint64_t data_fault_gfn, uint32_t data_fault_err)
+{
+	struct cpc_event event;
+	
+	event.type = CPC_EVENT_TRACK;
+	event.track.inst_fault_gfn = inst_fault_gfn;
+	event.track.inst_fault_err = inst_fault_err;
+	event.track.data_fault_avail = (data_fault_err != 0);
+	event.track.data_fault_gfn = data_fault_gfn;
+	event.track.data_fault_err = data_fault_err;
+	event.track.timestamp_ns = ktime_get_real_ns();
+	event.track.retinst = cachepc_retinst - CPC_RETINST_KERNEL;
+
+	return cachepc_send_event(event);
+}
+
 bool
 cachepc_event_is_done(uint64_t id)
 {
@@ -86,7 +107,7 @@ cachepc_event_is_done(uint64_t id)
 }
 
 int
-cachepc_handle_poll_event_ioctl(struct cpc_track_event __user *event)
+cachepc_handle_poll_event_ioctl(struct cpc_event __user *event)
 {
 	int err;
 
@@ -99,8 +120,7 @@ cachepc_handle_poll_event_ioctl(struct cpc_track_event __user *event)
 
 	write_lock(&cachepc_event_lock);
 	if (cachepc_event_avail) {
-		err = copy_to_user(event, &cachepc_event,
-			sizeof(struct cpc_track_event));
+		err = copy_to_user(event, &cachepc_event, sizeof(struct cpc_event));
 		cachepc_event_avail = false;
 	} else {
 		err = -EAGAIN;

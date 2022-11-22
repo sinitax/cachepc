@@ -5,3 +5,7 @@ sev
 sev-es
 sev-snp
 sevstep
+aes-detect_guest
+aes-detect_host
+access-detect_guest
+access-detect_host

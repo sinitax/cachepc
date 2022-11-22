@@ -71,7 +71,7 @@ EXPORT_SYMBOL(cachepc_last_event_sent);
 EXPORT_SYMBOL(cachepc_last_event_acked);
 EXPORT_SYMBOL(cachepc_event_lock);
 
-struct cpc_track_event cachepc_event;
+struct cpc_event cachepc_event;
 bool cachepc_event_avail;
 EXPORT_SYMBOL(cachepc_event);
 EXPORT_SYMBOL(cachepc_event_avail);

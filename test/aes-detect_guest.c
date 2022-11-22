@@ -30,7 +30,23 @@ main(int argc, const char **argv)
 {
 	struct kcapi_handle *kcapi;
 	uint8_t block[128];
+	uint8_t *buf;
 	size_t n;
+
+	buf = NULL;
+	if (posix_memalign((void *)&buf, L1_LINESIZE * L1_SETS, L1_LINESIZE * L1_SETS))
+		err(1, "memalign");
+	memset(buf, 0, L1_LINESIZE * L1_SETS);
+
+	while (1) {
+		CPC_CPUID_SIGNAL(CPC_CPUID_START_TRACK, 0);
+		
+		buf[L1_LINESIZE * 5] += 1;
+
+		CPC_CPUID_SIGNAL(CPC_CPUID_START_TRACK, 0);
+	}
+
+	return 0;
 
 	kcapi = NULL;
 	if (kcapi_cipher_init(&kcapi, "ecb(aes)", 0))

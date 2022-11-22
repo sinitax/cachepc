@@ -481,7 +481,7 @@ int
 monitor(struct kvm *kvm, bool baseline)
 {
 	static uint64_t rip_prev = 1;
-	struct cpc_track_event event;
+	struct cpc_event event;
 	cpc_msrmt_t counts[64];
 	uint64_t rip;
 	int ret, i;
@@ -489,17 +489,24 @@ monitor(struct kvm *kvm, bool baseline)
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (!ret) {
+		if (event.type != CPC_EVENT_TRACK)
+			return 0;
+
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 		if (ret == -1) err(1, "ioctl READ_COUNTS");
 
 		rip = sev_dbg_rip(kvm->vmfd);
 		if (!baseline && rip != rip_prev) {
 			printf("Event: inst:%llu data:%llu retired:%llu rip:%lu\n",
-				event.inst_fault_gfn, event.data_fault_gfn,
-				event.retinst, rip);
+				event.track.inst_fault_gfn,
+				event.track.data_fault_gfn,
+				event.track.retinst, rip);
 			print_counts(counts);
 			printf("\n");
 			rip_prev = rip;
+			faultcnt++;
+		} else if (baseline) {
+			faultcnt++;
 		}
 
 		for (i = 0; i < 64; i++) {
@@ -511,8 +518,6 @@ monitor(struct kvm *kvm, bool baseline)
 
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
-
-		faultcnt++;
 	} else if (errno != EAGAIN) {
 		perror("ioctl POLL_EVENT");
 		return 1;
@@ -528,7 +533,7 @@ main(int argc, const char **argv)
 	uint64_t track_mode;
 	pid_t ppid, pid;
 	uint32_t arg;
-	struct cpc_track_event event;
+	struct cpc_event event;
 	cpc_msrmt_t baseline[64];
 	int ret, i;
 
@@ -571,6 +576,14 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
 	if (ret == -1) err(1, "ioctl TRACK_ALL");
 
+	arg = false;
+	ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
+	if (ret == -1) err(1, "ioctl SUB_BASELINE");
+
+	arg = true;
+	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
+	if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+
 	ppid = getpid();
 	if ((pid = fork())) {
 		if (pid < 0) err(1, "fork");
@@ -584,12 +597,8 @@ main(int argc, const char **argv)
 		pin_process(0, SECONDARY_CORE, true);
 		printf("PINNED\n");
 
-		arg = true;
-		ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
-		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
-
 		faultcnt = 0;
-		while (faultcnt < 50) {
+		while (faultcnt < 300) {
 			if (monitor(&kvm_with_access, true)) break;
 		}
 
@@ -626,7 +635,7 @@ main(int argc, const char **argv)
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 
 		faultcnt = 0;
-		while (faultcnt < 50) {
+		while (faultcnt < 20) {
 			if (monitor(&kvm_with_access, false)) break;
 		}
 

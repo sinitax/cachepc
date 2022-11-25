@@ -21,17 +21,12 @@
 
 #define CPC_MSRMT_MAX (~((cpc_msrmt_t) 0))
 
-#define CPC_RETINST_KERNEL 4327
-
-#define CPC_CPUID_SIGNAL(type, val) \
-	asm volatile("cpuid" : : "a" (CPC_CPUID_MAGIC(type)), "c" (val) \
-		: "ebx", "edx")
-#define CPC_CPUID_MAGIC(type) (CPC_CPUID_MAGIC_VAL | (type & CPC_CPUID_TYPE_MASK))
-#define CPC_CPUID_MAGIC_VAL  ((__u32) 0xC0FFEE00)
-#define CPC_CPUID_MAGIC_MASK ((__u32) 0xFFFFFF00)
-#define CPC_CPUID_TYPE_MASK  ((__u32) 0x000000FF)
-
 #define CPC_VMSA_MAGIC_ADDR ((void *) 0xC0FFEE)
+
+#define KVM_HC_CPC_VMMCALL 0xC0FFEE00
+#define CPC_DO_VMMCALL(type, val) \
+       asm volatile("vmmcall" : : "a" (KVM_HC_CPC_VMMCALL), \
+		"b"(type), "c" (val) : "rdx")
 
 #define KVM_CPC_TEST_ACCESS _IOWR(KVMIO, 0x20, __u32)
 #define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x21, __u32)
@@ -46,6 +41,7 @@
 #define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x2A, __u32)
 #define KVM_CPC_VMSA_READ _IOR(KVMIO, 0x2B, __u64)
 #define KVM_CPC_SVME_READ _IOR(KVMIO, 0x2C, __u32)
+#define KVM_CPC_DEBUG _IOW(KVMIO, 0x2D, __u32)
 
 #define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, struct cpc_track_config)
 #define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x31, __u64)
@@ -62,7 +58,7 @@ enum {
 
 enum {
 	CPC_CPUID_START_TRACK,
-	CPC_CPUID_STOP_TRACK,	
+	CPC_CPUID_STOP_TRACK,
 };
 
 enum {
@@ -102,9 +98,9 @@ struct cpc_track_event {
 	__u64 retinst;
 };
 
-struct cpc_cpuid_event {
-	__u8 type;
-	__u32 val;
+struct cpc_guest_event {
+	__u64 type;
+	__u64 val;
 };
 
 struct cpc_event {
@@ -112,7 +108,7 @@ struct cpc_event {
 	__u64 id;
 	union {
 		struct cpc_track_event track;
-		struct cpc_cpuid_event cpuid;
+		struct cpc_guest_event guest;
 	};
 };
 

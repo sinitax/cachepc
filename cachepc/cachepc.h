@@ -43,6 +43,12 @@
 #define PMC_HOST  (1 << 1)
 #define PMC_GUEST (1 << 0)
 
+#define CPC_DBG(...) do { \
+	if (cachepc_debug) pr_info("CachePC: " __VA_ARGS__); } while (0)
+#define CPC_INFO(...) do { pr_info("CachePC: " __VA_ARGS__); } while (0)
+#define CPC_WARN(...) do { pr_warn("CachePC: " __VA_ARGS__); } while (0)
+#define CPC_ERR(...) do { pr_err("CachePC: " __VA_ARGS__); } while (0)
+
 typedef struct cacheline cacheline;
 typedef struct cache_ctx cache_ctx;
 
@@ -117,6 +123,8 @@ static inline uint64_t cachepc_read_pmc(uint64_t event);
 __attribute__((always_inline))
 static inline void cachepc_apic_oneshot(uint32_t interval);
 
+extern bool cachepc_debug;
+
 extern cpc_msrmt_t *cachepc_msrmts;
 extern size_t cachepc_msrmts_count;
 
@@ -129,6 +137,7 @@ extern uint64_t cachepc_retinst;
 extern bool cachepc_single_step;
 extern uint32_t cachepc_track_mode;
 extern uint32_t cachepc_apic_timer;
+extern uint64_t cachepc_prev_rip;
 
 extern uint32_t cachepc_track_state;
 extern uint32_t cachepc_track_state_next;

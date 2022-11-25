@@ -4,7 +4,7 @@ PWD := $(shell pwd)
 TARGETS = build test/eviction test/access test/kvm test/sev test/sev-es test/sevstep 
 TARGETS += test/aes-detect_guest test/aes-detect_host
 TARGETS += test/access-detect_guest test/access-detect_host
-TARGETS += test/readsvme
+TARGETS += test/readsvme test/debug
 
 CFLAGS = -I . -I test -Wunused-variable -Wunknown-pragmas
 
@@ -34,7 +34,7 @@ freq:
 update:
 	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff
 
-test/aes-detect_%: test/aes-detect_%.c test/aes-detect.c
+test/aes-detect_%: test/aes-detect_%.c test/aes-detect.c cachepc/uapi.h
 	clang -o $@ $< $(CFLAGS) -I test/libkcapi/lib -L test/libkcapi/.libs -lkcapi -static
 
 test/%: test/%.c cachepc/uapi.h

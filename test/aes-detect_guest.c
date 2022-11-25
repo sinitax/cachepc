@@ -39,11 +39,11 @@ main(int argc, const char **argv)
 	memset(buf, 0, L1_LINESIZE * L1_SETS);
 
 	while (1) {
-		CPC_CPUID_SIGNAL(CPC_CPUID_START_TRACK, 0);
+		CPC_DO_VMMCALL(CPC_CPUID_START_TRACK, 0);
 		
 		buf[L1_LINESIZE * 5] += 1;
 
-		CPC_CPUID_SIGNAL(CPC_CPUID_START_TRACK, 0);
+		CPC_DO_VMMCALL(CPC_CPUID_START_TRACK, 0);
 	}
 
 	return 0;

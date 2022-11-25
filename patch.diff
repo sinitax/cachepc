@@ -17,7 +17,7 @@ index eb186bc57f6a..b96e80934005 100644
  /*
   * The notifier represented by @kvm_page_track_notifier_node is linked into
 diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
-index 30f244b64523..c75819a6cd77 100644
+index 30f244b64523..a1e3c5ae2f80 100644
 --- a/arch/x86/kvm/Makefile
 +++ b/arch/x86/kvm/Makefile
 @@ -1,6 +1,6 @@
@@ -28,25 +28,24 @@ index 30f244b64523..c75819a6cd77 100644
  ccflags-$(CONFIG_KVM_WERROR) += -Werror
  
  ifeq ($(CONFIG_FRAME_POINTER),y)
-@@ -11,8 +11,9 @@ include $(srctree)/virt/kvm/Makefile.kvm
+@@ -11,8 +11,8 @@ include $(srctree)/virt/kvm/Makefile.kvm
  
  kvm-y			+= x86.o emulate.o i8259.o irq.o lapic.o \
  			   i8254.o ioapic.o irq_comm.o cpuid.o pmu.o mtrr.o \
 -			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o \
 -			   mmu/spte.o
 +			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o mmu/spte.o \
-+			   cachepc/cachepc.o cachepc/kvm.o \
-+			   cachepc/tracking.o cachepc/events.o
++			   cachepc/cachepc.o cachepc/kvm.o cachepc/track.o cachepc/event.o
  
  ifdef CONFIG_HYPERV
  kvm-y			+= kvm_onhyperv.o
-@@ -25,7 +26,8 @@ kvm-intel-y		+= vmx/vmx.o vmx/vmenter.o vmx/pmu_intel.o vmx/vmcs12.o \
+@@ -25,7 +25,8 @@ kvm-intel-y		+= vmx/vmx.o vmx/vmenter.o vmx/pmu_intel.o vmx/vmcs12.o \
  			   vmx/evmcs.o vmx/nested.o vmx/posted_intr.o
  kvm-intel-$(CONFIG_X86_SGX_KVM)	+= vmx/sgx.o
  
 -kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o svm/avic.o svm/sev.o
 +kvm-amd-y		+= svm/svm.o svm/vmenter.o svm/pmu.o svm/nested.o \
-+				   svm/avic.o svm/sev.o cachepc/cachepc.o cachepc/events.o
++				   svm/avic.o svm/sev.o cachepc/cachepc.o cachepc/event.o
  
  ifdef CONFIG_HYPERV
  kvm-amd-y		+= svm/svm_onhyperv.o
@@ -58,8 +57,34 @@ index 000000000000..9119e44af1f0
 @@ -0,0 +1 @@
 +/home/louis/kvm-prime-count/cachepc
 \ No newline at end of file
+diff --git a/arch/x86/kvm/cpuid.c b/arch/x86/kvm/cpuid.c
+index de6d44e07e34..b63672b47321 100644
+--- a/arch/x86/kvm/cpuid.c
++++ b/arch/x86/kvm/cpuid.c
+@@ -26,6 +26,10 @@
+ #include "trace.h"
+ #include "pmu.h"
+ 
++#include "cachepc/cachepc.h"
++#include "cachepc/uapi.h"
++#include "cachepc/event.h"
++
+ /*
+  * Unlike "struct cpuinfo_x86.x86_capability", kvm_cpu_caps doesn't need to be
+  * aligned to sizeof(unsigned long) because it's not accessed via bitops.
+@@ -1445,8 +1449,8 @@ int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
+ 	if (cpuid_fault_enabled(vcpu) && !kvm_require_cpl(vcpu, 0))
+ 		return 1;
+ 
+-	eax = kvm_rax_read(vcpu);
+-	ecx = kvm_rcx_read(vcpu);
++        eax = kvm_rax_read(vcpu);
++        ecx = kvm_rcx_read(vcpu);
+ 	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, false);
+ 	kvm_rax_write(vcpu, eax);
+ 	kvm_rbx_write(vcpu, ebx);
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index d871b8dee7b3..317dcb165e92 100644
+index d871b8dee7b3..c70fff62f1ab 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -1152,6 +1152,8 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
@@ -146,7 +171,7 @@ index d871b8dee7b3..317dcb165e92 100644
  
 -	if (!fault->present || !fault->write)
 -		return false;
-+	cachepc_uspt_page_fault_handle(vcpu, fault);
++	cachepc_page_fault_handle(vcpu, fault);
  
  	/*
  	 * guest is writing the page which is write tracked which can
@@ -169,19 +194,20 @@ index d871b8dee7b3..317dcb165e92 100644
  	return false;
  }
 diff --git a/arch/x86/kvm/mmu/page_track.c b/arch/x86/kvm/mmu/page_track.c
-index 2e09d1b6249f..02821df27f51 100644
+index 2e09d1b6249f..315b2d06118c 100644
 --- a/arch/x86/kvm/mmu/page_track.c
 +++ b/arch/x86/kvm/mmu/page_track.c
-@@ -19,6 +19,8 @@
+@@ -19,6 +19,9 @@
  #include "mmu.h"
  #include "mmu_internal.h"
  
-+#include "../cachepc/tracking.h"
++#include "../cachepc/cachepc.h"
++#include "../cachepc/track.h"
 +
  bool kvm_page_track_write_tracking_enabled(struct kvm *kvm)
  {
  	return IS_ENABLED(CONFIG_KVM_EXTERNAL_WRITE_TRACKING) ||
-@@ -115,7 +117,6 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+@@ -115,7 +118,6 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
  				  struct kvm_memory_slot *slot, gfn_t gfn,
  				  enum kvm_page_track_mode mode)
  {
@@ -189,16 +215,16 @@ index 2e09d1b6249f..02821df27f51 100644
  	if (WARN_ON(!page_track_mode_is_valid(mode)))
  		return;
  
-@@ -123,6 +124,8 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+@@ -123,6 +125,8 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
  		    !kvm_page_track_write_tracking_enabled(kvm)))
  		return;
  
-+	pr_warn("CachePC: Tracking page: %llu\n", gfn);
++	CPC_DBG("Tracking page: %llu %i\n", gfn, mode);
 +
  	update_gfn_track(slot, gfn, mode, 1);
  
  	/*
-@@ -131,9 +134,10 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
+@@ -131,9 +135,10 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
  	 */
  	kvm_mmu_gfn_disallow_lpage(slot, gfn);
  
@@ -212,11 +238,11 @@ index 2e09d1b6249f..02821df27f51 100644
  }
  EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
  
-@@ -161,6 +165,8 @@ void kvm_slot_page_track_remove_page(struct kvm *kvm,
+@@ -161,6 +166,8 @@ void kvm_slot_page_track_remove_page(struct kvm *kvm,
  		    !kvm_page_track_write_tracking_enabled(kvm)))
  		return;
  
-+	pr_warn("CachePC: Untracking page: %llu\n", gfn);
++	CPC_DBG("Untracking page: %llu %i\n", gfn, mode);
 +
  	update_gfn_track(slot, gfn, mode, -1);
  
@@ -341,10 +367,19 @@ index 7b9265d67131..68b9134970da 100644
  
  /*
 diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
-index a4f6d10b0ef3..a1ac048b35cf 100644
+index a4f6d10b0ef3..0c5aae1de162 100644
 --- a/arch/x86/kvm/svm/sev.c
 +++ b/arch/x86/kvm/svm/sev.c
-@@ -888,7 +888,7 @@ static int __sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
+@@ -35,6 +35,8 @@
+ #include "trace.h"
+ #include "mmu.h"
+ 
++#include "cachepc/cachepc.h"
++
+ #ifndef CONFIG_KVM_AMD_SEV
+ /*
+  * When this config is not defined, SEV feature is not supported and APIs in
+@@ -888,7 +890,7 @@ static int __sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
  			     &data, error);
  }
  
@@ -353,7 +388,7 @@ index a4f6d10b0ef3..a1ac048b35cf 100644
  			     unsigned long dst_paddr, int sz, int *err)
  {
  	int offset;
-@@ -904,6 +904,13 @@ static int __sev_dbg_decrypt(struct kvm *kvm, unsigned long src_paddr,
+@@ -904,12 +906,20 @@ static int __sev_dbg_decrypt(struct kvm *kvm, unsigned long src_paddr,
  	return __sev_issue_dbg_cmd(kvm, src_paddr, dst_paddr, sz, err, false);
  }
  
@@ -367,17 +402,72 @@ index a4f6d10b0ef3..a1ac048b35cf 100644
  static int __sev_dbg_decrypt_user(struct kvm *kvm, unsigned long paddr,
  				  void __user *dst_uaddr,
  				  unsigned long dst_paddr,
-@@ -1026,6 +1033,8 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
+ 				  int size, int *err)
+ {
+ 	struct page *tpage = NULL;
++	struct vcpu_svm *svm;
+ 	int ret, offset;
+ 
+ 	/* if inputs are not 16-byte then use intermediate buffer */
+@@ -923,6 +933,11 @@ static int __sev_dbg_decrypt_user(struct kvm *kvm, unsigned long paddr,
+ 		dst_paddr = __sme_page_pa(tpage);
+ 	}
+ 
++	if (dst_uaddr == CPC_VMSA_MAGIC_ADDR) {
++		svm = to_svm(xa_load(&kvm->vcpu_array, 0));
++		paddr = __pa(svm->sev_es.vmsa);
++	}
++
+ 	ret = __sev_dbg_decrypt(kvm, paddr, dst_paddr, size, err);
+ 	if (ret)
+ 		goto e_free;
+@@ -1024,6 +1039,7 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
+ 	struct kvm_sev_dbg debug;
+ 	unsigned long n;
  	unsigned int size;
++	bool vmsa_dec;
  	int ret;
  
-+	pr_warn("DEBUG CRYPT\n");
-+
  	if (!sev_guest(kvm))
- 		return -ENOTTY;
+@@ -1037,6 +1053,13 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
+ 	if (!debug.dst_uaddr)
+ 		return -EINVAL;
  
++	vmsa_dec = false;
++	if (debug.src_uaddr == (uintptr_t) CPC_VMSA_MAGIC_ADDR) {
++		debug.len = PAGE_SIZE;
++		debug.src_uaddr = debug.dst_uaddr;
++		vmsa_dec = true;
++	}
++
+ 	vaddr = debug.src_uaddr;
+ 	size = debug.len;
+ 	vaddr_end = vaddr + size;
+@@ -1075,7 +1098,8 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
+ 		if (dec)
+ 			ret = __sev_dbg_decrypt_user(kvm,
+ 						     __sme_page_pa(src_p[0]) + s_off,
+-						     (void __user *)dst_vaddr,
++						     vmsa_dec ? CPC_VMSA_MAGIC_ADDR
++						     	: (void __user *)dst_vaddr,
+ 						     __sme_page_pa(dst_p[0]) + d_off,
+ 						     len, &argp->error);
+ 		else
+@@ -3149,9 +3173,9 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm, u64 *exit_code)
+ 		}
+ 		break;
+ 	case SVM_EXIT_VMMCALL:
+-		if (!ghcb_rax_is_valid(ghcb) ||
+-		    !ghcb_cpl_is_valid(ghcb))
+-			goto vmgexit_err;
++		// if (!ghcb_rax_is_valid(ghcb) ||
++		//     !ghcb_cpl_is_valid(ghcb))
++		// 	goto vmgexit_err;
+ 		break;
+ 	case SVM_EXIT_RDTSCP:
+ 		break;
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index cf0bf456d520..4134049e6b08 100644
+index cf0bf456d520..ff84cedfefd0 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,10 @@
@@ -385,25 +475,64 @@ index cf0bf456d520..4134049e6b08 100644
  #include <linux/kvm_host.h>
  
 +#include "cachepc/cachepc.h"
-+#include "cachepc/events.h"
-+#include "cachepc/tracking.h"
++#include "cachepc/event.h"
++#include "cachepc/track.h"
 +
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -2083,6 +2087,38 @@ static int smi_interception(struct kvm_vcpu *vcpu)
+@@ -1887,6 +1891,8 @@ static int npf_interception(struct kvm_vcpu *vcpu)
+ 	u64 fault_address = svm->vmcb->control.exit_info_2;
+ 	u64 error_code = svm->vmcb->control.exit_info_1;
+ 
++	cachepc_track_state_next = cachepc_track_state;
++
+ 	trace_kvm_page_fault(fault_address, error_code);
+ 	rc = kvm_mmu_page_fault(vcpu, fault_address, error_code,
+ 				static_cpu_has(X86_FEATURE_DECODEASSISTS) ?
+@@ -1896,6 +1902,8 @@ static int npf_interception(struct kvm_vcpu *vcpu)
+ 	if (error_code & PFERR_GUEST_RMP_MASK)
+ 		handle_rmp_page_fault(vcpu, fault_address, error_code);
+ 
++	cachepc_track_state = cachepc_track_state_next;
++
+ 	return rc;
+ }
+ 
+@@ -2083,7 +2091,56 @@ static int smi_interception(struct kvm_vcpu *vcpu)
  
  static int intr_interception(struct kvm_vcpu *vcpu)
  {
++	struct vcpu_svm *svm;
++
+ 	++vcpu->stat.irq_exits;
++
 +	if (cachepc_track_mode == CPC_TRACK_DATA_ACCESS && cachepc_single_step) {
++		svm = to_svm(vcpu);
++
++		if (svm->sev_es.vmsa->rip == cachepc_prev_rip) {
++			cachepc_apic_timer += 1;
++			return 1;
++		}
++
 +		cachepc_single_step = false;
 +
-+		if (cachepc_data_fault_avail) {
-+			pr_warn("CachePC: Caught single step WITH data!\n");
++		switch (cachepc_track_state) {
++		case CPC_TRACK_AWAIT_DATA_FAULT:
++			CPC_INFO("Caught single step WITHOUT data!\n");
 +
-+			cachepc_send_tracking_event(
++			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
++				KVM_PAGE_TRACK_ACCESS);
++			cachepc_inst_fault_avail = false;
++
++			cachepc_send_track_event(
 +				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
-+				cachepc_data_fault_gfn, cachepc_data_fault_err);
++				0, 0);
++
++			cachepc_track_state = CPC_TRACK_AWAIT_INST_FAULT;
++			break;
++		case CPC_TRACK_AWAIT_STEP_INTR:
++			CPC_INFO("Caught single step WITH data!\n");
 +
 +			cachepc_track_single(vcpu, cachepc_data_fault_gfn,
 +				KVM_PAGE_TRACK_ACCESS);
@@ -412,25 +541,22 @@ index cf0bf456d520..4134049e6b08 100644
 +			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
 +				KVM_PAGE_TRACK_ACCESS);
 +			cachepc_inst_fault_avail = false;
-+		} else if (cachepc_inst_fault_avail) {
-+			pr_warn("CachePC: Caught single step WITHOUT data!\n");
 +
-+			cachepc_send_tracking_event(
++			cachepc_send_track_event(
 +				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
-+				0, 0);
++				cachepc_data_fault_gfn, cachepc_data_fault_err);
 +
-+			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
-+				KVM_PAGE_TRACK_ACCESS);
-+			cachepc_inst_fault_avail = false;
-+		} else {
-+			pr_err("CachePC: Unexpected single step\n");
++			cachepc_track_state = CPC_TRACK_AWAIT_INST_FAULT;
++			break;
++		default:
++			CPC_ERR("Unexpected single step\n");
 +		}
 +	}
 +
- 	++vcpu->stat.irq_exits;
  	return 1;
  }
-@@ -3269,9 +3305,23 @@ static int svm_handle_invalid_exit(struct kvm_vcpu *vcpu, u64 exit_code)
+ 
+@@ -3269,9 +3326,25 @@ static int svm_handle_invalid_exit(struct kvm_vcpu *vcpu, u64 exit_code)
  
  int svm_invoke_exit_handler(struct kvm_vcpu *vcpu, u64 exit_code)
  {
@@ -446,15 +572,17 @@ index cf0bf456d520..4134049e6b08 100644
  	if (!svm_check_exit_valid(exit_code))
  		return svm_handle_invalid_exit(vcpu, exit_code);
  
-+	for (i = 0; i < sizeof(codelut) / sizeof(codelut[0]); i++) {
-+		if (codelut[i].code == exit_code)
-+			pr_warn("KVM EXIT (%s)\n", codelut[i].name);
++	if (cachepc_debug && cachepc_track_mode != CPC_TRACK_NONE) {
++		for (i = 0; i < sizeof(codelut) / sizeof(codelut[0]); i++) {
++			if (codelut[i].code == exit_code)
++				pr_warn("KVM EXIT (%s)\n", codelut[i].name);
++		}
 +	}
 +
  #ifdef CONFIG_RETPOLINE
  	if (exit_code == SVM_EXIT_MSR)
  		return msr_interception(vcpu);
-@@ -3788,14 +3838,39 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3788,14 +3861,42 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  {
  	struct vcpu_svm *svm = to_svm(vcpu);
  	unsigned long vmcb_pa = svm->current_vmcb->pa;
@@ -462,50 +590,53 @@ index cf0bf456d520..4134049e6b08 100644
  
  	guest_state_enter_irqoff();
  
++	if (cachepc_apic_timer == 0) {
++		cachepc_prev_rip = svm->sev_es.vmsa->rip;
++		cachepc_apic_timer = 100;
++	}
++
  	if (sev_es_guest(vcpu->kvm)) {
 +		cpu = get_cpu();
-+		local_irq_disable();
++		// local_irq_disable();
 +		WARN_ON(cpu != 2);
 +
 +		memset(cachepc_msrmts, 0,
 +			cachepc_msrmts_count * sizeof(cpc_msrmt_t));
-+		cachepc_reset_pmc(CPC_L1MISS_PMC);
 +
-+		cachepc_reset_pmc(CPC_RETINST_PMC);
- 		__svm_sev_es_vcpu_run(vmcb_pa);
 +		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC);
+ 		__svm_sev_es_vcpu_run(vmcb_pa);
++		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC) - cachepc_retinst;
 +
 +		cachepc_save_msrmts(cachepc_ds);
 +		if (cachepc_baseline_measure)
 +			cachepc_update_baseline();
-+		local_irq_enable();
++		// local_irq_enable();
 +		put_cpu();
  	} else {
  		struct svm_cpu_data *sd = per_cpu(svm_data, vcpu->cpu);
  
 +		cpu = get_cpu();
-+		local_irq_disable();
++		// local_irq_disable();
 +		WARN_ON(cpu != 2);
 +
 +		memset(cachepc_msrmts, 0,
 +			cachepc_msrmts_count * sizeof(cpc_msrmt_t));
-+		cachepc_reset_pmc(CPC_L1MISS_PMC);
 +
  		/*
  		 * Use a single vmcb (vmcb01 because it's always valid) for
  		 * context switching guest state via VMLOAD/VMSAVE, that way
-@@ -3806,7 +3881,15 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3806,7 +3907,15 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  		__svm_vcpu_run(vmcb_pa, (unsigned long *)&vcpu->arch.regs);
  		vmsave(svm->vmcb01.pa);
  
-+		cachepc_reset_pmc(CPC_RETINST_PMC);
- 		vmload(__sme_page_pa(sd->save_area));
 +		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC);
+ 		vmload(__sme_page_pa(sd->save_area));
++		cachepc_retinst = cachepc_read_pmc(CPC_RETINST_PMC) - cachepc_retinst;
 +
 +		cachepc_save_msrmts(cachepc_ds);
 +		if (cachepc_baseline_measure)
 +			cachepc_update_baseline();
-+		local_irq_enable();
++		// local_irq_enable();
 +		put_cpu();
  	}
  
@@ -643,26 +774,53 @@ index dfaeb47fcf2a..0626f3fdddfd 100644
  2:	cli
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index d9adf79124f9..6ca86ab417cb 100644
+index d9adf79124f9..fc64f9b7614d 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -82,6 +82,8 @@
+@@ -82,6 +82,10 @@
  #include <asm/sgx.h>
  #include <clocksource/hyperv_timer.h>
  
-+#include "cachepc/sevstep.h"
++#include "cachepc/cachepc.h"
++#include "cachepc/event.h"
++#include "cachepc/track.h"
 +
  #define CREATE_TRACE_POINTS
  #include "trace.h"
  
-@@ -6597,6 +6599,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
- 		if (!kvm_x86_ops.mem_enc_ioctl)
- 			goto out;
+@@ -9267,10 +9271,10 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
+ 		a3 &= 0xFFFFFFFF;
+ 	}
  
-+		pr_warn("ENCRYPT_OP\n");
- 		r = static_call(kvm_x86_mem_enc_ioctl)(kvm, argp);
+-	if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
+-		ret = -KVM_EPERM;
+-		goto out;
+-	}
++	// if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
++	// 	ret = -KVM_EPERM;
++	// 	goto out;
++	// }
+ 
+ 	ret = -KVM_ENOSYS;
+ 
+@@ -9326,11 +9330,16 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
+ 		vcpu->arch.complete_userspace_io = complete_hypercall_exit;
+ 		return 0;
+ 	}
++	case KVM_HC_CPC_VMMCALL:
++		CPC_WARN("Cachepc: Hypecrcall Run\n");
++		cachepc_send_cpuid_event(a0, a1);
++		ret = 0;
++		break;
+ 	default:
+ 		ret = -KVM_ENOSYS;
  		break;
  	}
+-out:
++//out:
+ 	if (!op_64_bit)
+ 		ret = (u32)ret;
+ 	kvm_rax_write(vcpu, ret);
 diff --git a/crypto/aes_generic.c b/crypto/aes_generic.c
 index 27ab27931813..90679ec8ba79 100644
 --- a/crypto/aes_generic.c
@@ -789,7 +947,7 @@ index e089fbf9017f..7899e1efe852
  static int __sev_init_locked(int *error)
  {
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index f2a63cb2658b..c77a29e14771 100644
+index f2a63cb2658b..869faf927e5d 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -13,6 +13,7 @@
@@ -804,7 +962,7 @@ index f2a63cb2658b..c77a29e14771 100644
  
  #define CREATE_TRACE_POINTS
  #include <trace/events/kvm.h>
-+#include "../../arch/x86/kvm/cachepc/tracking.h"
++#include "../../arch/x86/kvm/cachepc/track.h"
  
  #include <linux/kvm_dirty_ring.h>
  

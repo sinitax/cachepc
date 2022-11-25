@@ -13,6 +13,9 @@
 #include <linux/sev.h>
 #include <asm/uaccess.h>
 
+bool cachepc_debug = true;
+EXPORT_SYMBOL(cachepc_debug);
+
 cpc_msrmt_t *cachepc_msrmts = NULL;
 size_t cachepc_msrmts_count = 0;
 EXPORT_SYMBOL(cachepc_msrmts);
@@ -31,9 +34,11 @@ EXPORT_SYMBOL(cachepc_retinst);
 bool cachepc_single_step = false;
 uint32_t cachepc_track_mode = false;
 uint32_t cachepc_apic_timer = 0;
+uint64_t cachepc_prev_rip = 0;
 EXPORT_SYMBOL(cachepc_single_step);
 EXPORT_SYMBOL(cachepc_track_mode);
 EXPORT_SYMBOL(cachepc_apic_timer);
+EXPORT_SYMBOL(cachepc_prev_rip);
 
 uint32_t cachepc_track_state;
 uint32_t cachepc_track_state_next;
@@ -514,6 +519,7 @@ cachepc_kvm_track_page_ioctl(void __user *arg_user)
 	if (cfg.mode < 0 || cfg.mode >= KVM_PAGE_TRACK_MAX)
 		return -EINVAL;
 
+	BUG_ON(xa_empty(&main_vm->vcpu_array));
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	if (!cachepc_track_single(vcpu, cfg.gfn, cfg.mode)) {
 		printk("KVM_TRACK_PAGE: cachepc_track_single failed");
@@ -531,6 +537,7 @@ cachepc_kvm_vmsa_read_ioctl(void __user *arg_user)
 
 	if (!main_vm || !arg_user) return -EINVAL;
 
+	BUG_ON(xa_empty(&main_vm->vcpu_array));
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	svm = to_svm(vcpu);
 
@@ -564,6 +571,21 @@ cachepc_kvm_svme_read_ioctl(void __user *arg_user)
 }
 
 int
+cachepc_kvm_debug_ioctl(void __user *arg_user)
+{
+	uint32_t debug;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&debug, arg_user, sizeof(uint32_t)))
+		return -EFAULT;
+
+	cachepc_debug = debug;
+
+	return 0;
+}
+
+int
 cachepc_kvm_track_all_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
@@ -580,6 +602,7 @@ cachepc_kvm_track_all_ioctl(void __user *arg_user)
 	if (mode < 0 || mode >= KVM_PAGE_TRACK_MAX)
 		return -EINVAL;
 
+	BUG_ON(xa_empty(&main_vm->vcpu_array));
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	if (!cachepc_track_all(vcpu, mode))
 		return -EFAULT;
@@ -604,6 +627,7 @@ cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
 	if (mode < 0 || mode >= KVM_PAGE_TRACK_MAX)
 		return -EINVAL;
 
+	BUG_ON(xa_empty(&main_vm->vcpu_array));
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	if (!cachepc_untrack_all(vcpu, mode))
 		return -EFAULT;
@@ -617,6 +641,7 @@ cachepc_kvm_uspt_reset_ioctl(void __user *arg_user)
 	struct kvm_vcpu *vcpu;
 
 	cachepc_events_reset();
+	BUG_ON(xa_empty(&main_vm->vcpu_array));
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
@@ -683,6 +708,8 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_vmsa_read_ioctl(arg_user);
 	case KVM_CPC_SVME_READ:
 		return cachepc_kvm_svme_read_ioctl(arg_user);
+	case KVM_CPC_DEBUG:
+		return cachepc_kvm_debug_ioctl(arg_user);
 	case KVM_CPC_TRACK_PAGE:
 		return cachepc_kvm_track_page_ioctl(arg_user);
 	case KVM_CPC_TRACK_ALL:
@@ -737,7 +764,7 @@ cachepc_kvm_init(void)
 	cachepc_retinst = 0;
 
 	cachepc_single_step = false;
-	cachepc_track_mode = CPC_TRACK_ACCESS;
+	cachepc_track_mode = CPC_TRACK_NONE;
 
 	cachepc_track_state = CPC_TRACK_AWAIT_INST_FAULT;
 

@@ -439,14 +439,14 @@ runonce(struct kvm *kvm)
 int
 monitor(void)
 {
-	struct cpc_track_event event;
+	struct cpc_event event;
 	int ret;
 
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (!ret) {
 		printf("Got page fault! %llu retired insts\n",
-			event.retinst);
+			event.track.retinst);
 		faultcnt++;
 
 		printf("Acking event %llu\n", event.id);

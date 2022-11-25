@@ -37,7 +37,7 @@ cachepc_verify_topology(void)
 	uint32_t sets;
 
 	if (PAGE_SIZE != L1_SETS * L1_LINESIZE)
-		pr_warn("Cachepc: System pagesize does not guarentee "
+		CPC_ERR("System pagesize does not guarentee "
 			"virtual memory access will hit corresponding "
 			"physical cacheline, PAGE_SIZE != L1_SETS * L1_LINESIZE\n");
 
@@ -51,14 +51,14 @@ cachepc_verify_topology(void)
 	sets = size / (linesize * assoc);
 	if (size != L1_SIZE || assoc != L1_ASSOC
 			|| linesize != L1_LINESIZE || sets != L1_SETS) {
-		pr_warn("CachePC: L1 topology is invalid!\n");
-		pr_warn("CachePC: L1_SIZE (expected) %u vs. (real) %u\n",
+		CPC_ERR("L1 topology is invalid!\n");
+		CPC_ERR("L1_SIZE (expected) %u vs. (real) %u\n",
 			L1_SIZE, size);
-		pr_warn("CachePC: L1_ASSOC (expected) %u vs. (real) %u\n",
+		CPC_ERR("L1_ASSOC (expected) %u vs. (real) %u\n",
 			L1_ASSOC, assoc);
-		pr_warn("CachePC: L1_LINESIZE (expected) %u vs. (real) %u\n",
+		CPC_ERR("L1_LINESIZE (expected) %u vs. (real) %u\n",
 			L1_LINESIZE, linesize);
-		pr_warn("CachePC: L1_SETS (expected) %u vs. (real) %u\n",
+		CPC_ERR("L1_SETS (expected) %u vs. (real) %u\n",
 			L1_SETS, sets);
 		return true;
 	}
@@ -97,20 +97,20 @@ cachepc_verify_topology(void)
 		assoc = size / linesize;
 		break;
 	default:
-		pr_warn("CachePC: Read invalid L2 associativity: %i\n", assoc);
+		CPC_ERR("Read invalid L2 associativity: %i\n", assoc);
 		return true;
 	}
 	sets = size / (linesize * assoc);
 	if (size != L2_SIZE || assoc != L2_ASSOC
 			|| linesize != L2_LINESIZE || sets != L2_SETS) {
-		pr_warn("CachePC: L2 topology is invalid!\n");
-		pr_warn("CachePC: L2_SIZE (expected) %u vs. (real) %u\n",
+		CPC_ERR("L2 topology is invalid!\n");
+		CPC_ERR("L2_SIZE (expected) %u vs. (real) %u\n",
 			L2_SIZE, size);
-		pr_warn("CachePC: L2_ASSOC (expected) %u vs. (real) %u\n",
+		CPC_ERR("L2_ASSOC (expected) %u vs. (real) %u\n",
 			L2_ASSOC, assoc);
-		pr_warn("CachePC: L2_LINESIZE (expected) %u vs. (real) %u\n",
+		CPC_ERR("L2_LINESIZE (expected) %u vs. (real) %u\n",
 			L2_LINESIZE, linesize);
-		pr_warn("CachePC: L2_SETS (expected) %u vs. (real) %u\n",
+		CPC_ERR("L2_SETS (expected) %u vs. (real) %u\n",
 			L2_SETS, sets);
 		return true;
 	}
@@ -293,7 +293,7 @@ cachepc_print_msrmts(cacheline *head)
 	curr_cl = head;
 	do {
 		if (CL_IS_FIRST(curr_cl->flags)) {
-			printk(KERN_WARNING "CachePC: Count for cache set %i: %llu\n",
+			CPC_INFO("Count for cache set %i: %llu\n",
 				curr_cl->cache_set, curr_cl->count);
 		}
 

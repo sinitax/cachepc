@@ -12,11 +12,11 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS))
 		return;
 
-	pr_warn("CachePC: Tracked page fault (gfn:%llu err:%u)\n",
+	CPC_DBG("Tracked page fault (gfn:%llu err:%u)\n",
 		fault->gfn, fault->error_code);
 
 	inst_fetch = fault->error_code & PFERR_FETCH_MASK;
-	pr_warn("CachePC: Tracked page fault attrs p:%i w:%i x:%i f:%i\n",
+	CPC_DBG("Tracked page fault attrs p:%i w:%i x:%i f:%i\n",
 		fault->present, inst_fetch, fault->write, fault->exec);
 
 	cachepc_untrack_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
@@ -24,7 +24,7 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 	if (cachepc_track_mode == CPC_TRACK_DATA_ACCESS) {
 		if (cachepc_track_state == CPC_TRACK_AWAIT_INST_FAULT) {
 			/* first fault from instruction fetch */
-			pr_warn("CachePC: Got inst fault gfn:%llu err:%u\n",
+			CPC_DBG("Got inst fault gfn:%llu err:%u\n",
 				fault->gfn, fault->error_code);
 
 			cachepc_inst_fault_gfn = fault->gfn;
@@ -33,29 +33,29 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 			cachepc_data_fault_avail = false;
 
 			cachepc_single_step = true;
-			cachepc_apic_timer = 100; /* starting value */
+			cachepc_apic_timer = 0;
 
 			cachepc_track_state_next = CPC_TRACK_AWAIT_DATA_FAULT;
 		} else if (cachepc_track_state == CPC_TRACK_AWAIT_DATA_FAULT) {
 			/* second fault from data access */
-			pr_warn("CachePC: Got data fault gfn:%llu err:%u\n",
+			CPC_DBG("Got data fault gfn:%llu err:%u\n",
 				fault->gfn, fault->error_code);
 			if (!cachepc_inst_fault_avail)
-				pr_err("CachePC: Waiting for data fault without inst\n");
+				CPC_ERR("Waiting for data fault without inst\n");
 
 			cachepc_data_fault_gfn = fault->gfn;
 			cachepc_data_fault_err = fault->error_code;
 			cachepc_data_fault_avail = true;
 
 			cachepc_single_step = true;
-			cachepc_apic_timer = 100; /* reset in-case part of inst done */
+			cachepc_apic_timer = 0;
 
 			cachepc_track_state_next = CPC_TRACK_AWAIT_STEP_INTR;
 		} else if (cachepc_track_state == CPC_TRACK_AWAIT_STEP_INTR) {
 			/* unexpected extra fault before APIC interrupt */
-			pr_err("CachePC: Got unexpected data fault gfn:%llu err:%u\n",
+			CPC_ERR("Got unexpected data fault gfn:%llu err:%u\n",
 				fault->gfn, fault->error_code);
-			pr_err("CachePC: Data access step apic timer too large?\n");
+			CPC_ERR("Data access step apic timer too large?\n");
 
 			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
 				KVM_PAGE_TRACK_ACCESS);
@@ -76,7 +76,9 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 
 			cachepc_track_state_next = CPC_TRACK_AWAIT_INST_FAULT;
 		} else {
-			pr_err("CachePC: Invalid tracking state: %i\n", cachepc_track_state);
+			CPC_ERR("Invalid tracking state: %i\n",
+				cachepc_track_state);
+
 			cachepc_track_state_next = CPC_TRACK_AWAIT_INST_FAULT;
 		}
 	} else if (cachepc_track_mode == CPC_TRACK_EXEC_PAGES) {
@@ -103,8 +105,6 @@ cachepc_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 {
 	u64 spte;
 	bool flush;
-
-	// pr_warn("CachePC: spte_protect\n");
 
 	spte = *sptep;
 	if (!is_writable_pte(spte) && !(pt_protect && is_mmu_writable_spte(spte)))
@@ -139,8 +139,6 @@ cachepc_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	}
 	flush |= mmu_spte_update(sptep, spte);
 
-	// pr_warn("CachePC: spte_protect flush:%i\n", flush);
-
 	return flush;
 }
 EXPORT_SYMBOL(cachepc_spte_protect);
@@ -171,8 +169,6 @@ cachepc_kvm_mmu_slot_gfn_protect(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 	protected = false;
 
-	// pr_warn("CachePC: mmu_slot_gfn_protect gfn:%llu\n", gfn);
-
 	if (kvm_memslots_have_rmaps(kvm)) {
 		for (i = min_level; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
 			rmap_head = gfn_to_rmap(gfn, i, slot);
@@ -182,7 +178,7 @@ cachepc_kvm_mmu_slot_gfn_protect(struct kvm *kvm, struct kvm_memory_slot *slot,
 		protected |= cachepc_tdp_protect_gfn(kvm,
 			slot, gfn, min_level, mode);
 	} else {
-		pr_err("CachePC: Tracking unsupported!\n");
+		CPC_ERR("Tracking unsupported!\n");
 	}
 
 	return true;

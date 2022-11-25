@@ -17,7 +17,7 @@ extern bool cachepc_events_init;
 
 void cachepc_events_reset(void);
 
-int cachepc_send_cpuid_event(uint8_t type, uint32_t val);
+int cachepc_send_guest_event(uint64_t type, uint64_t val);
 int cachepc_send_track_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
 	uint64_t data_fault_gfn, uint32_t data_fault_err);
 bool cachepc_event_is_done(uint64_t id);

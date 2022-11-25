@@ -52,7 +52,7 @@ cachepc_send_event(struct cpc_event event)
 	write_unlock(&cachepc_event_lock);
 
 	/* wait for ack with timeout */
-	deadline = ktime_get_ns() + 2000000000ULL; /* 2s in ns */
+	deadline = ktime_get_ns() + 60000000000ULL; /* 60s in ns */
 	while (!cachepc_event_is_done(cachepc_event.id)) {
 		if (ktime_get_ns() > deadline) {
 			pr_warn("CachePC: Timeout waiting for ack of event %llu\n",
@@ -65,13 +65,13 @@ cachepc_send_event(struct cpc_event event)
 }
 
 int
-cachepc_send_cpuid_event(uint8_t type, uint32_t val)
+cachepc_send_guest_event(uint64_t type, uint64_t val)
 {
 	struct cpc_event event;
 
 	event.type = CPC_EVENT_CPUID;
-	event.cpuid.type = type;
-	event.cpuid.val = val;
+	event.guest.type = type;
+	event.guest.val = val;
 
 	return cachepc_send_event(event);
 }
@@ -89,7 +89,7 @@ cachepc_send_track_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
 	event.track.data_fault_gfn = data_fault_gfn;
 	event.track.data_fault_err = data_fault_err;
 	event.track.timestamp_ns = ktime_get_real_ns();
-	event.track.retinst = cachepc_retinst - CPC_RETINST_KERNEL;
+	event.track.retinst = cachepc_retinst;
 
 	return cachepc_send_event(event);
 }

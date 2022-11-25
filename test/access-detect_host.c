@@ -133,6 +133,7 @@ monitor(bool baseline)
 	struct cpc_event event;
 	cpc_msrmt_t counts[64];
 	uint64_t track_mode;
+	uint32_t arg;
 	int ret, i;
 
 	/* Get page fault info */
@@ -140,15 +141,27 @@ monitor(bool baseline)
 	if (!ret) {
 		if (event.type == CPC_EVENT_CPUID) {
 			printf("CPUID EVENT\n");
-			if (event.cpuid.type == CPC_CPUID_START_TRACK) {
+			if (event.guest.type == CPC_CPUID_START_TRACK) {
+				arg = CPC_TRACK_DATA_ACCESS;
+				ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+				if (ret == -1) err(1, "ioctl TRACK_MODE");
+
 				track_mode = KVM_PAGE_TRACK_ACCESS;
 				ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
 				if (ret) err(1, "ioctl TRACK_ALL");
-			} else if (event.cpuid.type == CPC_CPUID_STOP_TRACK) {
+			} else if (event.guest.type == CPC_CPUID_STOP_TRACK) {
+				arg = CPC_TRACK_NONE;
+				ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+				if (ret == -1) err(1, "ioctl TRACK_MODE");
+
 				track_mode = KVM_PAGE_TRACK_ACCESS;
 				ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &track_mode);
 				if (ret) err(1, "ioctl UNTRACK_ALL");
 			}
+
+			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
+			if (ret == -1) err(1, "ioctl ACK_EVENT");
+
 			return 0;
 		} else if (event.type != CPC_EVENT_TRACK) {
 			return 0;
@@ -175,7 +188,7 @@ monitor(bool baseline)
 			}
 		}
 
-		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.track.id);
+		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret == -1) err(1, "ioctl ACK_EVENT");
 
 		faultcnt++;
@@ -219,11 +232,6 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
 	if (ret == -1) err(1, "ioctl RESET_TRACKING");
 
-	/* Do data access stepping */
-	arg = CPC_TRACK_DATA_ACCESS;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-	if (ret == -1) err(1, "ioctl TRACK_MODE");
-
 	pin_process(0, SECONDARY_CORE, true);
 	printf("PINNED\n");
 
@@ -239,20 +247,28 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &arg);
 	if (ret) err(1, "ioctl TRACK_ALL");
 
+	arg = CPC_TRACK_DATA_ACCESS;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	if (ret == -1) err(1, "ioctl TRACK_MODE");
+
 	faultcnt = 0;
 	while (faultcnt < 100) {
 		if (monitor(true)) break;
 	}
-
-	arg = KVM_PAGE_TRACK_ACCESS;
-	ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &arg);
-	if (ret) err(1, "ioctl TRACK_ALL");
 
 	do {
 		ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 		if (ret == -1 && errno != EAGAIN)
 			err(1, "ioctl POLL_EVENT");
 	} while (ret == -1 && errno == EAGAIN);
+
+	arg = CPC_TRACK_NONE;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	if (ret == -1) err(1, "ioctl TRACK_MODE");
+
+	arg = KVM_PAGE_TRACK_ACCESS;
+	ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &arg);
+	if (ret) err(1, "ioctl TRACK_ALL");
 
 	arg = false;
 	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
@@ -277,7 +293,7 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
 	if (ret == -1) err(1, "ioctl SUB_BASELINE");
 
-	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.track.id);
+	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 	if (ret == -1) err(1, "ioctl ACK_EVENT");
 
 	faultcnt = 0;

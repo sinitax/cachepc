@@ -467,7 +467,7 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  	case SVM_EXIT_RDTSCP:
  		break;
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index cf0bf456d520..d915c8a3aff7 100644
+index cf0bf456d520..dee33c011251 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,10 @@
@@ -499,16 +499,99 @@ index cf0bf456d520..d915c8a3aff7 100644
  	return rc;
  }
  
-@@ -2083,7 +2091,56 @@ static int smi_interception(struct kvm_vcpu *vcpu)
+@@ -2081,9 +2089,139 @@ static int smi_interception(struct kvm_vcpu *vcpu)
+ 	return 1;
+ }
  
++
++static inline int svm_map_ghcb(struct vcpu_svm *svm, struct kvm_host_map *map)
++{
++	struct vmcb_control_area *control = &svm->vmcb->control;
++	u64 gfn = gpa_to_gfn(control->ghcb_gpa);
++	struct kvm_vcpu *vcpu = &svm->vcpu;
++
++	if (kvm_vcpu_map(vcpu, gfn, map)) {
++		/* Unable to map GHCB from guest */
++		pr_err("error mapping GHCB GFN [%#llx] from guest\n", gfn);
++		return -EFAULT;
++	}
++
++	if (sev_post_map_gfn(vcpu->kvm, map->gfn, map->pfn)) {
++		kvm_vcpu_unmap(vcpu, map, false);
++		return -EBUSY;
++	}
++
++	return 0;
++}
++
++static inline void svm_unmap_ghcb(struct vcpu_svm *svm, struct kvm_host_map *map)
++{
++	struct kvm_vcpu *vcpu = &svm->vcpu;
++
++	kvm_vcpu_unmap(vcpu, map, true);
++	sev_post_unmap_gfn(vcpu->kvm, map->gfn, map->pfn);
++}
++
++static void hexdump(uint8_t *prev, uint8_t *cur, size_t len)
++{
++	size_t i;
++
++	for (i = 0; i < len; i++) {
++		if (cur[i] != prev[i])
++			printk(KERN_CONT "%02X ", cur[i]);
++		else
++			printk(KERN_CONT "     ");
++		if ((i+1) % 16 == 0)
++			printk(KERN_CONT "\n");
++	}
++	printk(KERN_CONT "\n");
++}
++
  static int intr_interception(struct kvm_vcpu *vcpu)
  {
++	static struct vmcb_control_area prev_control;
++	//static struct ghcb prev_ghcb;
 +	struct vcpu_svm *svm;
++	struct vmcb_control_area *control;
++	//struct kvm_host_map map;
++	//struct ghcb *ghcb;
 +
  	++vcpu->stat.irq_exits;
 +
 +	if (cachepc_track_mode == CPC_TRACK_DATA_ACCESS && cachepc_single_step) {
 +		svm = to_svm(vcpu);
++		control = &svm->vmcb->control;
++
++		CPC_WARN("RETINST %llu\n", cachepc_retinst);
++
++		// if (svm_map_ghcb(svm, &map)) {
++		// 	CPC_ERR("Mapping GHCB\n");
++		// 	return 1;
++		// }
++		// ghcb = map.hva;
++
++		// if (memcmp(&prev_ghcb, ghcb, sizeof(struct ghcb))) {
++		// 	pr_warn("GHCB DIFF HEXDUMP:\n");
++		// 	hexdump((void*)&prev_ghcb, (void *)ghcb,
++		// 		sizeof(struct ghcb));
++		// }
++
++		// memcpy(&prev_ghcb, ghcb, sizeof(struct ghcb));
++
++		// svm_unmap_ghcb(svm, &map);
++
++		if (memcmp(&prev_control, control, sizeof(struct vmcb_control_area))) {
++			pr_warn("VMCB DIFF HEXDUMP:\n");
++			hexdump((void*)&prev_control, (void *)control,
++				sizeof(struct vmcb_control_area));
++		}
++		
++		memcpy(&prev_control, control, sizeof(struct vmcb_control_area));
++
++		if (cachepc_apic_timer < 1000) {
++			cachepc_apic_timer += 1;
++			return 1;
++		}
 +
 +		// if (svm->sev_es.vmsa->rip == cachepc_prev_rip) {
 +		// 	cachepc_apic_timer += 1;
@@ -556,7 +639,7 @@ index cf0bf456d520..d915c8a3aff7 100644
  	return 1;
  }
  
-@@ -3269,9 +3326,25 @@ static int svm_handle_invalid_exit(struct kvm_vcpu *vcpu, u64 exit_code)
+@@ -3269,9 +3407,25 @@ static int svm_handle_invalid_exit(struct kvm_vcpu *vcpu, u64 exit_code)
  
  int svm_invoke_exit_handler(struct kvm_vcpu *vcpu, u64 exit_code)
  {
@@ -582,30 +665,19 @@ index cf0bf456d520..d915c8a3aff7 100644
  #ifdef CONFIG_RETPOLINE
  	if (exit_code == SVM_EXIT_MSR)
  		return msr_interception(vcpu);
-@@ -3788,14 +3861,58 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3787,15 +3941,46 @@ static fastpath_t svm_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
+ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  {
  	struct vcpu_svm *svm = to_svm(vcpu);
- 	unsigned long vmcb_pa = svm->current_vmcb->pa;
-+	int cpu, ret;
-+	u64 pfn;
+-	unsigned long vmcb_pa = svm->current_vmcb->pa;
++ 	unsigned long vmcb_pa = svm->current_vmcb->pa;
++	int cpu;
  
  	guest_state_enter_irqoff();
  
  	if (sev_es_guest(vcpu->kvm)) {
 +		if (cachepc_single_step && cachepc_apic_timer == 0) {
-+			pfn = __pa(svm->sev_es.vmsa) >> PAGE_SHIFT;
-+			
 +			cachepc_apic_timer = 100;
-+
-+			ret = rmp_make_shared(pfn, PG_LEVEL_4K);
-+			if (!ret) {
-+				CPC_DBG("VMSA %p\n", svm->sev_es.vmsa);
-+				CPC_DBG("RIP %llu\n", svm->sev_es.vmsa->rip);
-+				cachepc_prev_rip = svm->sev_es.vmsa->rip;
-+
-+				ret = rmp_make_private(pfn, -1, PG_LEVEL_4K, svm->asid, true);
-+				if (ret) CPC_ERR("Could not make VMSA private again\n");
-+			}
 +		}
 +
 +		cpu = get_cpu();
@@ -641,7 +713,7 @@ index cf0bf456d520..d915c8a3aff7 100644
  		/*
  		 * Use a single vmcb (vmcb01 because it's always valid) for
  		 * context switching guest state via VMLOAD/VMSAVE, that way
-@@ -3806,7 +3923,15 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3806,7 +3991,15 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  		__svm_vcpu_run(vmcb_pa, (unsigned long *)&vcpu->arch.regs);
  		vmsave(svm->vmcb01.pa);
  

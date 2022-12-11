@@ -18,8 +18,8 @@ extern bool cachepc_events_init;
 void cachepc_events_reset(void);
 
 int cachepc_send_guest_event(uint64_t type, uint64_t val);
-int cachepc_send_track_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
-	uint64_t data_fault_gfn, uint32_t data_fault_err);
+int cachepc_send_track_event(struct list_head *list);
+int cachepc_send_track_event_single(uint64_t gfn, uint32_t err, uint64_t event);
 bool cachepc_event_is_done(uint64_t id);
 
 int cachepc_handle_poll_event_ioctl(struct cpc_event *user);

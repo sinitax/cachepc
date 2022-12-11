@@ -13,7 +13,7 @@
 #include <linux/sev.h>
 #include <asm/uaccess.h>
 
-bool cachepc_debug = true;
+bool cachepc_debug = false;
 EXPORT_SYMBOL(cachepc_debug);
 
 cpc_msrmt_t *cachepc_msrmts = NULL;
@@ -29,35 +29,36 @@ EXPORT_SYMBOL(cachepc_baseline_measure);
 EXPORT_SYMBOL(cachepc_baseline_active);
 
 uint64_t cachepc_retinst = 0;
+uint64_t cachepc_retinst_prev = 0;
 EXPORT_SYMBOL(cachepc_retinst);
+EXPORT_SYMBOL(cachepc_retinst_prev);
+
+uint64_t cachepc_rip = 0;
+uint64_t cachepc_rip_prev = 0;
+EXPORT_SYMBOL(cachepc_rip);
+EXPORT_SYMBOL(cachepc_rip_prev);
 
 bool cachepc_single_step = false;
 uint32_t cachepc_track_mode = false;
 uint32_t cachepc_apic_timer = 0;
-uint64_t cachepc_prev_rip = 0;
 EXPORT_SYMBOL(cachepc_single_step);
 EXPORT_SYMBOL(cachepc_track_mode);
 EXPORT_SYMBOL(cachepc_apic_timer);
-EXPORT_SYMBOL(cachepc_prev_rip);
 
-uint32_t cachepc_track_state;
-uint32_t cachepc_track_state_next;
-EXPORT_SYMBOL(cachepc_track_state);
-EXPORT_SYMBOL(cachepc_track_state_next);
+uint64_t cachepc_track_start_gfn = 0;
+uint64_t cachepc_track_end_gfn = 0;
+EXPORT_SYMBOL(cachepc_track_start_gfn);
+EXPORT_SYMBOL(cachepc_track_end_gfn);
 
-bool cachepc_inst_fault_avail = false;
+LIST_HEAD(cachepc_faults);
+EXPORT_SYMBOL(cachepc_faults);
+
 uint64_t cachepc_inst_fault_gfn = 0;
 uint32_t cachepc_inst_fault_err = 0;
-EXPORT_SYMBOL(cachepc_inst_fault_avail);
+uint64_t cachepc_inst_fault_retinst = 0;
 EXPORT_SYMBOL(cachepc_inst_fault_gfn);
 EXPORT_SYMBOL(cachepc_inst_fault_err);
-
-bool cachepc_data_fault_avail = false;
-uint64_t cachepc_data_fault_gfn = 0;
-uint32_t cachepc_data_fault_err = 0;
-EXPORT_SYMBOL(cachepc_data_fault_avail);
-EXPORT_SYMBOL(cachepc_data_fault_gfn);
-EXPORT_SYMBOL(cachepc_data_fault_err);
+EXPORT_SYMBOL(cachepc_inst_fault_retinst);
 
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
@@ -106,9 +107,12 @@ static int cachepc_kvm_track_mode_ioctl(void __user *arg_user);
 static int cachepc_kvm_track_page_ioctl(void __user *arg_user);
 static int cachepc_kvm_track_all_ioctl(void __user *arg_user);
 static int cachepc_kvm_untrack_all_ioctl(void __user *arg_user);
-static int cachepc_kvm_uspt_reset_ioctl(void __user *arg_user);
+static int cachepc_kvm_reset_tracking_ioctl(void __user *arg_user);
 static int cachepc_kvm_poll_event_ioctl(void __user *arg_user);
-static int cachepc_kvm_uscpt_ack_event_ioctl(void __user *arg_user);
+static int cachepc_kvm_ack_event_ioctl(void __user *arg_user);
+static int cachepc_kvm_track_range_start_ioctl(void __user *arg_user);
+static int cachepc_kvm_track_range_end_ioctl(void __user *arg_user);
+static int cachepc_kvm_track_exec_cur_ioctl(void __user *arg_user);
 
 void
 cachepc_kvm_prime_probe_test(void *p)
@@ -497,6 +501,7 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 	if (copy_from_user(&mode, arg_user, sizeof(mode)))
 		return -EFAULT;
 
+	cachepc_single_step = false;
 	cachepc_track_mode = mode;
 
 	return 0;
@@ -589,7 +594,7 @@ int
 cachepc_kvm_track_all_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
-	uint64_t mode;
+	uint32_t mode;
 
 	if (!arg_user) return -EINVAL;
 
@@ -614,7 +619,7 @@ int
 cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
-	uint64_t mode;
+	uint32_t mode;
 
 	if (!arg_user) return -EINVAL;
 
@@ -636,16 +641,37 @@ cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_uspt_reset_ioctl(void __user *arg_user)
+cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
+	struct cpc_fault *fault, *next;
 
 	cachepc_events_reset();
+
 	BUG_ON(xa_empty(&main_vm->vcpu_array));
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
+
+	cachepc_track_mode = CPC_TRACK_NONE;
+
+	cachepc_baseline_active = false;
+	cachepc_baseline_measure = false;
+	memset(cachepc_baseline, 0, cachepc_msrmts_count * sizeof(cpc_msrmt_t));
+
+	cachepc_inst_fault_gfn = 0;
+	cachepc_inst_fault_err = 0;
+
+	cachepc_track_start_gfn = 0;
+	cachepc_track_end_gfn = 0;
+
+	cachepc_single_step = false;
+
+	list_for_each_entry_safe(fault, next, &cachepc_faults, list) {
+		list_del(&fault->list);
+		kfree(fault);
+	}
 
 	return 0;
 }
@@ -660,7 +686,7 @@ cachepc_kvm_poll_event_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_uscpt_ack_event_ioctl(void __user *arg_user)
+cachepc_kvm_ack_event_ioctl(void __user *arg_user)
 {
 	uint64_t eventid;
 
@@ -670,9 +696,47 @@ cachepc_kvm_uscpt_ack_event_ioctl(void __user *arg_user)
 		return -EINVAL;
 
 	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))
-		return -EINVAL;
+		return -EFAULT;
 
 	return cachepc_handle_ack_event_ioctl(eventid);
+}
+
+int
+cachepc_kvm_track_range_start_ioctl(void __user *arg_user)
+{
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&cachepc_track_start_gfn, arg_user, sizeof(uint64_t)))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
+cachepc_kvm_track_range_end_ioctl(void __user *arg_user)
+{
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&cachepc_track_end_gfn, arg_user, sizeof(uint64_t)))
+		return -EFAULT;
+
+	return 0;
+}
+
+int
+cachepc_kvm_track_exec_cur_ioctl(void __user *arg_user)
+{
+	struct cpc_fault *fault;
+
+	if (!arg_user) return -EINVAL;
+
+	fault = list_first_entry(&cachepc_faults, struct cpc_fault, list);
+	if (!fault) return -EFAULT;
+
+	if (copy_to_user(arg_user, &fault->gfn, sizeof(uint64_t)))
+		return -EFAULT;
+
+	return 0;
 }
 
 long
@@ -717,11 +781,17 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 	case KVM_CPC_UNTRACK_ALL:
 		return cachepc_kvm_untrack_all_ioctl(arg_user);
 	case KVM_CPC_RESET_TRACKING:
-		return cachepc_kvm_uspt_reset_ioctl(arg_user);
+		return cachepc_kvm_reset_tracking_ioctl(arg_user);
 	case KVM_CPC_POLL_EVENT:
 		return cachepc_kvm_poll_event_ioctl(arg_user);
 	case KVM_CPC_ACK_EVENT:
-		return cachepc_kvm_uscpt_ack_event_ioctl(arg_user);
+		return cachepc_kvm_ack_event_ioctl(arg_user);
+	case KVM_CPC_TRACK_RANGE_START:
+		return cachepc_kvm_track_range_start_ioctl(arg_user);
+	case KVM_CPC_TRACK_RANGE_END:
+		return cachepc_kvm_track_range_end_ioctl(arg_user);
+	case KVM_CPC_TRACK_EXEC_CUR:
+		return cachepc_kvm_track_exec_cur_ioctl(arg_user);
 	default:
 		return kvm_arch_dev_ioctl(file, ioctl, arg);
 	}
@@ -762,19 +832,21 @@ cachepc_kvm_init(void)
 	cachepc_ds = NULL;
 
 	cachepc_retinst = 0;
+	cachepc_debug = false;
 
 	cachepc_single_step = false;
 	cachepc_track_mode = CPC_TRACK_NONE;
 
-	cachepc_track_state = CPC_TRACK_AWAIT_INST_FAULT;
+	cachepc_inst_fault_gfn = 0;
+	cachepc_inst_fault_err = 0;
 
-	cachepc_data_fault_avail = false;
-	cachepc_inst_fault_avail = false;
+	INIT_LIST_HEAD(&cachepc_faults);
 
 	cachepc_msrmts_count = L1_SETS;
 	cachepc_msrmts = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);
 	BUG_ON(cachepc_msrmts == NULL);
 
+	cachepc_baseline_active = false;
 	cachepc_baseline_measure = false;
 	cachepc_baseline = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);
 	BUG_ON(cachepc_baseline == NULL);

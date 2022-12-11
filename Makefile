@@ -1,17 +1,19 @@
-LINUX ?= /usr/src/linux
+LINUX ?= linux
 PWD := $(shell pwd)
 
-TARGETS = build test/eviction test/access test/kvm test/sev test/sev-es test/sevstep 
-TARGETS += test/aes-detect_guest test/aes-detect_host
-TARGETS += test/access-detect_guest test/access-detect_host
-TARGETS += test/readsvme test/debug
+BINS = test/eviction test/access test/kvm test/sev test/sev-es test/sevstep 
+BINS += test/aes-detect_guest test/aes-detect_host
+BINS += test/access-detect_guest test/access-detect_host
+BINS += test/readsvme util/debug util/reset
 
 CFLAGS = -I . -I test -Wunused-variable -Wunknown-pragmas
 
-all: $(TARGETS)
+all: build $(BINS)
 
 clean:
 	$(MAKE) -C $(LINUX) SUBDIRS=arch/x86/kvm clean
+	$(MAKE) -C $(LINUX) SUBDIRS=crypto clean
+	rm $(BINS)
 
 $(LINUX)/arch/x86/kvm/cachepc:
 	ln -sf $(PWD)/cachepc $@
@@ -27,9 +29,9 @@ load:
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm-amd.ko
 
 freq:
-	sudo cpupower frequency-set -f 1.5GHz
-	sudo cpupower frequency-set -u 1.5GHz
-	sudo cpupower frequency-set -d 1.5GHz
+	sudo cpupower frequency-set -f 3.7GHz
+	sudo cpupower frequency-set -u 3.7GHz
+	sudo cpupower frequency-set -d 3.7GHz
 
 update:
 	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff
@@ -37,7 +39,13 @@ update:
 test/aes-detect_%: test/aes-detect_%.c test/aes-detect.c cachepc/uapi.h
 	clang -o $@ $< $(CFLAGS) -I test/libkcapi/lib -L test/libkcapi/.libs -lkcapi -static
 
+test/access-detect_%: test/access-detect_%.c cachepc/uapi.h
+	clang -o $@ $< $(CFLAGS) -static
+
 test/%: test/%.c cachepc/uapi.h
-	clang -o $@ $< $(CFLAGS)  -fsanitize=address
+	clang -o $@ $< $(CFLAGS) -fsanitize=address
+
+util/%: util/%.c cachepc/uapi.h
+	clang -o $@ $< $(CFLAGS) -fsanitize=address
 
 .PHONY: all clean build load freq update

@@ -1,3 +1,6 @@
 [submodule "guest/libkcapi"]
 	path = test/libkcapi
 	url = https://github.com/smuellerDD/libkcapi.git
+[submodule "cachepc-linux"]
+	path = linux
+	url = git@cachepclinux.github.com:Sinitax/cachepc-linux.git

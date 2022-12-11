@@ -78,6 +78,13 @@ struct cacheline {
     char padding[24];
 };
 
+struct cpc_fault {
+	uint64_t gfn;
+	uint32_t err;
+
+	struct list_head list;
+};
+
 static_assert(sizeof(struct cacheline) == CACHELINE_SIZE, "Bad cache line struct size");
 static_assert(CL_NEXT_OFFSET == 0 && CL_PREV_OFFSET == 8);
 
@@ -132,23 +139,24 @@ extern cpc_msrmt_t *cachepc_baseline;
 extern bool cachepc_baseline_measure;
 extern bool cachepc_baseline_active;
 
-extern uint64_t cachepc_retinst;
-
 extern bool cachepc_single_step;
 extern uint32_t cachepc_track_mode;
 extern uint32_t cachepc_apic_timer;
-extern uint64_t cachepc_prev_rip;
 
-extern uint32_t cachepc_track_state;
-extern uint32_t cachepc_track_state_next;
+extern uint64_t cachepc_track_start_gfn;
+extern uint64_t cachepc_track_end_gfn;
 
-extern bool cachepc_inst_fault_avail;
+extern uint64_t cachepc_retinst;
+extern uint64_t cachepc_retinst_prev;
+
+extern uint64_t cachepc_rip;
+extern uint64_t cachepc_rip_prev;
+
 extern uint64_t cachepc_inst_fault_gfn;
 extern uint32_t cachepc_inst_fault_err;
+extern uint64_t cachepc_inst_fault_retinst;
 
-extern bool cachepc_data_fault_avail;
-extern uint64_t cachepc_data_fault_gfn;
-extern uint32_t cachepc_data_fault_err;
+extern struct list_head cachepc_faults;
 
 extern cache_ctx *cachepc_ctx;
 extern cacheline *cachepc_ds;

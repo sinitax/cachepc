@@ -52,7 +52,7 @@ cachepc_send_event(struct cpc_event event)
 	write_unlock(&cachepc_event_lock);
 
 	/* wait for ack with timeout */
-	deadline = ktime_get_ns() + 60000000000ULL; /* 60s in ns */
+	deadline = ktime_get_ns() + 20000000000ULL; /* 20s in ns */
 	while (!cachepc_event_is_done(cachepc_event.id)) {
 		if (ktime_get_ns() > deadline) {
 			pr_warn("CachePC: Timeout waiting for ack of event %llu\n",
@@ -77,19 +77,39 @@ cachepc_send_guest_event(uint64_t type, uint64_t val)
 }
 
 int
-cachepc_send_track_event(uint64_t inst_fault_gfn, uint32_t inst_fault_err,
-	uint64_t data_fault_gfn, uint32_t data_fault_err)
+cachepc_send_track_event(struct list_head *list)
 {
-	struct cpc_event event;
-	
+	struct cpc_event event = { 0 };
+	struct cpc_fault *fault;
+	uint64_t count;
+
+	count = 0;
 	event.type = CPC_EVENT_TRACK;
-	event.track.inst_fault_gfn = inst_fault_gfn;
-	event.track.inst_fault_err = inst_fault_err;
-	event.track.data_fault_avail = (data_fault_err != 0);
-	event.track.data_fault_gfn = data_fault_gfn;
-	event.track.data_fault_err = data_fault_err;
+	list_for_each_entry(fault, list, list) {
+		if (count >= 16)
+			break;
+		event.track.fault_gfns[count] = fault->gfn;
+		event.track.fault_errs[count] = fault->err;
+		count += 1;
+	}
+	event.track.fault_count = count;
 	event.track.timestamp_ns = ktime_get_real_ns();
 	event.track.retinst = cachepc_retinst;
+
+	return cachepc_send_event(event);
+}
+
+int
+cachepc_send_track_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
+{
+	struct cpc_event event = { 0 };
+
+	event.type = CPC_EVENT_TRACK;
+	event.track.fault_count = 1;
+	event.track.fault_gfns[0] = gfn;
+	event.track.fault_errs[0] = err;
+	event.track.timestamp_ns = ktime_get_real_ns();
+	event.track.retinst = retinst;
 
 	return cachepc_send_event(event);
 }
@@ -136,7 +156,7 @@ cachepc_handle_ack_event_ioctl(uint64_t eventid)
 	int err;
 
 	write_lock(&cachepc_event_lock);
-	if (eventid == cachepc_last_event_sent) {
+	if (!eventid || eventid == cachepc_last_event_sent) {
 		err = 0;
 		cachepc_last_event_acked = cachepc_last_event_sent;
 	} else {

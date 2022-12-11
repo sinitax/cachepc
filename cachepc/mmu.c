@@ -1,16 +1,26 @@
 #include "../cachepc/cachepc.h"
 #include "../cachepc/track.h"
 #include "../cachepc/event.h"
+#include "svm/svm.h"
 
 static void
 cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 	struct kvm_page_fault *fault)
 {
+	int modes[] = {
+		KVM_PAGE_TRACK_EXEC,
+		KVM_PAGE_TRACK_ACCESS,
+	};
+	struct cpc_fault *tmp, *alloc;
+	size_t count, i;
 	bool inst_fetch;
 
-	if (!kvm_slot_page_track_is_active(vcpu->kvm,
-			fault->slot, fault->gfn, KVM_PAGE_TRACK_ACCESS))
-		return;
+	for (i = 0; i < 2; i++) {
+		if (kvm_slot_page_track_is_active(vcpu->kvm,
+				fault->slot, fault->gfn, modes[i]))
+			break;
+	}
+	if (i == 2) return;
 
 	CPC_DBG("Tracked page fault (gfn:%llu err:%u)\n",
 		fault->gfn, fault->error_code);
@@ -19,84 +29,40 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 	CPC_DBG("Tracked page fault attrs p:%i w:%i x:%i f:%i\n",
 		fault->present, inst_fetch, fault->write, fault->exec);
 
-	cachepc_untrack_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
+	count = 0;
+	list_for_each_entry(tmp, &cachepc_faults, list)
+		count += 1;
+
+	CPC_INFO("Got %lu. fault gfn:%llu err:%u\n", count + 1,
+		fault->gfn, fault->error_code);
 
 	if (cachepc_track_mode == CPC_TRACK_DATA_ACCESS) {
-		if (cachepc_track_state == CPC_TRACK_AWAIT_INST_FAULT) {
-			/* first fault from instruction fetch */
-			CPC_DBG("Got inst fault gfn:%llu err:%u\n",
-				fault->gfn, fault->error_code);
+		cachepc_untrack_single(vcpu, fault->gfn, modes[i]);
 
-			cachepc_inst_fault_gfn = fault->gfn;
-			cachepc_inst_fault_err = fault->error_code;
-			cachepc_inst_fault_avail = true;
-			cachepc_data_fault_avail = false;
+		alloc = kmalloc(sizeof(struct cpc_fault), GFP_KERNEL);
+		BUG_ON(!alloc);
+		alloc->gfn = fault->gfn;
+		alloc->err = fault->error_code;
+		list_add_tail(&alloc->list, &cachepc_faults);
 
-			cachepc_single_step = true;
-			cachepc_apic_timer = 0;
+		cachepc_single_step = true;
+		cachepc_apic_timer = 0;
+	} else if (cachepc_track_mode == CPC_TRACK_EXEC) {
+		cachepc_untrack_single(vcpu, fault->gfn, modes[i]);
 
-			cachepc_track_state_next = CPC_TRACK_AWAIT_DATA_FAULT;
-		} else if (cachepc_track_state == CPC_TRACK_AWAIT_DATA_FAULT) {
-			/* second fault from data access */
-			CPC_DBG("Got data fault gfn:%llu err:%u\n",
-				fault->gfn, fault->error_code);
-			if (!cachepc_inst_fault_avail)
-				CPC_ERR("Waiting for data fault without inst\n");
+		if (modes[i] != KVM_PAGE_TRACK_EXEC)
+			CPC_WARN("Wrong page track mode for TRACK_EXEC");
 
-			cachepc_data_fault_gfn = fault->gfn;
-			cachepc_data_fault_err = fault->error_code;
-			cachepc_data_fault_avail = true;
+		alloc = kmalloc(sizeof(struct cpc_fault), GFP_KERNEL);
+		BUG_ON(!alloc);
+		alloc->gfn = fault->gfn;
+		alloc->err = fault->error_code;
+		list_add_tail(&alloc->list, &cachepc_faults);
 
-			cachepc_single_step = true;
-			cachepc_apic_timer = 0;
-
-			cachepc_track_state_next = CPC_TRACK_AWAIT_STEP_INTR;
-		} else if (cachepc_track_state == CPC_TRACK_AWAIT_STEP_INTR) {
-			/* unexpected extra fault before APIC interrupt */
-			CPC_ERR("Got unexpected data fault gfn:%llu err:%u\n",
-				fault->gfn, fault->error_code);
-			CPC_ERR("Data access step apic timer too large?\n");
-
-			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
-				KVM_PAGE_TRACK_ACCESS);
-			cachepc_inst_fault_avail = false;
-
-			cachepc_track_single(vcpu, cachepc_data_fault_gfn,
-				KVM_PAGE_TRACK_ACCESS);
-			cachepc_data_fault_avail = false;
-
-			/* retrack fault we just got so we can start from scratch */
-			cachepc_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
-
-			cachepc_send_track_event(
-				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
-				cachepc_data_fault_gfn, cachepc_data_fault_err);
-	
-			cachepc_single_step = false;
-
-			cachepc_track_state_next = CPC_TRACK_AWAIT_INST_FAULT;
-		} else {
-			CPC_ERR("Invalid tracking state: %i\n",
-				cachepc_track_state);
-
-			cachepc_track_state_next = CPC_TRACK_AWAIT_INST_FAULT;
-		}
-	} else if (cachepc_track_mode == CPC_TRACK_EXEC_PAGES) {
-		/* untrack pages that are not code (could be a problem for WX */
-		if (!inst_fetch) return;
-
-		/* TODO: calculate retired instructions (save and subtract global counter) */
-		if (cachepc_inst_fault_avail) {
-			/* track previous faulted page, current stays untracked */
-			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
-				KVM_PAGE_TRACK_ACCESS);
-		}
-		cachepc_inst_fault_gfn = fault->gfn;
-		cachepc_inst_fault_err = fault->error_code;
-		cachepc_send_track_event(fault->gfn, fault->error_code, 0, 0);
+		cachepc_single_step = true;
+		cachepc_apic_timer = 0;
 	} else if (cachepc_track_mode == CPC_TRACK_ACCESS) {
-		cachepc_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
-		cachepc_send_track_event(fault->gfn, fault->error_code, 0, 0);
+		cachepc_send_track_event(&cachepc_faults);
 	}
 }
 
@@ -110,32 +76,27 @@ cachepc_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	if (!is_writable_pte(spte) && !(pt_protect && is_mmu_writable_spte(spte)))
 		return false;
 
-	rmap_printk("spte %p %llx\n", sptep, *sptep);
-
 	if (pt_protect)
 		spte &= ~shadow_mmu_writable_mask;
 
 	flush = false;
 	if (mode == KVM_PAGE_TRACK_WRITE) {
-		spte = spte & ~PT_WRITABLE_MASK;
+		spte &= ~PT_WRITABLE_MASK;
 		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_RESET_ACCESSED) {
-		spte = spte & ~PT_ACCESSED_MASK;
+		spte &= ~PT_ACCESSED_MASK;
 	} else if (mode == KVM_PAGE_TRACK_ACCESS) {
-		spte = spte & ~PT_PRESENT_MASK;
-		spte = spte & ~PT_WRITABLE_MASK;
-		spte = spte & ~PT_USER_MASK;
-		spte = spte | (0x1ULL << PT64_NX_SHIFT);
+		spte &= ~PT_PRESENT_MASK;
+		spte &= ~PT_WRITABLE_MASK;
+		spte &= ~PT_USER_MASK;
+		spte |= (0x1ULL << PT64_NX_SHIFT);
 		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_EXEC) {
-		spte = spte | (0x1ULL << PT64_NX_SHIFT);
+		spte |= (0x1ULL << PT64_NX_SHIFT);
 		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_RESET_EXEC) {
-		spte = spte & ~(0x1ULL << PT64_NX_SHIFT);
+		spte &= ~(0x1ULL << PT64_NX_SHIFT);
 		flush = true;
-	} else {
-		printk(KERN_WARNING "spte_protect was called with invalid mode"
-			"parameter %d\n",mode);
 	}
 	flush |= mmu_spte_update(sptep, spte);
 

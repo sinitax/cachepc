@@ -20,6 +20,7 @@
 #include <err.h>
 #include <fcntl.h>
 #include <sched.h>
+#include <dirent.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -79,7 +80,7 @@ read_counts()
 	if (!counts) err(1, "malloc");
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-	if (ret == -1) err(1, "ioctl READ_COUNTS");
+	if (ret) err(1, "ioctl READ_COUNTS");
 
 	for (i = 0; i < L1_SETS; i++) {
 		if (counts[i] > 8)
@@ -132,8 +133,9 @@ monitor(bool baseline)
 {
 	struct cpc_event event;
 	cpc_msrmt_t counts[64];
-	uint64_t track_mode;
-	uint32_t arg;
+	uint64_t inst_fault_gfn;
+	uint64_t read_fault_gfn;
+	uint64_t arg;
 	int ret, i;
 
 	/* Get page fault info */
@@ -142,25 +144,32 @@ monitor(bool baseline)
 		if (event.type == CPC_EVENT_CPUID) {
 			printf("CPUID EVENT\n");
 			if (event.guest.type == CPC_CPUID_START_TRACK) {
-				arg = CPC_TRACK_DATA_ACCESS;
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-				if (ret == -1) err(1, "ioctl TRACK_MODE");
+				ret = ioctl(kvm_dev, KVM_CPC_TRACK_EXEC_CUR, &inst_fault_gfn);
+				if (ret) err(1, "ioctl TRACK_EXEC_CUR");
 
-				track_mode = KVM_PAGE_TRACK_ACCESS;
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
-				if (ret) err(1, "ioctl TRACK_ALL");
+				printf("CPUID INST PAGE: %lu\n", inst_fault_gfn);
+
+				arg = inst_fault_gfn;
+				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_START, &arg);
+				if (ret) err(1, "ioctl TRACK_RANGE_START");
+
+				arg = inst_fault_gfn+8;
+				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_END, &arg);
+				if (ret) err(1, "ioctl TRACK_RANGE_END");
 			} else if (event.guest.type == CPC_CPUID_STOP_TRACK) {
-				arg = CPC_TRACK_NONE;
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-				if (ret == -1) err(1, "ioctl TRACK_MODE");
+				arg = 0;
+				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_START, &arg);
+				if (ret) err(1, "ioctl TRACK_RANGE_START");
 
-				track_mode = KVM_PAGE_TRACK_ACCESS;
-				ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &track_mode);
-				if (ret) err(1, "ioctl UNTRACK_ALL");
+				arg = 0;
+				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_END, &arg);
+				if (ret) err(1, "ioctl TRACK_RANGE_END");
 			}
 
 			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-			if (ret == -1) err(1, "ioctl ACK_EVENT");
+			if (ret) err(1, "ioctl ACK_EVENT");
+
+			faultcnt++;
 
 			return 0;
 		} else if (event.type != CPC_EVENT_TRACK) {
@@ -170,32 +179,74 @@ monitor(bool baseline)
 		printf("EVENT\n");
 
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-		if (ret == -1) err(1, "ioctl READ_COUNTS");
+		if (ret) err(1, "ioctl READ_COUNTS");
+
+		inst_fault_gfn = 0;
+		read_fault_gfn = 0;
+		for (i = 0; i < event.track.fault_count; i++) {
+			if ((event.track.fault_errs[i] & 0b11111) == 0b10100)
+				inst_fault_gfn = event.track.fault_gfns[i];
+			else if ((event.track.fault_errs[i] & 0b00110) == 0b00100)
+				read_fault_gfn = event.track.fault_gfns[i];
+		}
 
 		if (!baseline) {
-			printf("Event: inst:%llu data:%llu retired:%llu\n",
-				event.track.inst_fault_gfn,
-				event.track.data_fault_gfn,
-				event.track.retinst);
+			printf("Event: cnt:%llu inst:%lu data:%lu retired:%llu\n",
+				event.track.fault_count, inst_fault_gfn,
+				read_fault_gfn, event.track.retinst);
 			print_counts(counts);
 			printf("\n");
 		}
 
 		for (i = 0; i < 64; i++) {
 			if (counts[i] > 8) {
-				errx(1, "Invalid count for set %i (%llu)",
+				warnx("Invalid count for set %i (%llu)",
 					i, counts[i]);
+				counts[i] = 8;
 			}
 		}
 
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-		if (ret == -1) err(1, "ioctl ACK_EVENT");
+		if (ret) err(1, "ioctl ACK_EVENT");
 
-		faultcnt++;
+		if (baseline) faultcnt++;
 	} else if (errno != EAGAIN) {
 		perror("ioctl POLL_EVENT");
 		return 1;
 	}
+
+	return 0;
+}
+
+int
+pgrep(const char *bin)
+{
+	char path[PATH_MAX];
+	char buf[PATH_MAX];
+	char *cmp;
+	struct dirent *ent;
+	FILE *f;
+	DIR *dir;
+
+	dir = opendir("/proc");
+	if (!dir) err(1, "opendir");
+
+	while ((ent = readdir(dir))) {
+		snprintf(path, sizeof(path), "/proc/%s/cmdline", ent->d_name);
+		f = fopen(path, "rb");
+		if (!f) continue;
+		memset(buf, 0, sizeof(buf));
+		fread(buf, 1, sizeof(buf), f);
+		if ((cmp = strrchr(buf, '/')))
+			cmp += 1;
+		else
+			cmp = buf;
+		if (!strcmp(cmp, bin))
+			return atoi(ent->d_name);
+		fclose(f);
+	}
+
+	closedir(dir);
 
 	return 0;
 }
@@ -208,20 +259,17 @@ main(int argc, const char **argv)
 	struct cpc_event event;
 	cpc_msrmt_t baseline[64];
 	int ret, i;
-
-	if (argc <= 1 || !atoi(argv[1])) {
-		printf("Specify qemu process to pin\n");
-		return 0;
-	}
 	
 	kvm_dev = open("/dev/kvm", O_RDWR);
 	if (!kvm_dev) err(1, "open /dev/kvm");
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	pid = atoi(argv[1]);
-	pin_process(pid, TARGET_CORE, true);
+	pid = pgrep("qemu-system-x86_64");
+	if (!pid) errx(1, "Failed to find qemu instance");
+	printf("PID %i\n", pid);
 
+	pin_process(pid, TARGET_CORE, true);
 	pin_process(0, TARGET_CORE, true);
 
 	/* Setup needed performance counters */
@@ -230,18 +278,18 @@ main(int argc, const char **argv)
 
 	/* Reset previous tracking */
 	ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
-	if (ret == -1) err(1, "ioctl RESET_TRACKING");
+	if (ret) err(1, "ioctl RESET_TRACKING");
 
 	pin_process(0, SECONDARY_CORE, true);
 	printf("PINNED\n");
 
 	arg = false;
 	ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
-	if (ret == -1) err(1, "ioctl SUB_BASELINE");
+	if (ret) err(1, "ioctl SUB_BASELINE");
 
 	arg = true;
 	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
-	if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+	if (ret) err(1, "ioctl MEASURE_BASELINE");
 
 	arg = KVM_PAGE_TRACK_ACCESS;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &arg);
@@ -249,7 +297,7 @@ main(int argc, const char **argv)
 
 	arg = CPC_TRACK_DATA_ACCESS;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-	if (ret == -1) err(1, "ioctl TRACK_MODE");
+	if (ret) err(1, "ioctl TRACK_MODE");
 
 	faultcnt = 0;
 	while (faultcnt < 100) {
@@ -258,24 +306,28 @@ main(int argc, const char **argv)
 
 	do {
 		ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
-		if (ret == -1 && errno != EAGAIN)
+		if (ret && errno != EAGAIN)
 			err(1, "ioctl POLL_EVENT");
-	} while (ret == -1 && errno == EAGAIN);
-
-	arg = CPC_TRACK_NONE;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-	if (ret == -1) err(1, "ioctl TRACK_MODE");
+	} while (ret && errno == EAGAIN);
 
 	arg = KVM_PAGE_TRACK_ACCESS;
 	ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &arg);
+	if (ret) err(1, "ioctl UNTRACK_ALL");
+
+	arg = CPC_TRACK_EXEC;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	if (ret) err(1, "ioctl TRACK_MODE");
+
+	arg = KVM_PAGE_TRACK_EXEC;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &arg);
 	if (ret) err(1, "ioctl TRACK_ALL");
 
 	arg = false;
 	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
-	if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+	if (ret) err(1, "ioctl MEASURE_BASELINE");
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
-	if (ret == -1) err(1, "ioctl READ_BASELINE");
+	if (ret) err(1, "ioctl READ_BASELINE");
 
 	printf("\n>>> BASELINE:\n");
 	print_counts(baseline);
@@ -291,14 +343,18 @@ main(int argc, const char **argv)
 
 	arg = true;
 	ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
-	if (ret == -1) err(1, "ioctl SUB_BASELINE");
+	if (ret) err(1, "ioctl SUB_BASELINE");
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-	if (ret == -1) err(1, "ioctl ACK_EVENT");
+	if (ret) err(1, "ioctl ACK_EVENT");
 
 	faultcnt = 0;
 	while (faultcnt < 10) {
 		if (monitor(false)) break;
 	}
+
+	arg = KVM_PAGE_TRACK_EXEC;
+	ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &arg);
+	if (ret) err(1, "ioctl UNTRACK_ALL");
 }
 

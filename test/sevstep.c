@@ -109,6 +109,9 @@ vm_guest_with(void)
 	while (1) {
 		asm volatile("mov (%0), %%eax" : :
 			"r" (L1_LINESIZE * (L1_SETS * 3 + TARGET_SET)) : "rax");
+		asm volatile("nop");
+		asm volatile("mov (%0), %%eax" : :
+			"r" (L1_LINESIZE * (L1_SETS * 3 + TARGET_SET)) : "rax");
 	}
 }
 
@@ -231,7 +234,7 @@ snp_dbg_decrypt(int vmfd, void *dst, void *src, size_t size)
 	struct kvm_sev_dbg enc;
 	int ret, fwerr;
 
-	assert(false); /* ioctl not implemented yet */
+	// assert(false); /* ioctl not implemented yet */
 
 	memset(&enc, 0, sizeof(struct kvm_sev_dbg));
 	enc.src_uaddr = (uintptr_t) src;
@@ -246,21 +249,13 @@ snp_dbg_decrypt(int vmfd, void *dst, void *src, size_t size)
 uint64_t
 snp_dbg_rip(int vmfd)
 {
-	void *vmsa;
+	uint8_t vmsa[PAGE_SIZE];
 	uint64_t rip;
-	int ret;
 
-	vmsa = NULL;
-	if (posix_memalign(&vmsa, PAGE_SIZE, PAGE_SIZE))
-		err(1, "memalign");
 	memset(vmsa, 0, PAGE_SIZE);
-
 	snp_dbg_decrypt(vmfd, vmsa, CPC_VMSA_MAGIC_ADDR, PAGE_SIZE);
-	// hexdump(vmsa, PAGE_SIZE);
 
 	rip = *(uint64_t *)(vmsa + 0x178);
-
-	free(vmsa);
 
 	return rip;
 }
@@ -447,7 +442,6 @@ runonce(struct kvm *kvm)
 int
 monitor(struct kvm *kvm, bool baseline)
 {
-	static uint64_t rip_prev = 1;
 	struct cpc_event event;
 	cpc_msrmt_t counts[64];
 	uint64_t rip;
@@ -463,18 +457,16 @@ monitor(struct kvm *kvm, bool baseline)
 		if (ret == -1) err(1, "ioctl READ_COUNTS");
 
 		rip = 0; // snp_dbg_rip(kvm->vmfd);
-		if (!baseline && rip != rip_prev) {
-			printf("Event: inst:%llu data:%llu retired:%llu rip:%lu\n",
-				event.track.inst_fault_gfn,
-				event.track.data_fault_gfn,
+		if (!baseline) {
+			printf("Event: cnt:%llu inst:%llu data:%llu retired:%llu rip:%lu\n",
+				event.track.fault_count,
+				event.track.fault_gfns[0],
+				event.track.fault_gfns[1],
 				event.track.retinst, rip);
 			print_counts(counts);
 			printf("\n");
-			rip_prev = rip;
-			faultcnt++;
-		} else if (baseline) {
-			faultcnt++;
 		}
+		faultcnt++;
 
 		for (i = 0; i < 64; i++) {
 			if (counts[i] > 8) {

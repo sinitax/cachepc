@@ -16,6 +16,36 @@ index eb186bc57f6a..b96e80934005 100644
  
  /*
   * The notifier represented by @kvm_page_track_notifier_node is linked into
+diff --git a/arch/x86/kernel/sev.c b/arch/x86/kernel/sev.c
+index f603a724b08e..5c2d9b07c6aa 100644
+--- a/arch/x86/kernel/sev.c
++++ b/arch/x86/kernel/sev.c
+@@ -1034,6 +1034,8 @@ static int wakeup_cpu_via_vmgexit(int apic_id, unsigned long start_ip)
+ 	if (!vmsa)
+ 		return -ENOMEM;
+ 
++	CPC_WARN("New VMSA allocated!\n");
++
+ 	/* CR4 should maintain the MCE value */
+ 	cr4 = native_read_cr4() & X86_CR4_MCE;
+ 
+@@ -2589,11 +2591,11 @@ static int rmpupdate(u64 pfn, struct rmpupdate *val)
+ 	 * direct map.
+ 	 */
+ 	if (val->assigned) {
+-		if (invalid_direct_map(pfn, npages)) {
+-			pr_err("Failed to unmap pfn 0x%llx pages %d from direct_map\n",
+-			       pfn, npages);
+-			return -EFAULT;
+-		}
++		// if (invalid_direct_map(pfn, npages)) {
++		// 	pr_err("Failed to unmap pfn 0x%llx pages %d from direct_map\n",
++		// 	       pfn, npages);
++		// 	return -EFAULT;
++		// }
+ 	}
+ 
+ retry:
 diff --git a/arch/x86/kvm/Makefile b/arch/x86/kvm/Makefile
 index 30f244b64523..a1e3c5ae2f80 100644
 --- a/arch/x86/kvm/Makefile
@@ -367,19 +397,20 @@ index 7b9265d67131..68b9134970da 100644
  
  /*
 diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
-index a4f6d10b0ef3..0c5aae1de162 100644
+index a4f6d10b0ef3..62c1fcd563a6 100644
 --- a/arch/x86/kvm/svm/sev.c
 +++ b/arch/x86/kvm/svm/sev.c
-@@ -35,6 +35,8 @@
+@@ -35,6 +35,9 @@
  #include "trace.h"
  #include "mmu.h"
  
++#include "asm/set_memory.h"
 +#include "cachepc/cachepc.h"
 +
  #ifndef CONFIG_KVM_AMD_SEV
  /*
   * When this config is not defined, SEV feature is not supported and APIs in
-@@ -888,7 +890,7 @@ static int __sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
+@@ -888,7 +891,7 @@ static int __sev_issue_dbg_cmd(struct kvm *kvm, unsigned long src,
  			     &data, error);
  }
  
@@ -388,7 +419,7 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  			     unsigned long dst_paddr, int sz, int *err)
  {
  	int offset;
-@@ -904,12 +906,20 @@ static int __sev_dbg_decrypt(struct kvm *kvm, unsigned long src_paddr,
+@@ -904,12 +907,20 @@ static int __sev_dbg_decrypt(struct kvm *kvm, unsigned long src_paddr,
  	return __sev_issue_dbg_cmd(kvm, src_paddr, dst_paddr, sz, err, false);
  }
  
@@ -409,7 +440,7 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  	int ret, offset;
  
  	/* if inputs are not 16-byte then use intermediate buffer */
-@@ -923,6 +933,11 @@ static int __sev_dbg_decrypt_user(struct kvm *kvm, unsigned long paddr,
+@@ -923,6 +934,11 @@ static int __sev_dbg_decrypt_user(struct kvm *kvm, unsigned long paddr,
  		dst_paddr = __sme_page_pa(tpage);
  	}
  
@@ -421,7 +452,7 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  	ret = __sev_dbg_decrypt(kvm, paddr, dst_paddr, size, err);
  	if (ret)
  		goto e_free;
-@@ -1024,6 +1039,7 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
+@@ -1024,6 +1040,7 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
  	struct kvm_sev_dbg debug;
  	unsigned long n;
  	unsigned int size;
@@ -429,7 +460,7 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  	int ret;
  
  	if (!sev_guest(kvm))
-@@ -1037,6 +1053,13 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
+@@ -1037,6 +1054,13 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
  	if (!debug.dst_uaddr)
  		return -EINVAL;
  
@@ -443,7 +474,7 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  	vaddr = debug.src_uaddr;
  	size = debug.len;
  	vaddr_end = vaddr + size;
-@@ -1075,7 +1098,8 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
+@@ -1075,7 +1099,8 @@ static int sev_dbg_crypt(struct kvm *kvm, struct kvm_sev_cmd *argp, bool dec)
  		if (dec)
  			ret = __sev_dbg_decrypt_user(kvm,
  						     __sme_page_pa(src_p[0]) + s_off,
@@ -453,7 +484,92 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  						     __sme_page_pa(dst_p[0]) + d_off,
  						     len, &argp->error);
  		else
-@@ -3149,9 +3173,9 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm, u64 *exit_code)
+@@ -2170,6 +2195,62 @@ static int snp_launch_update(struct kvm *kvm, struct kvm_sev_cmd *argp)
+ 	return ret;
+ }
+ 
++static int rmpupdate_noremap(u64 pfn, struct rmpupdate *val)
++{
++	unsigned long paddr = pfn << PAGE_SHIFT;
++	int ret, level, npages;
++	int retries = 0;
++
++	if (!pfn_valid(pfn))
++		return -EINVAL;
++
++	if (!cpu_feature_enabled(X86_FEATURE_SEV_SNP))
++		return -ENXIO;
++
++	level = RMP_TO_X86_PG_LEVEL(val->pagesize);
++	npages = page_level_size(level) / PAGE_SIZE;
++
++
++retry:
++	/* Binutils version 2.36 supports the RMPUPDATE mnemonic. */
++	asm volatile(".byte 0xF2, 0x0F, 0x01, 0xFE"
++		     : "=a"(ret)
++		     : "a"(paddr), "c"((unsigned long)val)
++		     : "memory", "cc");
++
++	if (ret) {
++		if (!retries) {
++			pr_err("rmpupdate failed, ret: %d, pfn: %llx, npages: %d, level: %d, retrying (max: %d)...\n",
++			       ret, pfn, npages, level, 2 * num_present_cpus());
++			dump_stack();
++		}
++		retries++;
++		if (retries < 2 * num_present_cpus())
++			goto retry;
++	} else if (retries > 0) {
++		pr_err("rmpupdate for pfn %llx succeeded after %d retries\n", pfn, retries);
++	}
++
++        return ret;
++}
++
++int rmp_make_private_noremap(u64 pfn, u64 gpa, enum pg_level level, int asid, bool immutable)
++{
++        struct rmpupdate val;
++
++        if (!pfn_valid(pfn))
++                return -EINVAL;
++
++        memset(&val, 0, sizeof(val));
++        val.assigned = 1;
++        val.asid = asid;
++        val.immutable = immutable;
++        val.gpa = gpa;
++        val.pagesize = X86_TO_RMP_PG_LEVEL(level);
++
++        return rmpupdate_noremap(pfn, &val);
++}
++
+ static int snp_launch_update_vmsa(struct kvm *kvm, struct kvm_sev_cmd *argp)
+ {
+ 	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
+@@ -2183,16 +2264,20 @@ static int snp_launch_update_vmsa(struct kvm *kvm, struct kvm_sev_cmd *argp)
+ 		struct vcpu_svm *svm = to_svm(xa_load(&kvm->vcpu_array, i));
+ 		u64 pfn = __pa(svm->sev_es.vmsa) >> PAGE_SHIFT;
+ 
++		CPC_WARN("RIP READ PRE-PRIVATE: %llu\n", svm->sev_es.vmsa->rip);
++
+ 		/* Perform some pre-encryption checks against the VMSA */
+ 		ret = sev_es_sync_vmsa(svm);
+ 		if (ret)
+ 			return ret;
+ 
+ 		/* Transition the VMSA page to a firmware state. */
+-		ret = rmp_make_private(pfn, -1, PG_LEVEL_4K, sev->asid, true);
++		ret = rmp_make_private_noremap(pfn, -1, PG_LEVEL_4K, sev->asid, true);
+ 		if (ret)
+ 			return ret;
+ 
++		CPC_WARN("RIP READ POST-PRIVATE: %llu\n", svm->sev_es.vmsa->rip);
++
+ 		/* Issue the SNP command to encrypt the VMSA */
+ 		data.address = __sme_pa(svm->sev_es.vmsa);
+ 		ret = __sev_issue_cmd(argp->sev_fd, SEV_CMD_SNP_LAUNCH_UPDATE,
+@@ -3149,9 +3234,9 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm, u64 *exit_code)
  		}
  		break;
  	case SVM_EXIT_VMMCALL:
@@ -466,8 +582,16 @@ index a4f6d10b0ef3..0c5aae1de162 100644
  		break;
  	case SVM_EXIT_RDTSCP:
  		break;
+@@ -3920,6 +4005,7 @@ static int sev_snp_ap_creation(struct vcpu_svm *svm)
+ 			goto out;
+ 		}
+ 
++		CPC_WARN("VMSA_GPA SET via VMGEXIT_AP_CREATE\n");
+ 		target_svm->sev_es.snp_vmsa_gpa = svm->vmcb->control.exit_info_2;
+ 		break;
+ 	case SVM_VMGEXIT_AP_DESTROY:
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index cf0bf456d520..dee33c011251 100644
+index cf0bf456d520..4a25e306543a 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
 @@ -2,6 +2,10 @@
@@ -481,80 +605,32 @@ index cf0bf456d520..dee33c011251 100644
  #include "irq.h"
  #include "mmu.h"
  #include "kvm_cache_regs.h"
-@@ -1887,6 +1891,8 @@ static int npf_interception(struct kvm_vcpu *vcpu)
- 	u64 fault_address = svm->vmcb->control.exit_info_2;
- 	u64 error_code = svm->vmcb->control.exit_info_1;
- 
-+	cachepc_track_state_next = cachepc_track_state;
-+
- 	trace_kvm_page_fault(fault_address, error_code);
- 	rc = kvm_mmu_page_fault(vcpu, fault_address, error_code,
- 				static_cpu_has(X86_FEATURE_DECODEASSISTS) ?
-@@ -1896,6 +1902,8 @@ static int npf_interception(struct kvm_vcpu *vcpu)
- 	if (error_code & PFERR_GUEST_RMP_MASK)
- 		handle_rmp_page_fault(vcpu, fault_address, error_code);
- 
-+	cachepc_track_state = cachepc_track_state_next;
-+
- 	return rc;
- }
- 
-@@ -2081,9 +2089,139 @@ static int smi_interception(struct kvm_vcpu *vcpu)
+@@ -2081,9 +2085,74 @@ static int smi_interception(struct kvm_vcpu *vcpu)
  	return 1;
  }
  
-+
-+static inline int svm_map_ghcb(struct vcpu_svm *svm, struct kvm_host_map *map)
-+{
-+	struct vmcb_control_area *control = &svm->vmcb->control;
-+	u64 gfn = gpa_to_gfn(control->ghcb_gpa);
-+	struct kvm_vcpu *vcpu = &svm->vcpu;
-+
-+	if (kvm_vcpu_map(vcpu, gfn, map)) {
-+		/* Unable to map GHCB from guest */
-+		pr_err("error mapping GHCB GFN [%#llx] from guest\n", gfn);
-+		return -EFAULT;
-+	}
-+
-+	if (sev_post_map_gfn(vcpu->kvm, map->gfn, map->pfn)) {
-+		kvm_vcpu_unmap(vcpu, map, false);
-+		return -EBUSY;
-+	}
-+
-+	return 0;
-+}
-+
-+static inline void svm_unmap_ghcb(struct vcpu_svm *svm, struct kvm_host_map *map)
-+{
-+	struct kvm_vcpu *vcpu = &svm->vcpu;
-+
-+	kvm_vcpu_unmap(vcpu, map, true);
-+	sev_post_unmap_gfn(vcpu->kvm, map->gfn, map->pfn);
-+}
-+
-+static void hexdump(uint8_t *prev, uint8_t *cur, size_t len)
-+{
-+	size_t i;
-+
-+	for (i = 0; i < len; i++) {
-+		if (cur[i] != prev[i])
-+			printk(KERN_CONT "%02X ", cur[i]);
-+		else
-+			printk(KERN_CONT "     ");
-+		if ((i+1) % 16 == 0)
-+			printk(KERN_CONT "\n");
-+	}
-+	printk(KERN_CONT "\n");
-+}
++// static void hexdump(uint8_t *prev, uint8_t *cur, size_t len)
++// {
++//       size_t i;
++// 
++//       for (i = 0; i < len; i++) {
++//               //printk(KERN_CONT "%02X ", cur[i]);
++//               if (cur[i] != prev[i])
++//                       printk(KERN_CONT "%02X ", cur[i]);
++//               else
++//                       printk(KERN_CONT "   ");
++//               if ((i+1) % 16 == 0)
++//                       printk(KERN_CONT "\n");
++//       }
++//       printk(KERN_CONT "\n");
++// }
 +
  static int intr_interception(struct kvm_vcpu *vcpu)
  {
-+	static struct vmcb_control_area prev_control;
-+	//static struct ghcb prev_ghcb;
-+	struct vcpu_svm *svm;
 +	struct vmcb_control_area *control;
-+	//struct kvm_host_map map;
-+	//struct ghcb *ghcb;
++	struct vcpu_svm *svm;
++	struct cpc_fault *fault, *next;
++	size_t count;
 +
  	++vcpu->stat.irq_exits;
 +
@@ -562,84 +638,49 @@ index cf0bf456d520..dee33c011251 100644
 +		svm = to_svm(vcpu);
 +		control = &svm->vmcb->control;
 +
-+		CPC_WARN("RETINST %llu\n", cachepc_retinst);
-+
-+		// if (svm_map_ghcb(svm, &map)) {
-+		// 	CPC_ERR("Mapping GHCB\n");
-+		// 	return 1;
-+		// }
-+		// ghcb = map.hva;
-+
-+		// if (memcmp(&prev_ghcb, ghcb, sizeof(struct ghcb))) {
-+		// 	pr_warn("GHCB DIFF HEXDUMP:\n");
-+		// 	hexdump((void*)&prev_ghcb, (void *)ghcb,
-+		// 		sizeof(struct ghcb));
-+		// }
-+
-+		// memcpy(&prev_ghcb, ghcb, sizeof(struct ghcb));
-+
-+		// svm_unmap_ghcb(svm, &map);
-+
-+		if (memcmp(&prev_control, control, sizeof(struct vmcb_control_area))) {
-+			pr_warn("VMCB DIFF HEXDUMP:\n");
-+			hexdump((void*)&prev_control, (void *)control,
-+				sizeof(struct vmcb_control_area));
-+		}
-+		
-+		memcpy(&prev_control, control, sizeof(struct vmcb_control_area));
-+
-+		if (cachepc_apic_timer < 1000) {
++		cachepc_rip = svm->sev_es.vmsa->rip;
++		if (!cachepc_rip_prev)
++			cachepc_rip_prev = cachepc_rip;
++		if (cachepc_rip == cachepc_rip_prev) {
 +			cachepc_apic_timer += 1;
 +			return 1;
 +		}
++		CPC_INFO("Detected RIP change! (%u)\n", cachepc_apic_timer);
 +
-+		// if (svm->sev_es.vmsa->rip == cachepc_prev_rip) {
++		// if (!cachepc_retinst_prev)
++		// 	cachepc_retinst_prev = cachepc_retinst;
++		// if (cachepc_retinst_prev == cachepc_retinst) {
 +		// 	cachepc_apic_timer += 1;
 +		// 	return 1;
 +		// }
++		// CPC_INFO("Detected RETINST change! (%llu,%u)\n",
++		// 	cachepc_retinst, cachepc_apic_timer);
 +
 +		cachepc_single_step = false;
 +
-+		switch (cachepc_track_state) {
-+		case CPC_TRACK_AWAIT_DATA_FAULT:
-+			CPC_INFO("Caught single step WITHOUT data!\n");
++		count = 0;
++		list_for_each_entry(fault, &cachepc_faults, list)
++			count += 1;
 +
-+			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
-+				KVM_PAGE_TRACK_ACCESS);
-+			cachepc_inst_fault_avail = false;
++		CPC_INFO("Caught single step with %lu faults!\n", count);
++		if (count == 0 || count > 2)
++			CPC_ERR("Unexpected step fault count: %lu faults!\n", count);
 +
-+			cachepc_send_track_event(
-+				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
-+				0, 0);
++		list_for_each_entry(fault, &cachepc_faults, list)
++			cachepc_track_single(vcpu, fault->gfn, KVM_PAGE_TRACK_ACCESS);
 +
-+			cachepc_track_state = CPC_TRACK_AWAIT_INST_FAULT;
-+			break;
-+		case CPC_TRACK_AWAIT_STEP_INTR:
-+			CPC_INFO("Caught single step WITH data!\n");
++		cachepc_send_track_event(&cachepc_faults);
 +
-+			cachepc_track_single(vcpu, cachepc_data_fault_gfn,
-+				KVM_PAGE_TRACK_ACCESS);
-+			cachepc_data_fault_avail = false;
-+
-+			cachepc_track_single(vcpu, cachepc_inst_fault_gfn,
-+				KVM_PAGE_TRACK_ACCESS);
-+			cachepc_inst_fault_avail = false;
-+
-+			cachepc_send_track_event(
-+				cachepc_inst_fault_gfn, cachepc_inst_fault_err,
-+				cachepc_data_fault_gfn, cachepc_data_fault_err);
-+
-+			cachepc_track_state = CPC_TRACK_AWAIT_INST_FAULT;
-+			break;
-+		default:
-+			CPC_ERR("Unexpected single step\n");
++		list_for_each_entry_safe(fault, next, &cachepc_faults, list) {
++			list_del(&fault->list);
++			kfree(fault);
 +		}
 +	}
 +
  	return 1;
  }
  
-@@ -3269,9 +3407,25 @@ static int svm_handle_invalid_exit(struct kvm_vcpu *vcpu, u64 exit_code)
+@@ -3269,9 +3338,25 @@ static int svm_handle_invalid_exit(struct kvm_vcpu *vcpu, u64 exit_code)
  
  int svm_invoke_exit_handler(struct kvm_vcpu *vcpu, u64 exit_code)
  {
@@ -665,7 +706,7 @@ index cf0bf456d520..dee33c011251 100644
  #ifdef CONFIG_RETPOLINE
  	if (exit_code == SVM_EXIT_MSR)
  		return msr_interception(vcpu);
-@@ -3787,15 +3941,46 @@ static fastpath_t svm_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
+@@ -3787,15 +3872,48 @@ static fastpath_t svm_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
  static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  {
  	struct vcpu_svm *svm = to_svm(vcpu);
@@ -677,11 +718,12 @@ index cf0bf456d520..dee33c011251 100644
  
  	if (sev_es_guest(vcpu->kvm)) {
 +		if (cachepc_single_step && cachepc_apic_timer == 0) {
-+			cachepc_apic_timer = 100;
++			cachepc_apic_timer = 200;
++			cachepc_retinst_prev = 0;
++			cachepc_rip_prev = 0;
 +		}
 +
 +		cpu = get_cpu();
-+		// local_irq_disable();
 +		WARN_ON(cpu != 2);
 +
 +		memset(cachepc_msrmts, 0,
@@ -694,17 +736,18 @@ index cf0bf456d520..dee33c011251 100644
 +		cachepc_save_msrmts(cachepc_ds);
 +		if (cachepc_baseline_measure)
 +			cachepc_update_baseline();
-+		// local_irq_enable();
++
 +		put_cpu();
  	} else {
  		struct svm_cpu_data *sd = per_cpu(svm_data, vcpu->cpu);
  
-+		if (cachepc_apic_timer == 0) {
-+			cachepc_apic_timer = 100;
++		if (cachepc_single_step && cachepc_apic_timer == 0) {
++			cachepc_apic_timer = 50;
++			cachepc_retinst_prev = 0;
++			cachepc_rip_prev = 0;
 +		}
 +
 +		cpu = get_cpu();
-+		// local_irq_disable();
 +		WARN_ON(cpu != 2);
 +
 +		memset(cachepc_msrmts, 0,
@@ -713,7 +756,7 @@ index cf0bf456d520..dee33c011251 100644
  		/*
  		 * Use a single vmcb (vmcb01 because it's always valid) for
  		 * context switching guest state via VMLOAD/VMSAVE, that way
-@@ -3806,7 +3991,15 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+@@ -3806,7 +3924,15 @@ static noinstr void svm_vcpu_enter_exit(struct kvm_vcpu *vcpu)
  		__svm_vcpu_run(vmcb_pa, (unsigned long *)&vcpu->arch.regs);
  		vmsave(svm->vmcb01.pa);
  
@@ -724,7 +767,7 @@ index cf0bf456d520..dee33c011251 100644
 +		cachepc_save_msrmts(cachepc_ds);
 +		if (cachepc_baseline_measure)
 +			cachepc_update_baseline();
-+		// local_irq_enable();
++
 +		put_cpu();
  	}
  
@@ -1034,6 +1077,19 @@ index e089fbf9017f..7899e1efe852
  
  static int __sev_init_locked(int *error)
  {
+diff --git a/drivers/iommu/amd/amd_iommu_types.h b/drivers/iommu/amd/amd_iommu_types.h
+index 5b1019dab328..ec317e7c348a 100644
+--- a/drivers/iommu/amd/amd_iommu_types.h
++++ b/drivers/iommu/amd/amd_iommu_types.h
+@@ -275,7 +275,7 @@
+  *
+  * 512GB Pages are not supported due to a hardware bug
+  */
+-#define AMD_IOMMU_PGSIZES	((~0xFFFUL) & ~(2ULL << 38))
++#define AMD_IOMMU_PGSIZES	(PAGE_SIZE)
+ 
+ /* Bit value definition for dte irq remapping fields*/
+ #define DTE_IRQ_PHYS_ADDR_MASK	(((1ULL << 45)-1) << 6)
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
 index f2a63cb2658b..869faf927e5d 100644
 --- a/virt/kvm/kvm_main.c

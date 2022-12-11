@@ -62,7 +62,7 @@ cachepc_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 
-	if (!slot) pr_err("Sevstep: Failed to track gfn %llu\n", gfn);
+	if (!slot) CPC_ERR("Failed to track gfn %llu\n", gfn);
 
 	return slot != NULL;
 }
@@ -86,7 +86,7 @@ cachepc_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 
-	if (!slot) pr_err("Sevstep: Failed to untrack gfn %llu\n", gfn);
+	if (!slot) CPC_ERR("Failed to untrack gfn %llu\n", gfn);
 
 	return slot != NULL;
 }
@@ -101,11 +101,11 @@ cachepc_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 	int bkt;
 	u64 gfn;
 
-	pr_warn("Sevstep: Start tracking (mode:%i)\n", mode);
+	CPC_DBG("Start tracking (mode:%i)\n", mode);
 
 	slots = kvm_vcpu_memslots(vcpu);
 	kvm_for_each_memslot(slot, bkt, slots) {
-		pr_warn("Sevstep: Slot page count: %lu\n", slot->npages);
+		CPC_DBG("Slot page count: %lu\n", slot->npages);
 		for (gfn = slot->base_gfn; gfn < slot->base_gfn + slot->npages; gfn++) {
 			if (!kvm_slot_page_track_is_active(vcpu->kvm, slot, gfn, mode)) {
 				write_lock(&vcpu->kvm->mmu_lock);
@@ -129,7 +129,7 @@ cachepc_untrack_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 	int bkt;
 	u64 gfn;
 
-	pr_warn("Sevstep: Stop tracking (mode:%i)\n", mode);
+	CPC_DBG("Stop tracking (mode:%i)\n", mode);
 
 	slots = kvm_vcpu_memslots(vcpu);
 	kvm_for_each_memslot(slot, bkt, slots) {

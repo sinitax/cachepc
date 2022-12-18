@@ -3,7 +3,7 @@
 #include "../cachepc/event.h"
 #include "svm/svm.h"
 
-static void
+static bool
 cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 	struct kvm_page_fault *fault)
 {
@@ -15,12 +15,19 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 	size_t count, i;
 	bool inst_fetch;
 
+	/* return true if the page fault was related to tracking and should not be handled,
+	 * return false if the page fault should be handled */
+
 	for (i = 0; i < 2; i++) {
 		if (kvm_slot_page_track_is_active(vcpu->kvm,
 				fault->slot, fault->gfn, modes[i]))
 			break;
 	}
-	if (i == 2) return;
+	if (i == 2) {
+		CPC_INFO("Untracked page fault (gfn:%llu err:%u)\n",
+			fault->gfn, fault->error_code);
+		return false;
+	}
 
 	CPC_DBG("Tracked page fault (gfn:%llu err:%u)\n",
 		fault->gfn, fault->error_code);
@@ -33,10 +40,10 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 	list_for_each_entry(tmp, &cachepc_faults, list)
 		count += 1;
 
-	CPC_INFO("Got %lu. fault gfn:%llu err:%u\n", count + 1,
-		fault->gfn, fault->error_code);
+	if (cachepc_track_mode == CPC_TRACK_FULL) {
+		CPC_INFO("Got %lu. fault gfn:%llu err:%u\n", count + 1,
+			fault->gfn, fault->error_code);
 
-	if (cachepc_track_mode == CPC_TRACK_DATA_ACCESS) {
 		cachepc_untrack_single(vcpu, fault->gfn, modes[i]);
 
 		alloc = kmalloc(sizeof(struct cpc_fault), GFP_KERNEL);
@@ -48,6 +55,15 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 		cachepc_single_step = true;
 		cachepc_apic_timer = 0;
 	} else if (cachepc_track_mode == CPC_TRACK_EXEC) {
+		if (!inst_fetch || !fault->present) return false;
+
+		if (count == 1) {
+			return false; /* dont untrack, but 'handle' */
+		}
+
+		CPC_INFO("Got %lu. fault gfn:%llu err:%u\n", count + 1,
+			fault->gfn, fault->error_code);
+
 		cachepc_untrack_single(vcpu, fault->gfn, modes[i]);
 
 		if (modes[i] != KVM_PAGE_TRACK_EXEC)
@@ -61,16 +77,17 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 
 		cachepc_single_step = true;
 		cachepc_apic_timer = 0;
-	} else if (cachepc_track_mode == CPC_TRACK_ACCESS) {
-		cachepc_send_track_event(&cachepc_faults);
+	} else if (cachepc_track_mode == CPC_TRACK_STUB) {
+		cachepc_send_track_step_event(&cachepc_faults);
 	}
+
+	return true;
 }
 
 bool
 cachepc_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 {
 	u64 spte;
-	bool flush;
 
 	spte = *sptep;
 	if (!is_writable_pte(spte) && !(pt_protect && is_mmu_writable_spte(spte)))
@@ -79,28 +96,24 @@ cachepc_spte_protect(u64 *sptep, bool pt_protect, enum kvm_page_track_mode mode)
 	if (pt_protect)
 		spte &= ~shadow_mmu_writable_mask;
 
-	flush = false;
 	if (mode == KVM_PAGE_TRACK_WRITE) {
 		spte &= ~PT_WRITABLE_MASK;
-		flush = true;
-	} else if (mode == KVM_PAGE_TRACK_RESET_ACCESSED) {
+	} else if (mode == KVM_PAGE_TRACK_RESET_ACCESS) {
 		spte &= ~PT_ACCESSED_MASK;
 	} else if (mode == KVM_PAGE_TRACK_ACCESS) {
 		spte &= ~PT_PRESENT_MASK;
 		spte &= ~PT_WRITABLE_MASK;
 		spte &= ~PT_USER_MASK;
 		spte |= (0x1ULL << PT64_NX_SHIFT);
-		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_EXEC) {
 		spte |= (0x1ULL << PT64_NX_SHIFT);
-		flush = true;
 	} else if (mode == KVM_PAGE_TRACK_RESET_EXEC) {
 		spte &= ~(0x1ULL << PT64_NX_SHIFT);
-		flush = true;
 	}
-	flush |= mmu_spte_update(sptep, spte);
 
-	return flush;
+	mmu_spte_update(sptep, spte);
+
+	return true;
 }
 EXPORT_SYMBOL(cachepc_spte_protect);
 
@@ -125,25 +138,23 @@ cachepc_kvm_mmu_slot_gfn_protect(struct kvm *kvm, struct kvm_memory_slot *slot,
 	uint64_t gfn, int min_level, enum kvm_page_track_mode mode)
 {
 	struct kvm_rmap_head *rmap_head;
-	bool protected;
+	bool flush;
 	int i;
 
-	protected = false;
+	flush = false;
 
 	if (kvm_memslots_have_rmaps(kvm)) {
 		for (i = min_level; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
 			rmap_head = gfn_to_rmap(gfn, i, slot);
-			protected |= cachepc_rmap_protect(rmap_head, true, mode);
+			flush |= cachepc_rmap_protect(rmap_head, true, mode);
 		}
 	} else if (is_tdp_mmu_enabled(kvm)) {
-		protected |= cachepc_tdp_protect_gfn(kvm,
-			slot, gfn, min_level, mode);
+		flush |= cachepc_tdp_protect_gfn(kvm, slot, gfn, min_level, mode);
 	} else {
 		CPC_ERR("Tracking unsupported!\n");
 	}
 
-	return true;
-	//return protected;
+	return flush;
 }
 EXPORT_SYMBOL(cachepc_kvm_mmu_slot_gfn_protect);
 

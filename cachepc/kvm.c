@@ -6,6 +6,7 @@
 
 #include "svm/svm.h"
 
+#include <linux/psp-sev.h>
 #include <linux/kvm_host.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -278,27 +279,57 @@ cachepc_kvm_system_setup(void)
 	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
 	val = (uint64_t) lo | ((uint64_t) hi << 32);
 	val |= 1 << 13;
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
 	printk("CachePC: Disabling streaming store (MSR %08llX: %016llX)\n",
 		reg_addr, val);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
 
 	/* disable speculative data cache tlb reloads */
 	reg_addr = 0xc0011022;
 	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
 	val = (uint64_t) lo | ((uint64_t) hi << 32);
 	val |= 1 << 4;
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
 	printk("CachePC: Disabling speculative reloads (MSR %08llX: %016llX)\n",
 		reg_addr, val);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
 
-	/* disable data cache hardware prefetcher */
+	/* disable data cache hw prefetchers */
 	reg_addr = 0xc0011022;
 	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
 	val = (uint64_t) lo | ((uint64_t) hi << 32);
 	val |= 1 << 13;
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
-	printk("CachePC: Disabling HWPF (MSR %08llX: %016llX)\n",
+	printk("CachePC: Disabling DATA HWPF (MSR %08llX: %016llX)\n",
 		reg_addr, val);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+
+	/* disable inst cache hw prefetchers */
+	reg_addr = 0xc0011021;
+	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
+	val = (uint64_t) lo | ((uint64_t) hi << 32);
+	val |= 1 << 13;
+	printk("CachePC: Disabling INST HWPF (MSR %08llX: %016llX)\n",
+		reg_addr, val);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+
+	/* REF: https://arxiv.org/pdf/2204.03290.pdf
+	 * Paper "Memory Performance of AMD EPYC Rome and Intel Cascade
+	 * Lake SP Server Processors"
+	 * disable L1 & L2 prefetchers */
+
+	reg_addr = 0xc0011022;
+	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
+	val = (uint64_t) lo | ((uint64_t) hi << 32);
+	val |= 1 << 16;
+	printk("CachePC: Disabling L1 & L2 prefetchers (MSR %08llX: %016llX)\n",
+		reg_addr, val);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+
+	reg_addr = 0xc001102b;
+	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
+	val = (uint64_t) lo | ((uint64_t) hi << 32);
+	val &= ~1ULL;
+	printk("CachePC: Disabling L1 & L2 prefetchers (MSR %08llX: %016llX)\n",
+		reg_addr, val);
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
 }
 
 int
@@ -646,8 +677,6 @@ cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 	struct kvm_vcpu *vcpu;
 	struct cpc_fault *fault, *next;
 
-	cachepc_events_reset();
-
 	BUG_ON(xa_empty(&main_vm->vcpu_array));
 	vcpu = xa_load(&main_vm->vcpu_array, 0);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
@@ -655,10 +684,6 @@ cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
 
 	cachepc_track_mode = CPC_TRACK_NONE;
-
-	cachepc_baseline_active = false;
-	cachepc_baseline_measure = false;
-	memset(cachepc_baseline, 0, cachepc_msrmts_count * sizeof(cpc_msrmt_t));
 
 	cachepc_inst_fault_gfn = 0;
 	cachepc_inst_fault_err = 0;
@@ -850,6 +875,8 @@ cachepc_kvm_init(void)
 	cachepc_baseline_measure = false;
 	cachepc_baseline = kzalloc(cachepc_msrmts_count * sizeof(cpc_msrmt_t), GFP_KERNEL);
 	BUG_ON(cachepc_baseline == NULL);
+
+	cachepc_events_reset();
 
 	ret = smp_call_function_single(2, cachepc_kvm_setup_test, NULL, true);
 	WARN_ON(ret != 0);

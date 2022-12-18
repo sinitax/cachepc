@@ -19,8 +19,8 @@ main(int argc, const char **argv)
 
 	while (1) {
 		printf("LOOP\n");
-		CPC_DO_VMMCALL(CPC_CPUID_START_TRACK, 0);
+		CPC_DO_VMMCALL(CPC_GUEST_START_TRACK, 0);
 		*(uint8_t *)(buf + L1_LINESIZE * 15) = 1;
-		CPC_DO_VMMCALL(CPC_CPUID_STOP_TRACK, 0);
+		CPC_DO_VMMCALL(CPC_GUEST_STOP_TRACK, 0);
 	}
 }

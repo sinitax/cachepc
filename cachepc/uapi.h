@@ -47,7 +47,7 @@
 #define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x31, __u32)
 #define KVM_CPC_UNTRACK_ALL _IOWR(KVMIO, 0x32, __u32)
 #define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x33)
-#define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x34, struct cpc_track_event)
+#define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x34, struct cpc_event)
 #define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x35, __u64)
 #define KVM_CPC_TRACK_RANGE_START _IOWR(KVMIO, 0x36, __u64)
 #define KVM_CPC_TRACK_RANGE_END _IOWR(KVMIO, 0x37, __u64)
@@ -55,26 +55,27 @@
 
 enum {
 	CPC_EVENT_NONE,
-	CPC_EVENT_TRACK,
-	CPC_EVENT_CPUID
+	CPC_EVENT_TRACK_STEP,
+	CPC_EVENT_TRACK_PAGE,
+	CPC_EVENT_CPUID,
 };
 
 enum {
-	CPC_CPUID_START_TRACK,
-	CPC_CPUID_STOP_TRACK,
+	CPC_GUEST_START_TRACK,
+	CPC_GUEST_STOP_TRACK,
 };
 
 enum {
 	CPC_TRACK_NONE,
-	CPC_TRACK_ACCESS,
-	CPC_TRACK_DATA_ACCESS,
-	CPC_TRACK_EXEC
+	CPC_TRACK_STUB,
+	CPC_TRACK_EXEC,
+	CPC_TRACK_FULL,
 };
 
 enum kvm_page_track_mode {
 	KVM_PAGE_TRACK_WRITE,
 	KVM_PAGE_TRACK_ACCESS,
-	KVM_PAGE_TRACK_RESET_ACCESSED,
+	KVM_PAGE_TRACK_RESET_ACCESS,
 	KVM_PAGE_TRACK_EXEC,
 	KVM_PAGE_TRACK_RESET_EXEC,
 	KVM_PAGE_TRACK_MAX,
@@ -85,10 +86,17 @@ struct cpc_track_config {
 	__s32 mode;
 };
 
-struct cpc_track_event {
+struct cpc_track_step_event {
 	__u64 fault_gfns[16];
 	__u32 fault_errs[16];
 	__u64 fault_count;
+	__u64 timestamp_ns;
+	__u64 retinst;
+};
+
+struct cpc_track_page_event {
+	__u64 inst_gfn_prev;
+	__u64 inst_gfn;
 	__u64 timestamp_ns;
 	__u64 retinst;
 };
@@ -102,7 +110,8 @@ struct cpc_event {
 	__u32 type;
 	__u64 id;
 	union {
-		struct cpc_track_event track;
+		struct cpc_track_step_event step;
+		struct cpc_track_page_event page;
 		struct cpc_guest_event guest;
 	};
 };

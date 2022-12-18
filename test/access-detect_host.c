@@ -140,60 +140,58 @@ monitor(bool baseline)
 
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
-	if (!ret) {
-		if (event.type == CPC_EVENT_CPUID) {
-			printf("CPUID EVENT\n");
-			if (event.guest.type == CPC_CPUID_START_TRACK) {
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_EXEC_CUR, &inst_fault_gfn);
-				if (ret) err(1, "ioctl TRACK_EXEC_CUR");
-
-				printf("CPUID INST PAGE: %lu\n", inst_fault_gfn);
-
-				arg = inst_fault_gfn;
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_START, &arg);
-				if (ret) err(1, "ioctl TRACK_RANGE_START");
-
-				arg = inst_fault_gfn+8;
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_END, &arg);
-				if (ret) err(1, "ioctl TRACK_RANGE_END");
-			} else if (event.guest.type == CPC_CPUID_STOP_TRACK) {
-				arg = 0;
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_START, &arg);
-				if (ret) err(1, "ioctl TRACK_RANGE_START");
-
-				arg = 0;
-				ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_END, &arg);
-				if (ret) err(1, "ioctl TRACK_RANGE_END");
-			}
-
-			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-			if (ret) err(1, "ioctl ACK_EVENT");
-
-			faultcnt++;
-
+	if (ret) {
+		if (errno == EAGAIN)
 			return 0;
-		} else if (event.type != CPC_EVENT_TRACK) {
-			return 0;
+		perror("ioctl POLL_EVENT");
+		return 1;
+	}
+
+	if (event.type == CPC_EVENT_CPUID) {
+		printf("CPUID EVENT\n");
+		if (event.guest.type == CPC_GUEST_START_TRACK) {
+			ret = ioctl(kvm_dev, KVM_CPC_TRACK_EXEC_CUR, &inst_fault_gfn);
+			if (ret) err(1, "ioctl TRACK_EXEC_CUR");
+
+			printf("CPUID INST PAGE: %lu\n", inst_fault_gfn);
+
+			arg = inst_fault_gfn;
+			ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_START, &arg);
+			if (ret) err(1, "ioctl TRACK_RANGE_START");
+
+			arg = inst_fault_gfn+8;
+			ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_END, &arg);
+			if (ret) err(1, "ioctl TRACK_RANGE_END");
+		} else if (event.guest.type == CPC_GUEST_STOP_TRACK) {
+			arg = 0;
+			ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_START, &arg);
+			if (ret) err(1, "ioctl TRACK_RANGE_START");
+
+			arg = 0;
+			ret = ioctl(kvm_dev, KVM_CPC_TRACK_RANGE_END, &arg);
+			if (ret) err(1, "ioctl TRACK_RANGE_END");
 		}
 
-		printf("EVENT\n");
+		faultcnt++;
+	} else if (event.type == CPC_EVENT_TRACK_STEP) {
+		printf("STEP EVENT\n");
 
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 		if (ret) err(1, "ioctl READ_COUNTS");
 
 		inst_fault_gfn = 0;
 		read_fault_gfn = 0;
-		for (i = 0; i < event.track.fault_count; i++) {
-			if ((event.track.fault_errs[i] & 0b11111) == 0b10100)
-				inst_fault_gfn = event.track.fault_gfns[i];
-			else if ((event.track.fault_errs[i] & 0b00110) == 0b00100)
-				read_fault_gfn = event.track.fault_gfns[i];
+		for (i = 0; i < event.step.fault_count; i++) {
+			if ((event.step.fault_errs[i] & 0b11111) == 0b10100)
+				inst_fault_gfn = event.step.fault_gfns[i];
+			else if ((event.step.fault_errs[i] & 0b00110) == 0b00100)
+				read_fault_gfn = event.step.fault_gfns[i];
 		}
 
 		if (!baseline) {
 			printf("Event: cnt:%llu inst:%lu data:%lu retired:%llu\n",
-				event.track.fault_count, inst_fault_gfn,
-				read_fault_gfn, event.track.retinst);
+				event.step.fault_count, inst_fault_gfn,
+				read_fault_gfn, event.step.retinst);
 			print_counts(counts);
 			printf("\n");
 		}
@@ -206,14 +204,17 @@ monitor(bool baseline)
 			}
 		}
 
-		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-		if (ret) err(1, "ioctl ACK_EVENT");
-
 		if (baseline) faultcnt++;
-	} else if (errno != EAGAIN) {
-		perror("ioctl POLL_EVENT");
-		return 1;
+	} else if (event.type == CPC_EVENT_TRACK_PAGE) {
+		printf("PAGE EVENT\n");
+
+		printf("Event: prev:%llu new:%llu retired:%llu\n",
+			event.page.inst_gfn_prev, event.page.inst_gfn,
+		       	event.page.retinst);
 	}
+
+	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
+	if (ret) err(1, "ioctl ACK_EVENT");
 
 	return 0;
 }
@@ -283,36 +284,36 @@ main(int argc, const char **argv)
 	pin_process(0, SECONDARY_CORE, true);
 	printf("PINNED\n");
 
-	arg = false;
-	ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
-	if (ret) err(1, "ioctl SUB_BASELINE");
+	// arg = false;
+	// ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
+	// if (ret) err(1, "ioctl SUB_BASELINE");
 
-	arg = true;
-	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
-	if (ret) err(1, "ioctl MEASURE_BASELINE");
+	// arg = true;
+	// ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
+	// if (ret) err(1, "ioctl MEASURE_BASELINE");
 
-	arg = KVM_PAGE_TRACK_ACCESS;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &arg);
-	if (ret) err(1, "ioctl TRACK_ALL");
+	// arg = KVM_PAGE_TRACK_ACCESS;
+	// ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &arg);
+	// if (ret) err(1, "ioctl TRACK_ALL");
 
-	arg = CPC_TRACK_DATA_ACCESS;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-	if (ret) err(1, "ioctl TRACK_MODE");
+	// arg = CPC_TRACK_DATA_ACCESS;
+	// ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	// if (ret) err(1, "ioctl TRACK_MODE");
 
-	faultcnt = 0;
-	while (faultcnt < 100) {
-		if (monitor(true)) break;
-	}
+	// faultcnt = 0;
+	// while (faultcnt < 100) {
+	// 	if (monitor(true)) break;
+	// }
 
-	do {
-		ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
-		if (ret && errno != EAGAIN)
-			err(1, "ioctl POLL_EVENT");
-	} while (ret && errno == EAGAIN);
+	// do {
+	// 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
+	// 	if (ret && errno != EAGAIN)
+	// 		err(1, "ioctl POLL_EVENT");
+	// } while (ret && errno == EAGAIN);
 
-	arg = KVM_PAGE_TRACK_ACCESS;
-	ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &arg);
-	if (ret) err(1, "ioctl UNTRACK_ALL");
+	// arg = KVM_PAGE_TRACK_ACCESS;
+	// ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &arg);
+	// if (ret) err(1, "ioctl UNTRACK_ALL");
 
 	arg = CPC_TRACK_EXEC;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
@@ -322,31 +323,31 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &arg);
 	if (ret) err(1, "ioctl TRACK_ALL");
 
-	arg = false;
-	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
-	if (ret) err(1, "ioctl MEASURE_BASELINE");
+	// arg = false;
+	// ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
+	// if (ret) err(1, "ioctl MEASURE_BASELINE");
 
-	ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
-	if (ret) err(1, "ioctl READ_BASELINE");
+	// ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
+	// if (ret) err(1, "ioctl READ_BASELINE");
 
-	printf("\n>>> BASELINE:\n");
-	print_counts(baseline);
-	printf("\n");
-	print_counts_raw(baseline);
-	printf("\n");
+	// printf("\n>>> BASELINE:\n");
+	// print_counts(baseline);
+	// printf("\n");
+	// print_counts_raw(baseline);
+	// printf("\n");
 
-	/* Check baseline for saturated sets */
-	for (i = 0; i < 64; i++) {
-		if (baseline[i] >= 8)
-			errx(1, "!!! Baseline set %i full\n", i);
-	}
+	// /* Check baseline for saturated sets */
+	// for (i = 0; i < 64; i++) {
+	// 	if (baseline[i] >= 8)
+	// 		errx(1, "!!! Baseline set %i full\n", i);
+	// }
 
-	arg = true;
-	ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
-	if (ret) err(1, "ioctl SUB_BASELINE");
+	// arg = true;
+	// ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
+	// if (ret) err(1, "ioctl SUB_BASELINE");
 
-	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-	if (ret) err(1, "ioctl ACK_EVENT");
+	// ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
+	// if (ret) err(1, "ioctl ACK_EVENT");
 
 	faultcnt = 0;
 	while (faultcnt < 10) {

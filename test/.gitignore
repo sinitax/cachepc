@@ -4,7 +4,8 @@ kvm
 sev
 sev-es
 sev-snp
-sevstep
+fullstep
+execstep
 aes-detect_guest
 aes-detect_host
 access-detect_guest

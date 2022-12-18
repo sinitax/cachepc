@@ -31,7 +31,7 @@ cachepc_send_event(struct cpc_event event)
 
 	read_lock(&cachepc_event_lock);
 	if (!cachepc_events_init) {
-		pr_warn("CachePC: events ctx not initialized!\n");
+		CPC_WARN("events ctx not initialized!\n");
 		read_unlock(&cachepc_event_lock);
 		return 1;
 	}
@@ -39,7 +39,7 @@ cachepc_send_event(struct cpc_event event)
 
 	write_lock(&cachepc_event_lock);
 	 if (cachepc_last_event_sent != cachepc_last_event_acked) {
-		pr_warn("CachePC: event IDs out of sync\n");
+		CPC_WARN("event IDs out of sync\n");
 		write_unlock(&cachepc_event_lock);
 		return 1;
 	} else {
@@ -55,7 +55,7 @@ cachepc_send_event(struct cpc_event event)
 	deadline = ktime_get_ns() + 20000000000ULL; /* 20s in ns */
 	while (!cachepc_event_is_done(cachepc_event.id)) {
 		if (ktime_get_ns() > deadline) {
-			pr_warn("CachePC: Timeout waiting for ack of event %llu\n",
+			CPC_WARN("Timeout waiting for ack of event %llu\n",
 				cachepc_event.id);
 			return 3;
 		}
@@ -77,39 +77,53 @@ cachepc_send_guest_event(uint64_t type, uint64_t val)
 }
 
 int
-cachepc_send_track_event(struct list_head *list)
+cachepc_send_track_step_event(struct list_head *list)
 {
 	struct cpc_event event = { 0 };
 	struct cpc_fault *fault;
 	uint64_t count;
 
 	count = 0;
-	event.type = CPC_EVENT_TRACK;
+	event.type = CPC_EVENT_TRACK_STEP;
 	list_for_each_entry(fault, list, list) {
 		if (count >= 16)
 			break;
-		event.track.fault_gfns[count] = fault->gfn;
-		event.track.fault_errs[count] = fault->err;
+		event.step.fault_gfns[count] = fault->gfn;
+		event.step.fault_errs[count] = fault->err;
 		count += 1;
 	}
-	event.track.fault_count = count;
-	event.track.timestamp_ns = ktime_get_real_ns();
-	event.track.retinst = cachepc_retinst;
+	event.step.fault_count = count;
+	event.step.timestamp_ns = ktime_get_real_ns();
+	event.step.retinst = cachepc_retinst;
 
 	return cachepc_send_event(event);
 }
 
 int
-cachepc_send_track_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
+cachepc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
 {
 	struct cpc_event event = { 0 };
 
-	event.type = CPC_EVENT_TRACK;
-	event.track.fault_count = 1;
-	event.track.fault_gfns[0] = gfn;
-	event.track.fault_errs[0] = err;
-	event.track.timestamp_ns = ktime_get_real_ns();
-	event.track.retinst = retinst;
+	event.type = CPC_EVENT_TRACK_PAGE;
+	event.page.inst_gfn_prev = gfn_prev;
+	event.page.inst_gfn = gfn;
+	event.page.timestamp_ns = ktime_get_real_ns();
+	event.page.retinst = retinst;
+
+	return cachepc_send_event(event);
+}
+
+int
+cachepc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
+{
+	struct cpc_event event = { 0 };
+
+	event.type = CPC_EVENT_TRACK_STEP;
+	event.step.fault_count = 1;
+	event.step.fault_gfns[0] = gfn;
+	event.step.fault_errs[0] = err;
+	event.step.timestamp_ns = ktime_get_real_ns();
+	event.step.retinst = retinst;
 
 	return cachepc_send_event(event);
 }
@@ -161,8 +175,8 @@ cachepc_handle_ack_event_ioctl(uint64_t eventid)
 		cachepc_last_event_acked = cachepc_last_event_sent;
 	} else {
 		err = 1;
-		pr_warn("CachePC: Acked event does not match sent: %llu %llu\n",
-			cachepc_last_event_sent, eventid);
+		CPC_WARN("Acked event (%llu) does not match sent (%llu)\n",
+			eventid, cachepc_last_event_sent);
 	}
 	write_unlock(&cachepc_event_lock);
 

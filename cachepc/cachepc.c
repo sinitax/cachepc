@@ -126,7 +126,7 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint64_t reg_addr;
 
 	/* REF: https://developer.amd.com/resources/developer-guides-manuals
-	 * (PPR 17H 31H, P.166)
+	 * (PPR 19H 01H, P.166)
 	 *
 	 * performance event selection via 0xC001_020X with X = (0..A)[::2]
 	 * performance event reading viea 0XC001_020X with X = (1..B)[::2]

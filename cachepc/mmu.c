@@ -34,7 +34,7 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 
 	inst_fetch = fault->error_code & PFERR_FETCH_MASK;
 	CPC_DBG("Tracked page fault attrs p:%i w:%i x:%i f:%i\n",
-		fault->present, inst_fetch, fault->write, fault->exec);
+		fault->present, fault->write, fault->exec, inst_fetch);
 
 	count = 0;
 	list_for_each_entry(tmp, &cachepc_faults, list)
@@ -54,6 +54,8 @@ cachepc_page_fault_handle(struct kvm_vcpu *vcpu,
 
 		cachepc_single_step = true;
 		cachepc_apic_timer = 0;
+
+		return false; /* setup untracked page */
 	} else if (cachepc_track_mode == CPC_TRACK_EXEC) {
 		if (!inst_fetch || !fault->present) return false;
 

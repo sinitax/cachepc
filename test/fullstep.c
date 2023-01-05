@@ -522,11 +522,9 @@ main(int argc, const char **argv)
 	/* Page tracking init needs to happen after kvm
 	 * init so main_kvm is set.. */
 
-	/* Reset previous tracking */
 	ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
 	if (ret == -1) err(1, "ioctl RESET_TRACKING");
 
-	/* Do data access stepping */
 	arg = CPC_TRACK_FULL;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
 	if (ret == -1) err(1, "ioctl TRACK_MODE");
@@ -535,10 +533,6 @@ main(int argc, const char **argv)
 	track_mode = KVM_PAGE_TRACK_ACCESS;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
 	if (ret == -1) err(1, "ioctl TRACK_ALL");
-
-	arg = false;
-	ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
-	if (ret == -1) err(1, "ioctl SUB_BASELINE");
 
 	arg = true;
 	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);

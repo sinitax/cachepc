@@ -3,4 +3,4 @@
 	url = https://github.com/smuellerDD/libkcapi.git
 [submodule "cachepc-linux"]
 	path = linux
-	url = git@cachepclinux.github.com:Sinitax/cachepc-linux.git
+	url = git@github.com:Sinitax/cachepc-linux.git

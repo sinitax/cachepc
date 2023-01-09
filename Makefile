@@ -10,7 +10,7 @@ BINS += test/readsvme util/debug util/reset
 
 CFLAGS = -I . -I test -Wunused-variable -Wunknown-pragmas
 
-all: cachepc $(BINS)
+all: build $(BINS)
 
 clean:
 	$(MAKE) -C $(LINUX) SUBDIRS=arch/x86/kvm clean
@@ -32,7 +32,7 @@ host:
 	git -C $(LINUX) checkout HEAD
 	git -C $(LINUX) stash pop
 
-cachepc: $(LINUX)/arch/x86/kvm/cachepc
+build: $(LINUX)/arch/x86/kvm/cachepc
 	$(MAKE) -C $(LINUX) -j $(JOBS) M=arch/x86/kvm modules
 	$(MAKE) -C $(LINUX) -j $(JOBS) M=crypto modules
 

@@ -460,8 +460,8 @@ monitor(struct kvm *kvm, bool baseline)
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 		if (ret == -1) err(1, "ioctl READ_COUNTS");
 
-		rip = 0; // snp_dbg_rip(kvm->vmfd);
 		if (!baseline) {
+			rip = snp_dbg_rip(kvm->vmfd);
 			printf("Event: cnt:%llu inst:%llu data:%llu retired:%llu rip:%lu\n",
 				event.step.fault_count,
 				event.step.fault_gfns[0],
@@ -542,7 +542,7 @@ main(int argc, const char **argv)
 	if ((pid = fork())) {
 		if (pid < 0) err(1, "fork");
 
-		sleep(1); /* give time for child to pin other core */
+		sleep(1); /* wait for child to pin other core */
 
 		printf("VMRUN\n");
 		runonce(&kvm_with_access);

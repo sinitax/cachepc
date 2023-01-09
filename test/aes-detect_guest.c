@@ -40,10 +40,8 @@ main(int argc, const char **argv)
 
 	while (1) {
 		CPC_DO_VMMCALL(CPC_GUEST_START_TRACK, 0);
-		
 		buf[L1_LINESIZE * 5] += 1;
-
-		CPC_DO_VMMCALL(CPC_GUEST_START_TRACK, 0);
+		CPC_DO_VMMCALL(CPC_GUEST_STOP_TRACK, 0);
 	}
 
 	return 0;

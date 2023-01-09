@@ -1,9 +1,9 @@
 LINUX ?= linux
-JOBS ?= 15
+LOAD ?= $(shell ls /dev/cpu | wc -l)
 PWD := $(shell pwd)
 
 BINS = test/eviction test/access test/kvm test/sev test/sev-es
-BINS += test/fullstep test/execstep 
+BINS += test/fullstep test/execstep
 BINS += test/aes-detect_guest test/aes-detect_host
 BINS += test/access-detect_guest test/access-detect_host
 BINS += test/readsvme util/debug util/reset
@@ -28,13 +28,13 @@ host:
 	git -C $(LINUX) checkout 0aaa1e5
 	$(MAKE) -C $(LINUX) oldconfig
 	$(MAKE) -C $(LINUX) prepare
-	$(MAKE) -C $(LINUX) -j $(JOBS) bindeb-pkg
-	git -C $(LINUX) checkout HEAD
+	$(MAKE) -C $(LINUX) -l $(LOAD)
+	git -C $(LINUX) checkout master
 	git -C $(LINUX) stash pop
 
 build: $(LINUX)/arch/x86/kvm/cachepc
-	$(MAKE) -C $(LINUX) -j $(JOBS) M=arch/x86/kvm modules
-	$(MAKE) -C $(LINUX) -j $(JOBS) M=crypto modules
+	$(MAKE) -C $(LINUX) -l $(LOAD) M=arch/x86/kvm modules
+	$(MAKE) -C $(LINUX) -l $(LOAD) M=crypto modules
 
 load:
 	sudo rmmod kvm_amd || true

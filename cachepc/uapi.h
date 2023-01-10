@@ -19,48 +19,43 @@
 #define L2_SETS 1024
 #define L2_SIZE (L2_SETS * L2_ASSOC * L2_LINESIZE)
 
-#define CPC_MSRMT_MAX (~((cpc_msrmt_t) 0))
-
 #define CPC_VMSA_MAGIC_ADDR ((void *) 0xC0FFEE)
 
-#define KVM_HC_CPC_VMMCALL 0xC0FFEE00
-#define CPC_DO_VMMCALL(type, val) \
-       asm volatile("vmmcall" : : "a" (KVM_HC_CPC_VMMCALL), \
+#define KVM_HC_CPC_VMMCALL_SIGNAL 0xC0FFEE00
+#define KVM_HC_CPC_VMMCALL_EXIT 0xC0FFEE01
+#define CPC_DO_VMMCALL(action, type, val) \
+	asm volatile("vmmcall" : : "a" (KVM_HC_CPC_VMMCALL_ ## action), \
 		"b"(type), "c" (val) : "rdx")
 
-#define KVM_CPC_TEST_ACCESS _IOWR(KVMIO, 0x20, __u32)
-#define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x21, __u32)
+#define KVM_CPC_RESET _IOWR(KVMIO, 0x20, __u32)
+#define KVM_CPC_DEBUG _IOW(KVMIO, 0x21, __u32)
 
-#define KVM_CPC_SETUP_PMC _IO(KVMIO, 0x22)
-#define KVM_CPC_INIT_PMC _IOW(KVMIO, 0x23, __u32)
-#define KVM_CPC_READ_PMC _IOWR(KVMIO, 0x24, __u32)
+#define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x22, __u32)
 
 #define KVM_CPC_READ_COUNTS _IOR(KVMIO, 0x25, __u64)
 
 #define KVM_CPC_RESET_BASELINE _IO(KVMIO, 0x26)
-#define KVM_CPC_MEASURE_BASELINE _IOW(KVMIO, 0x27, __u32)
-#define KVM_CPC_READ_BASELINE _IOR(KVMIO, 0x28, __u64)
-#define KVM_CPC_SUB_BASELINE _IOR(KVMIO, 0x29, __u32)
+#define KVM_CPC_READ_BASELINE _IOR(KVMIO, 0x27, __u64)
+#define KVM_CPC_CALC_BASELINE _IOR(KVMIO, 0x28, __u32)
+#define KVM_CPC_APPLY_BASELINE _IOR(KVMIO, 0x29, __u32)
 
-#define KVM_CPC_SINGLE_STEP _IO(KVMIO, 0x29)
+#define KVM_CPC_SINGLE_STEP _IO(KVMIO, 0x2A)
 
-#define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x2A, __u32)
+#define KVM_CPC_VMSA_READ _IOR(KVMIO, 0x2C, __u64)
+#define KVM_CPC_SVME_READ _IOR(KVMIO, 0x2D, __u32)
 
-#define KVM_CPC_VMSA_READ _IOR(KVMIO, 0x2B, __u64)
-#define KVM_CPC_SVME_READ _IOR(KVMIO, 0x2C, __u32)
+#define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x40, __u32)
+#define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x41, struct cpc_track_config)
+#define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x42, __u32)
+#define KVM_CPC_UNTRACK_ALL _IOWR(KVMIO, 0x43, __u32)
+#define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x44)
+#define KVM_CPC_TRACK_RANGE_START _IOWR(KVMIO, 0x45, __u64)
+#define KVM_CPC_TRACK_RANGE_END _IOWR(KVMIO, 0x46, __u64)
+#define KVM_CPC_TRACK_EXEC_CUR _IOWR(KVMIO, 0x47, __u64)
 
-#define KVM_CPC_DEBUG _IOW(KVMIO, 0x2D, __u32)
+#define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x48, struct cpc_event)
+#define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x49, __u64)
 
-#define KVM_CPC_TRACK_PAGE _IOWR(KVMIO, 0x30, struct cpc_track_config)
-#define KVM_CPC_TRACK_ALL _IOWR(KVMIO, 0x31, __u32)
-#define KVM_CPC_UNTRACK_ALL _IOWR(KVMIO, 0x32, __u32)
-#define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x33)
-#define KVM_CPC_TRACK_RANGE_START _IOWR(KVMIO, 0x34, __u64)
-#define KVM_CPC_TRACK_RANGE_END _IOWR(KVMIO, 0x35, __u64)
-#define KVM_CPC_TRACK_EXEC_CUR _IOWR(KVMIO, 0x36, __u64)
-
-#define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x37, struct cpc_event)
-#define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x38, __u64)
 
 enum {
 	CPC_EVENT_NONE,
@@ -124,5 +119,3 @@ struct cpc_event {
 		struct cpc_guest_event guest;
 	};
 };
-
-typedef __u64 cpc_msrmt_t;

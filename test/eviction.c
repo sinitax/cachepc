@@ -2,31 +2,31 @@
 
 #include <sys/ioctl.h>
 #include <fcntl.h>
-#include <stdint.h>
 #include <assert.h>
 #include <unistd.h>
 #include <err.h>
-#include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 int
 main(int argc, const char **argv)
 {
-	cpc_msrmt_t counts[L1_SETS];
-	uint32_t arg;
+	uint8_t counts[L1_SETS];
+	uint32_t set;
 	int i, fd, ret;
 
 	fd = open("/dev/kvm", O_RDONLY);
 	if (fd < 0) err(1, "open");
 
-	arg = 48;
-	if (argc == 2) arg = atoi(argv[1]);
+	set = 48;
+	if (argc > 1) set = atoi(argv[1]);
 
-	ret = ioctl(fd, KVM_CPC_TEST_EVICTION, &arg);
-	if (ret == -1) err(1, "ioctl TEST_EVICTION");
+	ret = ioctl(fd, KVM_CPC_TEST_EVICTION, &set);
+	if (ret == -1) err(1, "ioctl KVM_CPC_TEST_EVICTION");
 
 	ret = ioctl(fd, KVM_CPC_READ_COUNTS, counts);
-	if (ret == -1) err(1, "ioctl READ_COUNTS");
+	if (ret == -1) err(1, "ioctl KVM_CPC_READ_COUNTS");
 
 	for (i = 0; i < 64; i++) {
 		if (i % 16 == 0 && i)
@@ -38,6 +38,6 @@ main(int argc, const char **argv)
 			printf("\x1b[0m");
 	}
 	printf("\n");
-	
+
 	close(fd);
 }

@@ -7,15 +7,13 @@
 #include <linux/delay.h>
 #include <linux/ioctl.h>
 
-#define SET_MASK(SETS) (((((uintptr_t) SETS) * CACHELINE_SIZE) - 1) ^ (CACHELINE_SIZE - 1))
+#define SET_MASK(SETS) (((((uintptr_t) SETS) * L1_LINESIZE) - 1) ^ (L1_LINESIZE - 1))
 
 #define REMOVE_PAGE_OFFSET(ptr) ((void *) (((uintptr_t) ptr) & PAGE_MASK))
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
-static void cl_insert(cacheline *last_cl, cacheline *new_cl);
 static void *remove_cache_set(cache_ctx *ctx, void *ptr);
-static void *remove_cache_group_set(void *ptr);
 
 static cacheline *prepare_cache_set_ds(cache_ctx *ctx, uint32_t *set, uint32_t sets_len);
 static cacheline *build_cache_ds(cache_ctx *ctx, cacheline **cacheline_ptr_arr);
@@ -167,22 +165,11 @@ cachepc_get_ctx(int cache_level)
 	ctx = kzalloc(sizeof(cache_ctx), GFP_KERNEL);
 	BUG_ON(ctx == NULL);
 
-	BUG_ON(cache_level != L1_CACHE);
-	if (cache_level == L1_CACHE) {
-		ctx->addressing = L1_ADDRESSING;
-		ctx->sets = L1_SETS;
-		ctx->associativity = L1_ASSOC;
-	} else if (cache_level == L2_CACHE) {
-		ctx->addressing = L2_ADDRESSING;
-		ctx->sets = L2_SETS;
-		ctx->associativity = L2_ASSOC;
-	} else {
-		return NULL;
-	}
-
+	ctx->sets = L1_SETS;
+	ctx->associativity = L1_ASSOC;
 	ctx->cache_level = cache_level;
 	ctx->nr_of_cachelines = ctx->sets * ctx->associativity;
-	ctx->set_size = CACHELINE_SIZE * ctx->associativity;
+	ctx->set_size = L1_LINESIZE * ctx->associativity;
 	ctx->cache_size = ctx->sets * ctx->set_size;
 
 	return ctx;
@@ -193,7 +180,6 @@ cachepc_release_ctx(cache_ctx *ctx)
 {
 	kfree(ctx);
 }
-
 
 /*
  * Initialises the complete cache data structure for the given context
@@ -221,22 +207,9 @@ cacheline *
 cachepc_prepare_victim(cache_ctx *ctx, uint32_t set)
 {
 	cacheline *victim_set, *victim_cl;
-	cacheline *curr_cl, *next_cl;
 
 	victim_set = prepare_cache_set_ds(ctx, &set, 1);
 	victim_cl = victim_set;
-
-	// Free the other lines in the same set that are not used.
-	if (ctx->addressing == PHYSICAL_ADDRESSING) {
-		curr_cl = victim_cl->next;
-		do {
-			next_cl = curr_cl->next;
-			// Here, it is ok to free them directly, as every line in the same
-			// set is from a different page anyway.
-			kfree(remove_cache_group_set(curr_cl));
-			curr_cl = next_cl;
-		} while(curr_cl != victim_cl);
-	}
 
 	return victim_cl;
 }
@@ -255,7 +228,7 @@ cachepc_aligned_alloc(size_t alignment, size_t size)
 	if (size % alignment != 0)
 		size = size - (size % alignment) + alignment;
 	p = kzalloc(size, GFP_KERNEL);
-	BUG_ON(((uintptr_t) p) % alignment != 0);
+	BUG_ON(!p || ((uintptr_t) p) % alignment != 0);
 
 	return p;
 }
@@ -269,7 +242,7 @@ cachepc_save_msrmts(cacheline *head)
 	curr_cl = head;
 	do {
 		if (CL_IS_FIRST(curr_cl->flags)) {
-			BUG_ON(curr_cl->cache_set >= cachepc_msrmts_count);
+			BUG_ON(curr_cl->cache_set >= L1_SETS);
 			cachepc_msrmts[curr_cl->cache_set] = curr_cl->count;
 		}
 
@@ -277,7 +250,7 @@ cachepc_save_msrmts(cacheline *head)
 	} while (curr_cl != head);
 
 	if (cachepc_baseline_active) {
-		for (i = 0; i < cachepc_msrmts_count; i++) {
+		for (i = 0; i < L1_SETS; i++) {
 			if (!cachepc_baseline_active)
 				WARN_ON(cachepc_msrmts[i] < cachepc_baseline[i]);
 			cachepc_msrmts[i] -= cachepc_baseline[i];
@@ -306,7 +279,7 @@ cachepc_update_baseline(void)
 {
 	size_t i;
 
-	for (i = 0; i < cachepc_msrmts_count; i++) {
+	for (i = 0; i < L1_SETS; i++) {
 		cachepc_baseline[i] = MIN(cachepc_baseline[i],
 			cachepc_msrmts[i]);
 	}
@@ -372,15 +345,6 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 			last_cl_in_sets[curr_cl->cache_set] = curr_cl;
 		}
 
-		if (ctx->addressing == PHYSICAL_ADDRESSING && !is_in_arr(
-			curr_cl->cache_set / CACHE_GROUP_SIZE,
-			cache_groups, cache_groups_len))
-		{
-			// Already free all unused blocks of the cache ds for physical
-			// addressing, because we loose their refs
-			cl_insert(to_del_cls, curr_cl);
-			to_del_cls = curr_cl;
-		}
 		curr_cl = next_cl;
 
 	} while (curr_cl != cache_ds);
@@ -392,11 +356,6 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 	}
 	cache_set_ds = first_cl_in_sets[sets[0]];
 
-	// Free unused cache lines
-	if (ctx->addressing == PHYSICAL_ADDRESSING) {
-		cachepc_release_ds(ctx, to_del_cls);
-	}
-
 	kfree(first_cl_in_sets);
 	kfree(last_cl_in_sets);
 	kfree(cache_groups);
@@ -404,33 +363,11 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 	return cache_set_ds;
 }
 
-void 
-cl_insert(cacheline *last_cl, cacheline *new_cl)
-{
-    if (last_cl == NULL) {
-        // Adding the first entry is a special case
-        new_cl->next = new_cl;
-        new_cl->prev = new_cl;
-    } else {
-        new_cl->next = last_cl->next;
-        new_cl->prev = last_cl;
-        last_cl->next->prev = new_cl;
-        last_cl->next = new_cl;
-    }
-}
-
 void *
 remove_cache_set(cache_ctx *ctx, void *ptr)
 {
 	return (void *) (((uintptr_t) ptr) & ~SET_MASK(ctx->sets));
 }
-
-void *
-remove_cache_group_set(void *ptr)
-{
-	return (void *) (((uintptr_t) ptr) & ~SET_MASK(CACHE_GROUP_SIZE));
-}
-
 
 /*
  * Create a randomized doubly linked list with the following structure:
@@ -555,12 +492,7 @@ allocate_cache_ds(cache_ctx *ctx)
 	cl_ptr_arr = kzalloc(ctx->nr_of_cachelines * sizeof(cacheline *), GFP_KERNEL);
 	BUG_ON(cl_ptr_arr == NULL);
 
-	BUG_ON(ctx->addressing != VIRTUAL_ADDRESSING);
-
-	// For virtual addressing, allocating a consecutive chunk of memory is enough
 	cl_arr = cachepc_aligned_alloc(PAGE_SIZE, ctx->cache_size);
-	BUG_ON(cl_arr == NULL);
-
 	for (i = 0; i < ctx->nr_of_cachelines; ++i) {
 		cl_ptr_arr[i] = cl_arr + i;
 		cl_ptr_arr[i]->cache_set = get_virt_cache_set(ctx, cl_ptr_arr[i]);
@@ -574,7 +506,7 @@ allocate_cache_ds(cache_ctx *ctx)
 uint16_t
 get_virt_cache_set(cache_ctx *ctx, void *ptr)
 {
-	return (uint16_t) ((((uintptr_t) ptr) & SET_MASK(ctx->sets)) / CACHELINE_SIZE);
+	return (uint16_t) ((((uintptr_t) ptr) & SET_MASK(ctx->sets)) / L1_LINESIZE);
 }
 
 void

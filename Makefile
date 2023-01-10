@@ -1,14 +1,15 @@
 LINUX ?= linux
-LOAD ?= $(shell ls /dev/cpu | wc -l)
+CORES ?= $(shell ls /dev/cpu | wc -l)
+LOAD ?= $(CORES)
+JOBS ?= $(CORES)
 PWD := $(shell pwd)
 
-BINS = test/eviction test/access test/kvm test/sev test/sev-es
-BINS += test/fullstep test/execstep
-BINS += test/aes-detect_guest test/aes-detect_host
-BINS += test/access-detect_guest test/access-detect_host
-BINS += test/readsvme util/debug util/reset
+BINS = test/eviction test/kvm-eviction # test/kvm-execstep
+# BINS += test/qemu-eviction_guest test/qemu-eviction_host
+# BINS += test/qemu-aes_guest test/qemu-aes_host
+BINS += util/svme util/debug util/reset
 
-CFLAGS = -I . -I test -Wunused-variable -Wunknown-pragmas
+CFLAGS = -I . -I linux/usr/include -I test -Wunused-variable -Wunknown-pragmas
 
 all: build $(BINS)
 
@@ -28,13 +29,14 @@ host:
 	git -C $(LINUX) checkout 0aaa1e5
 	$(MAKE) -C $(LINUX) oldconfig
 	$(MAKE) -C $(LINUX) prepare
-	$(MAKE) -C $(LINUX) -l $(LOAD)
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD)
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) headers
 	git -C $(LINUX) checkout master
 	git -C $(LINUX) stash pop
 
 build: $(LINUX)/arch/x86/kvm/cachepc
-	$(MAKE) -C $(LINUX) -l $(LOAD) M=arch/x86/kvm modules
-	$(MAKE) -C $(LINUX) -l $(LOAD) M=crypto modules
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=arch/x86/kvm modules
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=crypto modules
 
 load:
 	sudo rmmod kvm_amd || true

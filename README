@@ -1,0 +1,45 @@
+CachePC
+=======
+
+This repository contains proof-of-concept code for a novel cache side-channel
+attack dubbed PRIME+COUNT that we demonstrate can be used to circumvent
+AMD's latest secure virtualization solution SEV-SNP to access sensitive
+guest information.
+
+Several test-cases were used to verify parts of the exploit chain separately:
+
+test/eviction:
+	Demonstrate that performance counters & our setup are accurate enough
+	to detect a single eviction in L1 cache and infer its cache set
+	through PRIME+COUNT
+
+test/kvm-eviction:
+	Demonstrate that the cache set of a memory access instruction can be
+	inferred in non-SEV / SEV / SEV-ES / SEV-SNP -enabled vms respectively.
+
+test/kvm-step:
+	Demonstrate that SEV-SNP enabled vms can be single-stepped using local
+	APIC timers to interrupt the guest and increment the interrupt interval
+	while observing the RIP+RFLAGS ciphertext in the VMSA for changes to
+	detect that a single instruction has been executed.
+
+test/kvm-pagestep:
+	Demonstrate that a SEV-SNP enabled vm can be quickly single-stepped
+	and analyzed by tracking a single page at a time. This type
+	of tracking creates a page-wise profile of the guests execution,
+	which can be used to infer what the guest is doing and to begin
+	fine-grained single-stepping.
+
+test/qemu-eviction:
+	Replicate result from kvm-eviction on a qemu-based vm running debian
+	using a specially crafted guest program to signal when measurement
+	should take place to infer the accessed set.
+
+test/qemu-aes:
+	Demonstrate that AES encryption keys can be leaked from a
+	modified qemu-based linux guest.
+
+test/qemu-poc:
+	Demonstrate that AES encryption keys can be leaked from an
+	unmodified qemu-based linux guest.
+

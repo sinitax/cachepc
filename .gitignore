@@ -6,4 +6,5 @@ push.sh
 *.o.d
 *.out
 *.swp
+.cache
 compile_commands.json

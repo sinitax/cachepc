@@ -1,5 +1,7 @@
 #include "cachepc/uapi.h"
 
+#include <sys/time.h>
+#include <sys/resource.h>
 #include <err.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -16,6 +18,8 @@ main(int argc, const char **argv)
 	if (posix_memalign(&buf, L1_LINESIZE * L1_SETS, L1_LINESIZE * L1_SETS))
 		err(1, "memalign");
 	memset(buf, 0, L1_LINESIZE * L1_SETS);
+
+	setpriority(PRIO_PROCESS, 0, -20);
 
 	while (1) {
 		printf("LOOP\n");

@@ -9,14 +9,7 @@
 #define L1_CACHE 0
 #define L2_CACHE 1
 
-#define VIRTUAL_ADDRESSING 0
-#define PHYSICAL_ADDRESSING 1
-
-#define L1_ADDRESSING VIRTUAL_ADDRESSING
-#define L2_ADDRESSING PHYSICAL_ADDRESSING
-
-#define CACHELINE_SIZE L1_LINESIZE
-#define CACHE_GROUP_SIZE (PAGE_SIZE / CACHELINE_SIZE)
+#define CACHE_GROUP_SIZE (PAGE_SIZE / L1_LINESIZE)
 
 #define CACHEPC_GET_BIT(b, i) (((b) >> (i)) & 1)
 #define CACHEPC_SET_BIT(b, i) ((b) | (1 << (i)))
@@ -54,7 +47,6 @@ typedef struct cache_ctx cache_ctx;
 
 struct cache_ctx {
     int cache_level;
-    int addressing;
 
     uint32_t sets;
     uint32_t associativity;
@@ -85,7 +77,8 @@ struct cpc_fault {
 	struct list_head list;
 };
 
-static_assert(sizeof(struct cacheline) == CACHELINE_SIZE, "Bad cache line struct size");
+static_assert(sizeof(struct cacheline) == L1_LINESIZE,
+	"Bad cache line struct size");
 static_assert(CL_NEXT_OFFSET == 0 && CL_PREV_OFFSET == 8);
 
 bool cachepc_verify_topology(void);
@@ -116,9 +109,6 @@ __attribute__((always_inline))
 static inline cacheline *cachepc_prime(cacheline *head);
 
 __attribute__((always_inline))
-static inline cacheline *cachepc_prime_rev(cacheline *head);
-
-__attribute__((always_inline))
 static inline cacheline *cachepc_probe(cacheline *head);
 
 __attribute__((always_inline))
@@ -132,10 +122,8 @@ static inline void cachepc_apic_oneshot(uint32_t interval);
 
 extern bool cachepc_debug;
 
-extern cpc_msrmt_t *cachepc_msrmts;
-extern size_t cachepc_msrmts_count;
-
-extern cpc_msrmt_t *cachepc_baseline;
+extern uint8_t *cachepc_msrmts;
+extern uint8_t *cachepc_baseline;
 extern bool cachepc_baseline_measure;
 extern bool cachepc_baseline_active;
 
@@ -186,39 +174,6 @@ cachepc_prime(cacheline *head)
 	cachepc_cpuid();
 
 	return prev_cl;
-}
-
-/*
- * Same as prime, but in the reverse direction, i.e. the same direction that probe
- * uses. This is beneficial for the following scenarios:
- *     - L1:
- *         - Trigger collision chain-reaction to amplify an evicted set (but this has
- *           the downside of more noisy measurements).
- *     - L2:
- *         - Always use this for L2, otherwise the first cache sets will still reside
- *           in L1 unless the victim filled L1 completely. In this case, an eviction
- *           has randomly (depending on where the cache set is placed in the randomised
- *           data structure) the following effect:
- *             A) An evicted set is L2_ACCESS_TIME - L1_ACCESS_TIME slower
- *             B) An evicted set is L3_ACCESS_TIME - L2_ACCESS_TIME slower
- */
-cacheline *
-cachepc_prime_rev(cacheline *head)
-{
-	cacheline *curr_cl;
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	curr_cl = head;
-	do {
-		curr_cl = curr_cl->prev;
-	} while(curr_cl != head);
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	return curr_cl->prev;
 }
 
 cacheline *

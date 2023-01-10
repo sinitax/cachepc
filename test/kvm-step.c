@@ -81,7 +81,9 @@ const char *sev_fwerr_strs[] = {
 	[0x15] = "Feature not supported",
 	[0x16] = "Invalid parameter",
 	[0x17] = "Out of resources",
-	[0x18] = "Integrity checks failed"
+	[0x18] = "Integrity checks failed",
+	[0x19] = "RMP page size is incorrect",
+	[0x1A] = "RMP page state is incorrect",
 };
 
 const char *sev_gstate_strs[] = {
@@ -106,13 +108,9 @@ hexdump(void *data, int len)
 __attribute__((section("guest_with"))) void
 vm_guest_with(void)
 {
-	while (1) {
-		asm volatile("mov (%0), %%eax" : :
-			"r" (L1_LINESIZE * (L1_SETS * 3 + TARGET_SET)) : "rax");
-		asm volatile("nop");
-		asm volatile("mov (%0), %%eax" : :
-			"r" (L1_LINESIZE * (L1_SETS * 3 + TARGET_SET)) : "rax");
-	}
+	asm volatile ("mov %rbp, %rsp; pop %rbp; \
+			movq $4096, %rcx; movq $0, %rdx; cmp %rcx, %rdx; \
+			cmovne %rdx, %rcx; jmp *%rcx");
 }
 
 bool
@@ -163,8 +161,10 @@ read_stat_core(pid_t pid)
 const char *
 sev_fwerr_str(int code)
 {
-	if (code < 0 || code >= ARRLEN(sev_fwerr_strs))
+	if (code < 0 || code >= ARRLEN(sev_fwerr_strs)) {
+		warnx("Unknown firmware error %i", code);
 		return "Unknown error";
+	}
 
 	return sev_fwerr_strs[code];
 }
@@ -172,8 +172,10 @@ sev_fwerr_str(int code)
 const char *
 sev_gstate_str(int code)
 {
-	if (code < 0 || code >= ARRLEN(sev_gstate_strs))
+	if (code < 0 || code >= ARRLEN(sev_gstate_strs)) {
+		warnx("Unknown guest state %i", code);
 		return "Unknown gstate";
+	}
 
 	return sev_gstate_strs[code];
 }
@@ -209,6 +211,7 @@ snp_guest_state(int vmfd)
 
 	return status.state;
 }
+
 
 void
 snp_dbg_encrypt(int vmfd, void *dst, void *src, size_t size)
@@ -247,7 +250,7 @@ snp_dbg_decrypt(int vmfd, void *dst, void *src, size_t size)
 }
 
 uint64_t
-snp_dbg_rip(int vmfd)
+snp_dbg_decrypt_rip(int vmfd)
 {
 	uint8_t vmsa[PAGE_SIZE];
 	uint64_t rip;
@@ -284,7 +287,12 @@ snp_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (!kvm->mem) err(1, "Allocating guest memory");
 	assert(code_stop - code_start <= kvm->memsize);
-	memcpy(kvm->mem, code_start, code_stop - code_start);
+
+	/* Fill memory with nops and put jump code a bit from start
+	 * such that we access multiple different pages while running */
+	memset(kvm->mem, 0x90, kvm->memsize);
+	memcpy(kvm->mem + L1_SIZE, // - (code_stop - code_start),
+		code_start, code_stop - code_start);
 
 	/* Map it into the vm */
 	memset(&region, 0, sizeof(region));
@@ -382,7 +390,7 @@ read_counts()
 	if (!counts) err(1, "malloc");
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-	if (ret == -1) err(1, "ioctl READ_COUNTS");
+	if (ret) err(1, "ioctl READ_COUNTS");
 
 	for (i = 0; i < L1_SETS; i++) {
 		if (counts[i] > 8)
@@ -444,7 +452,6 @@ monitor(struct kvm *kvm, bool baseline)
 {
 	struct cpc_event event;
 	cpc_msrmt_t counts[64];
-	uint64_t rip;
 	int ret, i;
 
 	/* Get page fault info */
@@ -452,36 +459,43 @@ monitor(struct kvm *kvm, bool baseline)
 	if (ret) {
 		if (errno == EAGAIN)
 			return 0;
-		perror("ioctl POLL_EVENT");
+		warn("ioctl POLL_EVENT");
 		return 1;
 	}
 
 	if (event.type == CPC_EVENT_TRACK_STEP) {
 		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-		if (ret == -1) err(1, "ioctl READ_COUNTS");
+		if (ret) err(1, "ioctl READ_COUNTS");
 
 		if (!baseline) {
-			rip = snp_dbg_rip(kvm->vmfd);
-			printf("Event: cnt:%llu inst:%llu data:%llu retired:%llu rip:%lu\n",
+			printf("Event: cnt:%llu rip:%lu, inst:%llu data:%llu retired:%llu\n",
 				event.step.fault_count,
+				0, // snp_dbg_decrypt_rip(kvm->vmfd),
 				event.step.fault_gfns[0],
 				event.step.fault_gfns[1],
-				event.step.retinst, rip);
+				event.step.retinst);
 			print_counts(counts);
 			printf("\n");
 		}
-		faultcnt++;
 
 		for (i = 0; i < 64; i++) {
 			if (counts[i] > 8) {
-				errx(1, "Invalid count for set %i (%llu)",
+				warnx("Invalid count for set %i (%llu)",
 					i, counts[i]);
 			}
 		}
+
+		if (baseline) faultcnt++;
+	} else if (event.type == CPC_EVENT_TRACK_PAGE) {
+		printf("Event: inst page from:%llu to:%llu rip:%lu\n\n",
+			event.page.inst_gfn_prev, event.page.inst_gfn,
+			0); //snp_dbg_decrypt_rip(kvm->vmfd));
+
+		if (!baseline) faultcnt++;
 	}
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-	if (ret == -1) err(1, "ioctl ACK_EVENT");
+	if (ret) err(1, "ioctl ACK_EVENT");
 
 	return 0;
 }
@@ -522,27 +536,29 @@ main(int argc, const char **argv)
 	/* Page tracking init needs to happen after kvm
 	 * init so main_kvm is set.. */
 
+	/* Reset previous tracking */
 	ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
-	if (ret == -1) err(1, "ioctl RESET_TRACKING");
+	if (ret) err(1, "ioctl RESET_TRACKING");
 
-	arg = CPC_TRACK_FULL;
+	/* Do data access stepping */
+	arg = CPC_TRACK_STUB;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-	if (ret == -1) err(1, "ioctl TRACK_MODE");
+	if (ret) err(1, "ioctl TRACK_MODE");
 
 	/* Init page tracking */
-	track_mode = KVM_PAGE_TRACK_ACCESS;
+	track_mode = KVM_PAGE_TRACK_EXEC;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
-	if (ret == -1) err(1, "ioctl TRACK_ALL");
+	if (ret) err(1, "ioctl TRACK_ALL");
 
 	arg = true;
 	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
-	if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+	if (ret) err(1, "ioctl MEASURE_BASELINE");
 
 	ppid = getpid();
 	if ((pid = fork())) {
 		if (pid < 0) err(1, "fork");
 
-		sleep(1); /* wait for child to pin other core */
+		sleep(1); /* give time for child to pin other core */
 
 		printf("VMRUN\n");
 		runonce(&kvm_with_access);
@@ -558,16 +574,16 @@ main(int argc, const char **argv)
 
 		do {
 			ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
-			if (ret == -1 && errno != EAGAIN)
+			if (ret && errno != EAGAIN)
 				err(1, "ioctl POLL_EVENT");
-		} while (ret == -1 && errno == EAGAIN);
+		} while (ret && errno == EAGAIN);
 
 		arg = false;
 		ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &arg);
-		if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
+		if (ret) err(1, "ioctl MEASURE_BASELINE");
 
 		ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
-		if (ret == -1) err(1, "ioctl READ_BASELINE");
+		if (ret) err(1, "ioctl READ_BASELINE");
 
 		printf("\n>>> BASELINE:\n");
 		print_counts(baseline);
@@ -578,15 +594,26 @@ main(int argc, const char **argv)
 		/* Check baseline for saturated sets */
 		for (i = 0; i < 64; i++) {
 			if (baseline[i] >= 8)
-				errx(1, "!!! Baseline set %i full\n", i);
+				warnx("!!! Baseline set %i full\n", i);
 		}
 
 		arg = true;
 		ret = ioctl(kvm_dev, KVM_CPC_SUB_BASELINE, &arg);
-		if (ret == -1) err(1, "ioctl SUB_BASELINE");
+		if (ret) err(1, "ioctl SUB_BASELINE");
+
+		ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
+		if (ret) err(1, "ioctl RESET_TRACKING");
+
+		arg = CPC_TRACK_EXEC;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+		if (ret) err(1, "ioctl TRACK_MODE");
+
+		track_mode = KVM_PAGE_TRACK_EXEC;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_ALL, &track_mode);
+		if (ret) err(1, "ioctl TRACK_ALL");
 
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-		if (ret == -1) err(1, "ioctl ACK_EVENT");
+		if (ret) err(1, "ioctl ACK_EVENT");
 
 		faultcnt = 0;
 		while (faultcnt < 20) {

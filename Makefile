@@ -14,8 +14,8 @@ CFLAGS = -I . -I linux/usr/include -I test -Wunused-variable -Wunknown-pragmas
 all: build $(BINS)
 
 clean:
-	$(MAKE) -C $(LINUX) SUBDIRS=arch/x86/kvm clean
-	$(MAKE) -C $(LINUX) SUBDIRS=crypto clean
+	$(MAKE) -C $(LINUX) clean M=arch/x86/kvm 
+	$(MAKE) -C $(LINUX) clean M=crypto 
 	rm $(BINS)
 
 $(LINUX)/arch/x86/kvm/cachepc:
@@ -27,16 +27,14 @@ host:
 	git -C $(LINUX) add .
 	git -C $(LINUX) stash
 	git -C $(LINUX) checkout 0aaa1e5
-	$(MAKE) -C $(LINUX) oldconfig
-	$(MAKE) -C $(LINUX) prepare
-	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD)
-	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) headers
+	rm -f $(LINUX)/arch/x86/kvm/cachepc
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) bindeb-pkg
 	git -C $(LINUX) checkout master
 	git -C $(LINUX) stash pop
 
 build: $(LINUX)/arch/x86/kvm/cachepc
 	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=arch/x86/kvm modules
-	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=crypto modules
+	#$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=crypto modules
 
 load:
 	sudo rmmod kvm_amd || true
@@ -51,12 +49,6 @@ freq:
 
 update:
 	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff
-
-test/aes-detect_%: test/aes-detect_%.c test/aes-detect.c cachepc/uapi.h
-	clang -o $@ $< $(CFLAGS) -I test/libkcapi/lib -L test/libkcapi/.libs -lkcapi -static
-
-test/access-detect_%: test/access-detect_%.c cachepc/uapi.h
-	clang -o $@ $< $(CFLAGS) -static
 
 test/%: test/%.c cachepc/uapi.h
 	clang -o $@ $< $(CFLAGS) -fsanitize=address

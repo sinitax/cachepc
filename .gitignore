@@ -1,10 +1,6 @@
 build.sh
 push.sh
 .vscode
-*.o.cmd
-*.o
-*.o.d
-*.out
-*.swp
 .cache
+linux-*
 compile_commands.json

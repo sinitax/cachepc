@@ -43,3 +43,11 @@ test/qemu-poc:
 	Demonstrate that AES encryption keys can be leaked from an
 	unmodified qemu-based linux guest.
 
+Testing was done on a bare-metal AMD EPYC 72F3 (Family 0x19, Model 0x01).
+
+To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
+that a host kernel debian package was built using `make host`.
+
+Note: because of bad decisions made in regards to version control,
+the checked out commit of the modified kernel (previously the
+kernel patch file) might be incorrect for older revisions.

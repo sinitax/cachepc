@@ -399,13 +399,13 @@ sev_kvm_deinit(struct kvm *kvm)
 	munmap(kvm->mem, kvm->memsize);
 }
 
-cpc_msrmt_t *
+uint8_t *
 read_counts()
 {
-	cpc_msrmt_t *counts;
+	uint8_t *counts;
 	int ret;
 
-	counts = malloc(64 * sizeof(cpc_msrmt_t));
+	counts = malloc(64);
 	if (!counts) err(1, "malloc");
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 	if (ret == -1) err(1, "ioctl READ_COUNTS");
@@ -414,7 +414,7 @@ read_counts()
 }
 
 void
-print_counts(cpc_msrmt_t *counts)
+print_counts(uint8_t *counts)
 {
 	int i;
 
@@ -429,11 +429,11 @@ print_counts(cpc_msrmt_t *counts)
 		if (counts[i] > 0)
 			printf("\x1b[0m");
 	}
-	printf("\n Target Set %i Count: %llu\n", TARGET_SET, counts[TARGET_SET]);
+	printf("\n Target Set %i Count: %u\n", TARGET_SET, counts[TARGET_SET]);
 	printf("\n");
 }
 
-cpc_msrmt_t *
+uint8_t *
 collect(struct kvm *kvm)
 {
 	struct kvm_regs regs;
@@ -459,10 +459,10 @@ collect(struct kvm *kvm)
 int
 main(int argc, const char **argv)
 {
-	cpc_msrmt_t without_access[SAMPLE_COUNT][64];
-	cpc_msrmt_t with_access[SAMPLE_COUNT][64];
+	uint8_t without_access[SAMPLE_COUNT][64];
+	uint8_t with_access[SAMPLE_COUNT][64];
 	struct kvm kvm_without_access, kvm_with_access;
-	cpc_msrmt_t *counts, *baseline;
+	uint8_t *counts, *baseline;
 	uint32_t arg, measure;
 	int i, k, ret;
 	
@@ -482,11 +482,10 @@ main(int argc, const char **argv)
 	if (ret != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
 
 	/* init L1 miss counter for host kernel */
-	arg = 0x002264D8;
-	ret = ioctl(kvm_dev, KVM_CPC_INIT_PMC, &arg);
-	if (ret < 0) err(1, "ioctl INIT_PMC");
+	ret = ioctl(kvm_dev, KVM_CPC_RESET);
+	if (ret < 0) err(1, "ioctl KVM_CPC_RESET");
 
-	baseline = calloc(sizeof(cpc_msrmt_t), 64);
+	baseline = malloc(64);
 	if (!baseline) err(1, "calloc");
 
 	sev_kvm_init(&kvm_with_access, 64 * 64 * 8 * 2, __start_guest_with, __stop_guest_with);
@@ -497,21 +496,21 @@ main(int argc, const char **argv)
 	ioctl(kvm_without_access.vcpufd, KVM_RUN, NULL);
 
 	measure = true;
-	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &measure);
+	ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &measure);
 	if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
 
 	for (i = 0; i < SAMPLE_COUNT; i++) {
 		counts = collect(&kvm_without_access);
-		memcpy(without_access[i], counts, 64 * sizeof(cpc_msrmt_t));
+		memcpy(without_access[i], counts, 64);
 		free(counts);
 
 		counts = collect(&kvm_with_access);
-		memcpy(with_access[i], counts, 64 * sizeof(cpc_msrmt_t));
+		memcpy(with_access[i], counts, 64);
 		free(counts);
 	}
 
 	measure = false;
-	ret = ioctl(kvm_dev, KVM_CPC_MEASURE_BASELINE, &measure);
+	ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &measure);
 	if (ret == -1) err(1, "ioctl MEASURE_BASELINE");
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
@@ -527,7 +526,7 @@ main(int argc, const char **argv)
 		printf("Evictions with access:\n");
 		print_counts(with_access[i]);
 
-		printf("Evictions without access:\n");
+		printf("Evictions withoCALCt access:\n");
 		print_counts(without_access[i]);
 	}
 

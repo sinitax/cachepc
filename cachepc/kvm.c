@@ -190,9 +190,9 @@ cachepc_kvm_stream_hwpf_test(void *p)
 	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 4) : "rbx");
 	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 5) : "rbx");
 	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 6) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 0) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 1) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 2) : "rbx");
+	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 7) : "rbx");
+	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 8) : "rbx");
+	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 9) : "rbx");
 	count += cachepc_read_pmc(CPC_L1MISS_PMC);
 
 	CPC_WARN("HWPF test done (%u vs. %u => %s)\n",

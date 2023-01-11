@@ -1,0 +1,22 @@
+#pragma once
+
+#define CPC_ISOLCPU 2
+
+#define CPC_L1MISS_PMC 0
+#define CPC_RETINST_PMC 1
+
+#define L1_ASSOC 8
+#define L1_LINESIZE 64
+#define L1_SETS 64
+#define L1_SIZE (L1_SETS * L1_ASSOC * L1_LINESIZE)
+
+#define L2_ASSOC 8
+#define L2_LINESIZE 64
+#define L2_SETS 1024
+#define L2_SIZE (L2_SETS * L2_ASSOC * L2_LINESIZE)
+
+#define CPC_VMSA_MAGIC_ADDR ((void *) 0xC0FFEE)
+
+#define KVM_HC_CPC_VMMCALL_SIGNAL 0xEE01
+#define KVM_HC_CPC_VMMCALL_EXIT 0xEE02
+

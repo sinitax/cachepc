@@ -2,6 +2,7 @@ LINUX ?= linux
 CORES ?= $(shell ls /dev/cpu | wc -l)
 LOAD ?= $(CORES)
 JOBS ?= $(CORES)
+
 PWD := $(shell pwd)
 
 BINS = test/eviction test/kvm-eviction # test/kvm-execstep
@@ -9,7 +10,11 @@ BINS = test/eviction test/kvm-eviction # test/kvm-execstep
 # BINS += test/qemu-aes_guest test/qemu-aes_host
 BINS += util/svme util/debug util/reset
 
-CFLAGS = -I . -I linux/usr/include -I test -Wunused-variable -Wunknown-pragmas
+CFLAGS = -I . -I linux/usr/include -I test
+CFLAGS += -g -Wunused-variable -Wunknown-pragmas
+CFLAGS += -fsanitize=address
+
+CACHEPC_UAPI = cachepc/uapi.h cachepc/const.h
 
 all: build $(BINS)
 
@@ -22,7 +27,7 @@ $(LINUX)/arch/x86/kvm/cachepc:
 	ln -sf $(PWD)/cachepc $@
 
 host:
-	# generate host kernel and Module.symvers for depmod
+	# build host kernel and Module.symvers for depmod
 	cp extra/.config linux/.config
 	git -C $(LINUX) add .
 	git -C $(LINUX) stash
@@ -50,10 +55,12 @@ freq:
 update:
 	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff
 
-test/%: test/%.c cachepc/uapi.h
-	clang -o $@ $< $(CFLAGS) -fsanitize=address
+util/%: util/%.c $(CACHEPC_UAPI)
 
-util/%: util/%.c cachepc/uapi.h
-	clang -o $@ $< $(CFLAGS) -fsanitize=address
+test/%: test/%.c $(CACHEPC_UAPI)
+
+test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction_guest.S \
+		test/kvm-eviction.h $(CACHEPC_UAPI)
+	$(CC) -o $@ test/kvm-eviction.c test/kvm-eviction_guest.S $(CFLAGS)
 
 .PHONY: all clean host build load freq update

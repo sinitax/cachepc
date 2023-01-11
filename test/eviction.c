@@ -21,6 +21,8 @@ main(int argc, const char **argv)
 
 	set = 48;
 	if (argc > 1) set = atoi(argv[1]);
+	if (set >= L1_SETS)
+		errx(1, "set out-of-bounds");
 
 	ret = ioctl(fd, KVM_CPC_TEST_EVICTION, &set);
 	if (ret == -1) err(1, "ioctl KVM_CPC_TEST_EVICTION");

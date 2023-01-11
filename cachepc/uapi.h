@@ -76,15 +76,6 @@ enum {
 	CPC_TRACK_FULL,
 };
 
-enum kvm_page_track_mode {
-	KVM_PAGE_TRACK_WRITE,
-	KVM_PAGE_TRACK_ACCESS,
-	KVM_PAGE_TRACK_RESET_ACCESS,
-	KVM_PAGE_TRACK_EXEC,
-	KVM_PAGE_TRACK_RESET_EXEC,
-	KVM_PAGE_TRACK_MAX,
-};
-
 struct cpc_track_config {
 	__u64 gfn;
 	__s32 mode;

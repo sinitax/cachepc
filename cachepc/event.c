@@ -57,7 +57,7 @@ cachepc_send_event(struct cpc_event event)
 		if (ktime_get_ns() > deadline) {
 			CPC_WARN("Timeout waiting for ack of event %llu\n",
 				cachepc_event.id);
-			return 3;
+			return 1;
 		}
 	}
 
@@ -72,6 +72,16 @@ cachepc_send_guest_event(uint64_t type, uint64_t val)
 	event.type = CPC_EVENT_CPUID;
 	event.guest.type = type;
 	event.guest.val = val;
+
+	return cachepc_send_event(event);
+}
+
+int
+cachepc_send_pause_event(void)
+{
+	struct cpc_event event;
+
+	event.type = CPC_EVENT_PAUSE;
 
 	return cachepc_send_event(event);
 }

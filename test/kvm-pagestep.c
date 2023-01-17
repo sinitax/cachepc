@@ -212,25 +212,6 @@ snp_guest_state(int vmfd)
 	return status.state;
 }
 
-
-void
-snp_dbg_encrypt(int vmfd, void *dst, void *src, size_t size)
-{
-	struct kvm_sev_dbg enc;
-	int ret, fwerr;
-
-	assert(false); /* ioctl not implemented yet */
-
-	memset(&enc, 0, sizeof(struct kvm_sev_dbg));
-	enc.src_uaddr = (uintptr_t) src;
-	enc.dst_uaddr = (uintptr_t) dst;
-	enc.len = size;
-
-	ret = sev_ioctl(vmfd, KVM_SEV_DBG_ENCRYPT, &enc, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_DBG_ENCRYPT: (%s) %s",
-		strerror(errno), sev_fwerr_str(fwerr));
-}
-
 void
 snp_dbg_decrypt(int vmfd, void *dst, void *src, size_t size)
 {
@@ -264,7 +245,7 @@ snp_dbg_decrypt_rip(int vmfd)
 }
 
 void
-snp_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
+sev_snp_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 {
 	// REF: https://www.amd.com/system/files/TechDocs/55766_SEV-KM_API_Specification.pdf
 	struct kvm_sev_snp_launch_update update;
@@ -373,20 +354,20 @@ snp_kvm_init(struct kvm *kvm, size_t ramsize, void *code_start, void *code_stop)
 }
 
 void
-snp_kvm_deinit(struct kvm *kvm)
+sev_snp_kvm_deinit(struct kvm *kvm)
 {
 	close(kvm->vmfd);
 	close(kvm->vcpufd);
 	munmap(kvm->mem, kvm->memsize);
 }
 
-cpc_msrmt_t *
+uint8_t *
 read_counts()
 {
-	cpc_msrmt_t *counts;
+	uint8_t *counts;
 	int i, ret;
 
-	counts = malloc(L1_SETS * sizeof(cpc_msrmt_t));
+	counts = malloc(L1_SETS * sizeof(uint8_t));
 	if (!counts) err(1, "malloc");
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
@@ -401,7 +382,7 @@ read_counts()
 }
 
 void
-print_counts(cpc_msrmt_t *counts)
+print_counts(uint8_t *counts)
 {
 	int i;
 
@@ -419,24 +400,7 @@ print_counts(cpc_msrmt_t *counts)
 	printf("\n");
 }
 
-void
-print_counts_raw(cpc_msrmt_t *counts)
-{
-	int i;
 
-	for (i = 0; i < 64; i++) {
-		if (i % 16 == 0 && i)
-			printf("\n");
-		if (counts[i] == 1)
-			printf("\x1b[38;5;88m");
-		else if (counts[i] > 1)
-			printf("\x1b[38;5;196m");
-		printf("%02X ", (uint8_t) counts[i]);
-		if (counts[i] > 0)
-			printf("\x1b[0m");
-	}
-	printf("\n");
-}
 
 void
 runonce(struct kvm *kvm)
@@ -451,7 +415,7 @@ int
 monitor(struct kvm *kvm, bool baseline)
 {
 	struct cpc_event event;
-	cpc_msrmt_t counts[64];
+	uint8_t counts[64];
 	int ret, i;
 
 	/* Get page fault info */
@@ -508,7 +472,7 @@ main(int argc, const char **argv)
 	pid_t ppid, pid;
 	uint32_t arg;
 	struct cpc_event event;
-	cpc_msrmt_t baseline[64];
+	uint8_t baseline[64];
 	int ret, i;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -521,23 +485,16 @@ main(int argc, const char **argv)
 	kvm_dev = open("/dev/kvm", O_RDWR | O_CLOEXEC);
 	if (kvm_dev < 0) err(1, "open /dev/kvm");
 
-	/* Make sure we have the stable version of the API */
+	/* ensure we have the stable version of the api */
 	ret = ioctl(kvm_dev, KVM_GET_API_VERSION, NULL);
 	if (ret < 0) err(1, "KVM_GET_API_VERSION");
 	if (ret != 12) errx(1, "KVM_GET_API_VERSION %d, expected 12", ret);
 
-	/* Setup needed performance counters */
-	ret = ioctl(kvm_dev, KVM_CPC_SETUP_PMC, NULL);
-	if (ret < 0) err(1, "ioctl SETUP_PMC");
-
-	snp_kvm_init(&kvm_with_access, L1_SIZE * 2,
+	sev_snp_kvm_init(&kvm_with_access, L1_SIZE * 2,
 		__start_guest_with, __stop_guest_with);
 
-	/* Page tracking init needs to happen after kvm
-	 * init so main_kvm is set.. */
-
-	/* Reset previous tracking */
-	ret = ioctl(kvm_dev, KVM_CPC_RESET_TRACKING, NULL);
+	/* reset kernel module state */
+	ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
 	if (ret) err(1, "ioctl RESET_TRACKING");
 
 	/* Do data access stepping */
@@ -624,7 +581,7 @@ main(int argc, const char **argv)
 		exit(0);
 	}
 
-	snp_kvm_deinit(&kvm_with_access);
+	sev_snp_kvm_deinit(&kvm_with_access);
 	
 	close(kvm_dev);
 	close(sev_dev);

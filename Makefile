@@ -5,13 +5,14 @@ JOBS ?= $(CORES)
 
 PWD := $(shell pwd)
 
-BINS = test/eviction test/kvm-eviction # test/kvm-execstep
+BINS = test/eviction test/kvm-eviction
+BINS += test/kvm-step #test/kvm-execstep
 # BINS += test/qemu-eviction_guest test/qemu-eviction_host
 # BINS += test/qemu-aes_guest test/qemu-aes_host
 BINS += util/svme util/debug util/reset
 
-CFLAGS = -I . -I linux/usr/include -I test
-CFLAGS += -g -Wunused-variable -Wunknown-pragmas
+CFLAGS = -I . -I linux/usr/include
+CFLAGS += -g -Wunused-variable -Wunknown-pragmas -Wunused-function
 CFLAGS += -fsanitize=address
 
 CACHEPC_UAPI = cachepc/uapi.h cachepc/const.h
@@ -19,9 +20,9 @@ CACHEPC_UAPI = cachepc/uapi.h cachepc/const.h
 all: build $(BINS)
 
 clean:
-	$(MAKE) -C $(LINUX) clean M=arch/x86/kvm 
-	$(MAKE) -C $(LINUX) clean M=crypto 
-	rm $(BINS)
+	$(MAKE) -C $(LINUX) clean M=arch/x86/kvm
+	$(MAKE) -C $(LINUX) clean M=crypto
+	rm -f $(BINS)
 
 $(LINUX)/arch/x86/kvm/cachepc:
 	ln -sf $(PWD)/cachepc $@
@@ -49,18 +50,17 @@ load:
 
 freq:
 	sudo cpupower frequency-set -f 3.7GHz
-	sudo cpupower frequency-set -u 3.7GHz
-	sudo cpupower frequency-set -d 3.7GHz
-
-update:
-	git -C $(LINUX) diff 0aaa1e599bee256b3b15643bbb95e80ce7aa9be5 -G. > patch.diff
 
 util/%: util/%.c $(CACHEPC_UAPI)
 
 test/%: test/%.c $(CACHEPC_UAPI)
 
-test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction_guest.S \
-		test/kvm-eviction.h $(CACHEPC_UAPI)
-	$(CC) -o $@ test/kvm-eviction.c test/kvm-eviction_guest.S $(CFLAGS)
+test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction_guest.S test/util.c \
+		test/util.h test/kvm.c test/kvm.h test/kvm-eviction.h $(CACHEPC_UAPI)
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS)
 
-.PHONY: all clean host build load freq update
+test/kvm-step: test/kvm-step.c test/kvm-step_guest.S \
+		test/util.c test/util.h test/kvm.c test/kvm.h $(CACHEPC_UAPI)
+	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS)
+
+.PHONY: all clean host build load freq

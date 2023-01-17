@@ -43,7 +43,21 @@ test/qemu-poc:
 	Demonstrate that AES encryption keys can be leaked from an
 	unmodified qemu-based linux guest.
 
-Testing was done on a bare-metal AMD EPYC 72F3 (Family 0x19, Model 0x01).
+Testing was done on a bare-metal AMD EPYC 72F3 (Family 0x19, Model 0x01)
+cpu and Supermicro H12SSL-i V1.01 motherboard. The following BIOS settings
+differ from the defaults:
+
+Advanced > CPU Configuration > Local APIC Mode = xAPIC
+Advanced > CPU Configuration > L1 Stream HW Prefetcher = Disabled
+Advanced > CPU Configuration > L2 Stream HW Prefetcher = Disabled
+Advanced > CPU Configuration > SMEE = Enabled
+Advanced > CPU Configuration > SEV ASID Count = 509
+Advanced > CPU Configuration > SEV ASID Space Limit Control = Manual
+Advanced > CPU Configuration > SEV ASID Space Limit = 110
+Advanced > CPU Configuration > SNP Memory (RMP Table) Coverage = Enabled
+Advanced > North Bridge Configuration > SEV-SNP Support = Enabled
+Advanced > North Bridge Configuration > Memory Configuration > TSME = Disabled
+Advanced > PCI Devices Common Settings > Memory Configuration > TSME = Disabled
 
 To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
 that a host kernel debian package was built using `make host`.

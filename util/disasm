@@ -1,0 +1,8 @@
+#!/bin/sh
+
+if [ $# -lt 2 ]; then
+	echo "Usage: guest_asm FILE FUNC"
+	exit 1
+fi
+
+gdb --batch -ex "disassemble $2" $1

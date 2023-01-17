@@ -243,6 +243,7 @@ cachepc_save_msrmts(cacheline *head)
 	do {
 		if (CL_IS_FIRST(curr_cl->flags)) {
 			BUG_ON(curr_cl->cache_set >= L1_SETS);
+			WARN_ON(curr_cl->count > L1_ASSOC);
 			cachepc_msrmts[curr_cl->cache_set] = curr_cl->count;
 		}
 

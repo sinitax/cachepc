@@ -46,28 +46,28 @@ typedef struct cacheline cacheline;
 typedef struct cache_ctx cache_ctx;
 
 struct cache_ctx {
-    int cache_level;
+	int cache_level;
 
-    uint32_t sets;
-    uint32_t associativity;
-    uint32_t nr_of_cachelines;
-    uint32_t set_size;
-    uint32_t cache_size;
+	uint32_t sets;
+	uint32_t associativity;
+	uint32_t nr_of_cachelines;
+	uint32_t set_size;
+	uint32_t cache_size;
 };
 
 struct cacheline {
-    /* Doubly linked cache lines inside same cache set */
-    cacheline *next;
-    cacheline *prev;
+	/* Doubly linked cache lines inside same cache set */
+	cacheline *next;
+	cacheline *prev;
 
-    uint32_t cache_set;
-    uint32_t cache_line;
-    uint32_t flags;
+	uint32_t cache_set;
+	uint32_t cache_line;
+	uint32_t flags;
 
-    uint64_t count;
+	uint64_t count;
 
-    /* padding to fill cache line */
-    char padding[24];
+	/* padding to fill cache line */
+	char padding[24];
 };
 
 struct cpc_fault {
@@ -127,6 +127,8 @@ extern uint8_t *cachepc_baseline;
 extern bool cachepc_baseline_measure;
 extern bool cachepc_baseline_active;
 
+extern bool cachepc_pause_vm;
+
 extern bool cachepc_single_step;
 extern uint32_t cachepc_track_mode;
 extern uint32_t cachepc_apic_timer;
@@ -139,6 +141,7 @@ extern uint64_t cachepc_retinst_prev;
 
 extern uint64_t cachepc_rip;
 extern uint64_t cachepc_rip_prev;
+extern bool cachepc_rip_prev_set;
 
 extern uint64_t cachepc_inst_fault_gfn;
 extern uint32_t cachepc_inst_fault_err;

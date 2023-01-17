@@ -1,24 +1,19 @@
-#include "kvm-eviction.h"
+#include "test/kvm-eviction.h"
 #include "cachepc/const.h"
 
-#define TARGET_SET 15
+.global guest_with_start
+.global guest_with_stop
 
-.global start_guest_with
-.global stop_guest_with
+.global guest_without_start
+.global guest_without_stop
 
-.global start_guest_without
-.global stop_guest_without
+guest_with_start:
+	movq (L1_LINESIZE * (TARGET_SET + L1_SETS)), %rbx
+	hlt
+	jmp guest_with_start
+guest_with_stop:
 
-start_guest_with:
-    mov $(L1_LINESIZE * TARGET_SET), %rbx
-    mov (%rbx), %bl
-    mov $KVM_HC_CPC_VMMCALL_EXIT, %rax
-    vmmcall
-    jmp start_guest_with
-stop_guest_with:
-
-start_guest_without:
-    mov $KVM_HC_CPC_VMMCALL_EXIT, %rax
-    vmmcall
-    jmp start_guest_without
-stop_guest_without:
+guest_without_start:
+	hlt
+	jmp guest_without_start
+guest_without_stop:

@@ -81,7 +81,8 @@ struct cpc_fault {
 
 static_assert(sizeof(struct cacheline) == L1_LINESIZE,
 	"Bad cache line struct size");
-static_assert(CL_NEXT_OFFSET == 0 && CL_PREV_OFFSET == 8);
+static_assert(CPC_CL_NEXT_OFFSET == offsetof(struct cacheline, next));
+static_assert(CPC_CL_PREV_OFFSET == offsetof(struct cacheline, prev));
 
 bool cachepc_verify_topology(void);
 

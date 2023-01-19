@@ -141,7 +141,7 @@ cachepc_kvm_prime_probe_test(void)
 
 	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
 
-	// wbinvd();
+	wbinvd();
 
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
 		head = cachepc_prime(cachepc_ds);
@@ -168,32 +168,25 @@ cachepc_kvm_prime_probe_test(void)
 	kfree(lines);
 }
 
+uint64_t stream_hwpf_test(void *lines);
+
 void
 cachepc_kvm_stream_hwpf_test(void)
 {
 	cacheline *lines;
-	const uint32_t max = 4;
+	const uint32_t max = 10;
 	uint32_t count;
 	int n;
 
 	/* l2 data cache hit & miss */
 	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
-	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
-
-	// wbinvd();
+	lines = cachepc_aligned_alloc(L1_SIZE, L1_SIZE);
 
 	count = 0;
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
-		cachepc_prime(cachepc_ds);
-
-		count -= cachepc_read_pmc(CPC_L1MISS_PMC);
-		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 0) : "rbx");
-		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 1) : "rbx");
-		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 2) : "rbx");
-		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 3) : "rbx");
-		count += cachepc_read_pmc(CPC_L1MISS_PMC);
-
+		count = stream_hwpf_test(lines);
+		//count = cachepc_read_pmc(CPC_L1MISS_PMC);
 		if (count != max) {
 			CPC_ERR("HWPF %i. test failed (%u vs. %u)\n",
 				n, count, max);
@@ -227,7 +220,7 @@ cachepc_kvm_single_eviction_test(void *p)
 
 	ptr = cachepc_prepare_victim(cachepc_ctx, target);
 
-	// wbinvd();
+	wbinvd();
 
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
 		head = cachepc_prime(cachepc_ds);
@@ -703,6 +696,7 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 void
 cachepc_kvm_setup_test(void *p)
 {
+	spinlock_t lock;
 	int cpu;
 
 	cpu = get_cpu();
@@ -717,9 +711,11 @@ cachepc_kvm_setup_test(void *p)
 
 	cachepc_kvm_system_setup();
 
+	spin_lock_irq(&lock);
 	cachepc_kvm_prime_probe_test();
 	cachepc_kvm_stream_hwpf_test();
 	cachepc_kvm_single_eviction_test(NULL);
+	spin_unlock_irq(&lock);
 
 exit:
 	put_cpu();

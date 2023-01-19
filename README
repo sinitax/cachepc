@@ -6,6 +6,10 @@ attack dubbed PRIME+COUNT that we demonstrate can be used to circumvent
 AMD's latest secure virtualization solution SEV-SNP to access sensitive
 guest information.
 
+
+tests
+-----
+
 Several test-cases were used to verify parts of the exploit chain separately:
 
 test/eviction:
@@ -43,9 +47,14 @@ test/qemu-poc:
 	Demonstrate that AES encryption keys can be leaked from an
 	unmodified qemu-based linux guest.
 
-Testing was done on a bare-metal AMD EPYC 72F3 (Family 0x19, Model 0x01)
-cpu and Supermicro H12SSL-i V1.01 motherboard. The following BIOS settings
-differ from the defaults:
+
+setup
+-----
+
+Testing was done on a Supermicro H12SSL-i V1.01 motherboard and AMD EPYC 72F3
+(Family 0x19, Model 0x01) cpu.
+
+The following BIOS settings differ from the defaults:
 
 Advanced > CPU Configuration > Local APIC Mode = xAPIC
 Advanced > CPU Configuration > L1 Stream HW Prefetcher = Disabled
@@ -57,11 +66,17 @@ Advanced > CPU Configuration > SEV ASID Space Limit = 110
 Advanced > CPU Configuration > SNP Memory (RMP Table) Coverage = Enabled
 Advanced > North Bridge Configuration > SEV-SNP Support = Enabled
 Advanced > North Bridge Configuration > Memory Configuration > TSME = Disabled
-Advanced > PCI Devices Common Settings > Memory Configuration > TSME = Disabled
+
+The following kernel parameters were used:
+
+kvm_amd.sev=1 kvm_amd.sev_es=1 nokaslr debug systemd.log_level=info
+    isolcpus=2,10,3,11 nohz_full=2,10,3,11 rcu_nocbs=2,10,3,11 nmi_watchdog=0
+    transparent_hugepage=never apic lapic panic=-1
 
 To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
 that a host kernel debian package was built using `make host`.
 
-Note: because of bad decisions made in regards to version control,
-the checked out commit of the modified kernel (previously the
-kernel patch file) might be incorrect for older revisions.
+Because of bad decisions made in regards to version control, the checked
+out commit of the modified kernel (previously the kernel patch file) might
+be incorrect for older revisions.
+

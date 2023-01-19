@@ -16,6 +16,8 @@
 #include <linux/types.h>
 #include <asm/uaccess.h>
 
+#define TEST_REPEAT_MAX 200
+
 bool cachepc_debug = false;
 EXPORT_SYMBOL(cachepc_debug);
 
@@ -44,15 +46,17 @@ EXPORT_SYMBOL(cachepc_rip);
 EXPORT_SYMBOL(cachepc_rip_prev);
 EXPORT_SYMBOL(cachepc_rip_prev_set);
 
-bool cachepc_single_step = false;
-uint32_t cachepc_track_mode = false;
+bool cachepc_singlestep = false;
+bool cachepc_singlestep_reset = false;
 uint32_t cachepc_apic_timer = 0;
-EXPORT_SYMBOL(cachepc_single_step);
-EXPORT_SYMBOL(cachepc_track_mode);
+EXPORT_SYMBOL(cachepc_singlestep);
+EXPORT_SYMBOL(cachepc_singlestep_reset);
 EXPORT_SYMBOL(cachepc_apic_timer);
 
+uint32_t cachepc_track_mode = false;
 uint64_t cachepc_track_start_gfn = 0;
 uint64_t cachepc_track_end_gfn = 0;
+EXPORT_SYMBOL(cachepc_track_mode);
 EXPORT_SYMBOL(cachepc_track_start_gfn);
 EXPORT_SYMBOL(cachepc_track_end_gfn);
 
@@ -91,9 +95,9 @@ EXPORT_SYMBOL(cachepc_event_avail);
 bool cachepc_events_init;
 EXPORT_SYMBOL(cachepc_events_init);
 
-static void cachepc_kvm_prime_probe_test(void *p);
-static void cachepc_kvm_stream_hwpf_test(void *p);
-static void cachepc_kvm_single_eviction_test(void *p);
+static noinline void cachepc_kvm_prime_probe_test(void);
+static noinline void cachepc_kvm_stream_hwpf_test(void);
+static noinline void cachepc_kvm_single_eviction_test(void *p);
 
 static void cachepc_kvm_system_setup(void);
 
@@ -109,104 +113,96 @@ static int cachepc_kvm_calc_baseline_ioctl(void __user *arg_user);
 static int cachepc_kvm_read_baseline_ioctl(void __user *arg_user);
 static int cachepc_kvm_apply_baseline_ioctl(void __user *arg_user);
 
-//static int cachepc_kvm_single_step_ioctl(void __user *arg_user);
-
 static int cachepc_kvm_vmsa_read_ioctl(void __user *arg_user);
 static int cachepc_kvm_svme_read_ioctl(void __user *arg_user);
 
+static int cachepc_kvm_reset_tracking_ioctl(void __user *arg_user);
 static int cachepc_kvm_track_mode_ioctl(void __user *arg_user);
 // static int cachepc_kvm_track_page_ioctl(void __user *arg_user);
-// static int cachepc_kvm_track_all_ioctl(void __user *arg_user);
-// static int cachepc_kvm_untrack_all_ioctl(void __user *arg_user);
-static int cachepc_kvm_reset_tracking_ioctl(void __user *arg_user);
 // static int cachepc_kvm_track_range_start_ioctl(void __user *arg_user);
 // static int cachepc_kvm_track_range_end_ioctl(void __user *arg_user);
 // static int cachepc_kvm_track_exec_cur_ioctl(void __user *arg_user);
 
-static int cachepc_kvm_vm_pause_ioctl(void __user *arg_user);
-static int cachepc_kvm_vm_resume_ioctl(void __user *arg_user);
-
 static int cachepc_kvm_poll_event_ioctl(void __user *arg_user);
 static int cachepc_kvm_ack_event_ioctl(void __user *arg_user);
 
+static int cachepc_kvm_req_pause_ioctl(void __user *arg_user);
+
 void
-cachepc_kvm_prime_probe_test(void *p)
+cachepc_kvm_prime_probe_test(void)
 {
 	cacheline *lines;
 	cacheline *cl, *head;
 	uint32_t count;
-	uint32_t *arg;
-	int i, max;
-
-	arg = p;
+	int n;
 
 	/* l2 data cache hit & miss */
 	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
 
-	max = cachepc_ctx->nr_of_cachelines;
+	// wbinvd();
 
-	cachepc_cpuid();
-	cachepc_mfence();
+	for (n = 0; n < TEST_REPEAT_MAX; n++) {
+		head = cachepc_prime(cachepc_ds);
+		cachepc_probe(head);
 
-	for (i = 0; i < max; i++)
-		asm volatile ("mov (%0), %%rbx" : : "r"(lines + i) : "rbx");
+		count = 0;
+		cl = head = cachepc_ds;
+		do {
+			if (CL_IS_FIRST(cl->flags))
+				count += cl->count;
+			cl = cl->next;
+		} while (cl != head);
 
-	head = cachepc_prime(cachepc_ds);
-	cachepc_probe(head);
+		if (count != 0) {
+			CPC_ERR("Prime-probe %i. test failed (%u vs. %u)\n",
+				n, count, 0);
+			break;
+		}
+	}
 
-	count = 0;
-	cl = head = cachepc_ds;
-	do {
-		count += cl->count;
-		cl = cl->next;
-	} while (cl != head);
-
-	CPC_WARN("Prime-probe test done (%u vs. %u => %s)\n",
-		count, 0, (count == 0) ? "passed" : "failed");
-
-	if (arg) *arg = (count == 0);
+	if (n == TEST_REPEAT_MAX)
+		CPC_WARN("Prime-probe test ok (%u vs. %u)\n", count, 0);
 
 	kfree(lines);
 }
 
 void
-cachepc_kvm_stream_hwpf_test(void *p)
+cachepc_kvm_stream_hwpf_test(void)
 {
 	cacheline *lines;
+	const uint32_t max = 4;
 	uint32_t count;
-	uint32_t *arg;
-	uint32_t max;
-
-	arg = p;
+	int n;
 
 	/* l2 data cache hit & miss */
 	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
 
 	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
 
-	max = 10;
+	// wbinvd();
+
 	count = 0;
-	cachepc_prime(cachepc_ds);
+	for (n = 0; n < TEST_REPEAT_MAX; n++) {
+		cachepc_prime(cachepc_ds);
 
-	count -= cachepc_read_pmc(CPC_L1MISS_PMC);
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 0) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 1) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 2) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 3) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 4) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 5) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 6) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 7) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 8) : "rbx");
-	asm volatile ("mov (%0), %%rbx" : : "r"(lines + 9) : "rbx");
-	count += cachepc_read_pmc(CPC_L1MISS_PMC);
+		count -= cachepc_read_pmc(CPC_L1MISS_PMC);
+		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 0) : "rbx");
+		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 1) : "rbx");
+		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 2) : "rbx");
+		asm volatile ("mov (%0), %%rbx" : : "r"(lines + 3) : "rbx");
+		count += cachepc_read_pmc(CPC_L1MISS_PMC);
 
-	CPC_WARN("HWPF test done (%u vs. %u => %s)\n",
-		count, max, count == max ? "passed" : "failed");
+		if (count != max) {
+			CPC_ERR("HWPF %i. test failed (%u vs. %u)\n",
+				n, count, max);
+			break;
+		}
+	}
 
-	if (arg) *arg = (count == max);
+	if (n == TEST_REPEAT_MAX)
+		CPC_INFO("HWPF test ok (%u vs. %u)\n", count, max);
 
 	kfree(lines);
 }
@@ -218,7 +214,7 @@ cachepc_kvm_single_eviction_test(void *p)
         cacheline *ptr;
 	uint32_t target;
 	uint32_t *arg;
-	int count;
+	int n, count;
 
 	arg = p;
 
@@ -231,27 +227,38 @@ cachepc_kvm_single_eviction_test(void *p)
 
 	ptr = cachepc_prepare_victim(cachepc_ctx, target);
 
-	head = cachepc_prime(cachepc_ds);
-	cachepc_victim(ptr);
-	cachepc_probe(head);
+	// wbinvd();
 
-	count = 0;
-	evicted = NULL;
-	cl = head = cachepc_ds;
-	do {
-		if (CL_IS_FIRST(cl->flags) && cl->count > 0) {
-			evicted = cl;
-			count += cl->count;
+	for (n = 0; n < TEST_REPEAT_MAX; n++) {
+		head = cachepc_prime(cachepc_ds);
+		cachepc_victim(ptr);
+		cachepc_probe(head);
+
+		count = 0;
+		evicted = NULL;
+		cl = head = cachepc_ds;
+		do {
+			if (CL_IS_FIRST(cl->flags) && cl->count > 0) {
+				evicted = cl;
+				count += cl->count;
+			}
+			cl = cl->next;
+		} while (cl != head);
+
+		if (count != 1 || evicted->cache_set != target) {
+			CPC_ERR("Single eviction %i. test failed (%u vs %u)\n",
+				n, count, 1);
+			if (arg) *arg = count;
+			break;
 		}
-		cl = cl->next;
-	} while (cl != head);
 
-	CPC_WARN("Single eviction test done (%u vs %u => %s)\n",
-		count, 1, (count == 1 && evicted->cache_set == target)
-			? "passed" : "failed");
-	cachepc_save_msrmts(head);
+		cachepc_save_msrmts(head);
+	}
 
-	if (arg) *arg = count;
+	if (n == TEST_REPEAT_MAX) {
+		CPC_INFO("Single eviction test ok (%u vs %u)\n", count, 1);
+		if (arg) *arg = count;
+	}
 
 	cachepc_release_victim(cachepc_ctx, ptr);
 }
@@ -259,69 +266,41 @@ cachepc_kvm_single_eviction_test(void *p)
 void
 cachepc_kvm_system_setup(void)
 {
-	uint64_t reg_addr, val;
-	uint32_t lo, hi;
-
 	/* NOTE: since most of these MSRs are poorly documented and some
 	 * guessing work was involved, it is likely that one or more of
 	 * these operations are not needed */
 
-	/* disable streaming store */
-	reg_addr = 0xc0011020;
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
-	val = (uint64_t) lo | ((uint64_t) hi << 32);
-	val |= 1 << 13;
-	CPC_WARN("Disabling streaming store (MSR %08llX: %016llX)\n",
-		reg_addr, val);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+	// /* disable streaming store */
+	// cachepc_write_msr(0xc0011020, 0, 1ULL << 13);
 
-	/* disable speculative data cache tlb reloads */
-	reg_addr = 0xc0011022;
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
-	val = (uint64_t) lo | ((uint64_t) hi << 32);
-	val |= 1 << 4;
-	CPC_WARN("Disabling speculative reloads (MSR %08llX: %016llX)\n",
-		reg_addr, val);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+	// /* disable speculative data cache tlb reloads */
+	// cachepc_write_msr(0xc0011022, 0, 1ULL << 4);
 
-	/* disable data cache hw prefetchers */
-	reg_addr = 0xc0011022;
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
-	val = (uint64_t) lo | ((uint64_t) hi << 32);
-	val |= 1 << 13;
-	CPC_WARN("Disabling DATA HWPF (MSR %08llX: %016llX)\n",
-		reg_addr, val);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+	// /* disable data cache hw prefetchers */
+	// cachepc_write_msr(0xc0011022, 0, 1ULL << 13);
 
 	/* disable inst cache hw prefetchers */
-	reg_addr = 0xc0011021;
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
-	val = (uint64_t) lo | ((uint64_t) hi << 32);
-	val |= 1 << 13;
-	CPC_WARN("Disabling INST HWPF (MSR %08llX: %016llX)\n",
-		reg_addr, val);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+	cachepc_write_msr(0xc0011021, 0, 1ULL << 13);
 
-	/* REF: https://arxiv.org/pdf/2204.03290.pdf
-	 * Paper "Memory Performance of AMD EPYC Rome and Intel Cascade
-	 * Lake SP Server Processors"
-	 * disable L1 & L2 prefetchers */
+	/* REF: https://arxiv.org/pdf/2204.03290.pdf */
+	/* l1 and l2 prefetchers */
+	cachepc_write_msr(0xc0011022, 0, 1ULL << 16);
+	cachepc_write_msr(0xc001102b, 1ULL << 0, 0);
 
-	reg_addr = 0xc0011022;
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
-	val = (uint64_t) lo | ((uint64_t) hi << 32);
-	val |= 1 << 16;
-	printk("CachePC: Disabling L1 & L2 prefetchers (MSR %08llX: %016llX)\n",
-		reg_addr, val);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+	/* REF: https://community.amd.com/t5/archives-discussions/modifying-msr-to-disable-the-prefetcher/td-p/143443 */
+	cachepc_write_msr(0xc001102b, 0, 1ULL << 18);
 
-	reg_addr = 0xc001102b;
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(reg_addr));
-	val = (uint64_t) lo | ((uint64_t) hi << 32);
-	val &= ~1ULL;
-	printk("CachePC: Disabling L1 & L2 prefetchers (MSR %08llX: %016llX)\n",
-		reg_addr, val);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(val), "d"(0x00));
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.168
+	 * disable L1 and L2 prefetcher */
+	cachepc_write_msr(0xC0000108, 0, 0b00101111);
+
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.111
+	 * disable speculation */
+	cachepc_write_msr(0x00000048, 0, 0b10000111);
+
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.175
+	 * disable core performance boost */
+	cachepc_write_msr(0xC0010015, 0, 1ULL << 25);
 }
 
 int
@@ -350,6 +329,11 @@ cachepc_kvm_reset_ioctl(void __user *arg_user)
 
 	cachepc_kvm_reset_tracking_ioctl(NULL);
 	cachepc_kvm_reset_baseline_ioctl(NULL);
+
+	cachepc_singlestep = false;
+	cachepc_singlestep_reset = false;
+	cachepc_apic_timer = 0;
+	cachepc_rip_prev_set = false;
 
 	return 0;
 }
@@ -455,74 +439,6 @@ cachepc_kvm_apply_baseline_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_single_step_ioctl(void __user *arg_user)
-{
-	cachepc_single_step = true;
-
-	return 0;
-}
-
-int
-cachepc_kvm_track_mode_ioctl(void __user *arg_user)
-{
-	struct kvm_vcpu *vcpu;
-	uint32_t mode;
-
-	if (!arg_user) return -EINVAL;
-
-	if (copy_from_user(&mode, arg_user, sizeof(mode)))
-		return -EFAULT;
-
-	cachepc_single_step = false;
-	cachepc_track_mode = mode;
-
-	BUG_ON(!main_vm || xa_empty(&main_vm->vcpu_array));
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-
-	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
-	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
-	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
-
-	switch (mode) {
-	case CPC_TRACK_FULL:
-		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
-		mode = CPC_TRACK_FULL;
-		break;
-	case CPC_TRACK_EXEC:
-		cachepc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
-		mode = CPC_TRACK_EXEC;
-		break;
-	default:
-		mode = CPC_TRACK_NONE;
-		break;
-	}
-
-	return 0;
-}
-
-int
-cachepc_kvm_track_page_ioctl(void __user *arg_user)
-{
-	struct cpc_track_config cfg;
-	struct kvm_vcpu *vcpu;
-
-	if (!main_vm || !arg_user) return -EINVAL;
-
-	if (copy_from_user(&cfg, arg_user, sizeof(cfg)))
-		return -EFAULT;
-
-	if (cfg.mode < 0 || cfg.mode >= KVM_PAGE_TRACK_MAX)
-		return -EINVAL;
-
-	BUG_ON(xa_empty(&main_vm->vcpu_array));
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	if (!cachepc_track_single(vcpu, cfg.gfn, cfg.mode))
-		return -EFAULT;
-
-	return 0;
-}
-
-int
 cachepc_kvm_vmsa_read_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
@@ -563,50 +479,6 @@ cachepc_kvm_svme_read_ioctl(void __user *arg_user)
 	return 0;
 }
 
-// int
-// cachepc_kvm_track_all_ioctl(void __user *arg_user)
-// {
-// 	struct kvm_vcpu *vcpu;
-// 	uint32_t mode;
-// 
-// 	if (!main_vm || !arg_user) return -EINVAL;
-// 
-// 	if (copy_from_user(&mode, arg_user, sizeof(mode)))
-// 		return -EFAULT;
-// 
-// 	if (mode < 0 || mode >= KVM_PAGE_TRACK_MAX)
-// 		return -EINVAL;
-// 
-// 	BUG_ON(xa_empty(&main_vm->vcpu_array));
-// 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-// 	if (!cachepc_track_all(vcpu, mode))
-// 		return -EFAULT;
-// 
-// 	return 0;
-// }
-// 
-// int
-// cachepc_kvm_untrack_all_ioctl(void __user *arg_user)
-// {
-// 	struct kvm_vcpu *vcpu;
-// 	uint32_t mode;
-// 
-// 	if (!main_vm || !arg_user) return -EINVAL;
-// 
-// 	if (copy_from_user(&mode, arg_user, sizeof(mode)))
-// 		return -EFAULT;
-// 
-// 	if (mode < 0 || mode >= KVM_PAGE_TRACK_MAX)
-// 		return -EINVAL;
-// 
-// 	BUG_ON(xa_empty(&main_vm->vcpu_array));
-// 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-// 	if (!cachepc_untrack_all(vcpu, mode))
-// 		return -EFAULT;
-// 
-// 	return 0;
-// }
-
 int
 cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 {
@@ -619,15 +491,16 @@ cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
 
-	cachepc_track_mode = CPC_TRACK_NONE;
-
 	cachepc_inst_fault_gfn = 0;
 	cachepc_inst_fault_err = 0;
 
 	cachepc_track_start_gfn = 0;
 	cachepc_track_end_gfn = 0;
 
-	cachepc_single_step = false;
+	cachepc_singlestep = false;
+	cachepc_singlestep_reset = false;
+
+	cachepc_track_mode = CPC_TRACK_NONE;
 
 	list_for_each_entry_safe(fault, next, &cachepc_faults, list) {
 		list_del(&fault->list);
@@ -638,30 +511,72 @@ cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_poll_event_ioctl(void __user *arg_user)
+cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 {
-	if (!cachepc_events_init)
-		return -EINVAL;
-
-	return cachepc_handle_poll_event_ioctl(arg_user);
-}
-
-int
-cachepc_kvm_ack_event_ioctl(void __user *arg_user)
-{
-	uint64_t eventid;
+	struct kvm_vcpu *vcpu;
+	uint32_t mode;
 
 	if (!arg_user) return -EINVAL;
 
-	if (!cachepc_events_init)
-		return -EINVAL;
-
-	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))
+	if (copy_from_user(&mode, arg_user, sizeof(mode)))
 		return -EFAULT;
 
-	return cachepc_handle_ack_event_ioctl(eventid);
+	BUG_ON(!main_vm || xa_empty(&main_vm->vcpu_array));
+	vcpu = xa_load(&main_vm->vcpu_array, 0);
+
+	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_EXEC);
+	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
+	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
+
+	cachepc_apic_timer = 0;
+	cachepc_singlestep = false;
+	cachepc_singlestep_reset = false;
+
+	switch (mode) {
+	case CPC_TRACK_FULL:
+		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
+		cachepc_singlestep_reset = true;
+		cachepc_track_mode = CPC_TRACK_FULL;
+		break;
+	case CPC_TRACK_EXEC:
+		cachepc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
+		cachepc_singlestep_reset = true;
+		cachepc_track_mode = CPC_TRACK_EXEC;
+		break;
+	case CPC_TRACK_FAULT_NO_RUN:
+		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
+		cachepc_track_mode = CPC_TRACK_FAULT_NO_RUN;
+		break;
+	default:
+		cachepc_track_mode = CPC_TRACK_NONE;
+		break;
+	}
+
+	return 0;
 }
 
+// int
+// cachepc_kvm_track_page_ioctl(void __user *arg_user)
+// {
+// 	struct cpc_track_config cfg;
+// 	struct kvm_vcpu *vcpu;
+// 
+// 	if (!main_vm || !arg_user) return -EINVAL;
+// 
+// 	if (copy_from_user(&cfg, arg_user, sizeof(cfg)))
+// 		return -EFAULT;
+// 
+// 	if (cfg.mode < 0 || cfg.mode >= KVM_PAGE_TRACK_MAX)
+// 		return -EINVAL;
+// 
+// 	BUG_ON(xa_empty(&main_vm->vcpu_array));
+// 	vcpu = xa_load(&main_vm->vcpu_array, 0);
+// 	if (!cachepc_track_single(vcpu, cfg.gfn, cfg.mode))
+// 		return -EFAULT;
+// 
+// 	return 0;
+// }
+//
 // int
 // cachepc_kvm_track_range_start_ioctl(void __user *arg_user)
 // {
@@ -701,41 +616,16 @@ cachepc_kvm_ack_event_ioctl(void __user *arg_user)
 // }
 
 int
-cachepc_kvm_vm_pause_ioctl(void __user *arg_user)
+cachepc_kvm_poll_event_ioctl(void __user *arg_user)
 {
-	uint64_t deadline;
-	int err;
-
-	if (!arg_user) return -EINVAL;
-
 	if (!cachepc_events_init)
 		return -EINVAL;
 
-	cachepc_pause_vm = true;
-
-	deadline = ktime_get_ns() + 20000000000ULL; /* 20s in ns */
-	while (true) {
-		write_lock(&cachepc_event_lock);
-		if (cachepc_event_avail) {
-			err = copy_to_user(arg_user, &cachepc_event,
-				sizeof(struct cpc_event));
-			cachepc_event_avail = false;
-			write_unlock(&cachepc_event_lock);
-			return 0;
-		}
-		write_unlock(&cachepc_event_lock);
-		if (ktime_get_ns() > deadline) {
-			CPC_WARN("Timeout waiting for pause event\n");
-			cachepc_pause_vm = false;
-			return -EFAULT;
-		}
-	}
-
-	return err;
+	return cachepc_handle_poll_event_ioctl(arg_user);
 }
 
 int
-cachepc_kvm_vm_resume_ioctl(void __user *arg_user)
+cachepc_kvm_ack_event_ioctl(void __user *arg_user)
 {
 	uint64_t eventid;
 
@@ -747,9 +637,17 @@ cachepc_kvm_vm_resume_ioctl(void __user *arg_user)
 	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))
 		return -EFAULT;
 
-	cachepc_pause_vm = false;
-
 	return cachepc_handle_ack_event_ioctl(eventid);
+}
+
+int
+cachepc_kvm_req_pause_ioctl(void __user *arg_user)
+{
+	if (arg_user) return -EINVAL;
+
+	cachepc_pause_vm = true;
+
+	return 0;
 }
 
 long
@@ -775,36 +673,28 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_calc_baseline_ioctl(arg_user);
 	case KVM_CPC_APPLY_BASELINE:
 		return cachepc_kvm_apply_baseline_ioctl(arg_user);
-	// case KVM_CPC_SINGLE_STEP:
-	// 	return cachepc_kvm_single_step_ioctl(arg_user);
 	case KVM_CPC_VMSA_READ:
 		return cachepc_kvm_vmsa_read_ioctl(arg_user);
 	case KVM_CPC_SVME_READ:
 		return cachepc_kvm_svme_read_ioctl(arg_user);
-	case KVM_CPC_TRACK_MODE:
-		return cachepc_kvm_track_mode_ioctl(arg_user);
-	// case KVM_CPC_TRACK_PAGE:
-	// 	return cachepc_kvm_track_page_ioctl(arg_user);
-	// case KVM_CPC_TRACK_ALL:
-	// 	return cachepc_kvm_track_all_ioctl(arg_user);
-	// case KVM_CPC_UNTRACK_ALL:
-	// 	return cachepc_kvm_untrack_all_ioctl(arg_user);
 	case KVM_CPC_RESET_TRACKING:
 		return cachepc_kvm_reset_tracking_ioctl(arg_user);
+	case KVM_CPC_TRACK_MODE:
+		return cachepc_kvm_track_mode_ioctl(arg_user);
 	case KVM_CPC_POLL_EVENT:
 		return cachepc_kvm_poll_event_ioctl(arg_user);
 	case KVM_CPC_ACK_EVENT:
 		return cachepc_kvm_ack_event_ioctl(arg_user);
+	// case KVM_CPC_TRACK_PAGE:
+	// 	return cachepc_kvm_track_page_ioctl(arg_user);
 	// case KVM_CPC_TRACK_RANGE_START:
 	// 	return cachepc_kvm_track_range_start_ioctl(arg_user);
 	// case KVM_CPC_TRACK_RANGE_END:
 	// 	return cachepc_kvm_track_range_end_ioctl(arg_user);
 	// case KVM_CPC_TRACK_EXEC_CUR:
 	// 	return cachepc_kvm_track_exec_cur_ioctl(arg_user);
-	case KVM_CPC_VM_PAUSE:
-		return cachepc_kvm_vm_pause_ioctl(arg_user);
-	case KVM_CPC_VM_RESUME:
-		return cachepc_kvm_vm_resume_ioctl(arg_user);
+	case KVM_CPC_VM_REQ_PAUSE:
+		return cachepc_kvm_req_pause_ioctl(arg_user);
 	default:
 		return kvm_arch_dev_ioctl(file, ioctl, arg);
 	}
@@ -827,9 +717,9 @@ cachepc_kvm_setup_test(void *p)
 
 	cachepc_kvm_system_setup();
 
-	cachepc_kvm_prime_probe_test(NULL);
+	cachepc_kvm_prime_probe_test();
+	cachepc_kvm_stream_hwpf_test();
 	cachepc_kvm_single_eviction_test(NULL);
-	cachepc_kvm_stream_hwpf_test(NULL);
 
 exit:
 	put_cpu();
@@ -843,10 +733,11 @@ cachepc_kvm_init(void)
 	cachepc_ctx = NULL;
 	cachepc_ds = NULL;
 
-	cachepc_retinst = 0;
 	cachepc_debug = false;
 
-	cachepc_single_step = false;
+	cachepc_retinst = 0;
+	cachepc_singlestep = false;
+	cachepc_singlestep_reset = false;
 	cachepc_track_mode = CPC_TRACK_NONE;
 
 	cachepc_inst_fault_gfn = 0;

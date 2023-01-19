@@ -181,6 +181,8 @@ cachepc_handle_ack_event_ioctl(uint64_t eventid)
 
 	write_lock(&cachepc_event_lock);
 	if (!eventid || eventid == cachepc_last_event_sent) {
+		if (cachepc_event.type == CPC_EVENT_PAUSE)
+			cachepc_pause_vm = false;
 		err = 0;
 		cachepc_last_event_acked = cachepc_last_event_sent;
 	} else {

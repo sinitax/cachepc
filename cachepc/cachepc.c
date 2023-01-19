@@ -1,6 +1,8 @@
 #include "cachepc.h"
 #include "uapi.h"
 
+#include "../../include/asm/processor.h"
+
 #include <linux/kernel.h>
 #include <linux/types.h> 
 #include <linux/slab.h>
@@ -28,29 +30,28 @@ static bool is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len);
 bool
 cachepc_verify_topology(void)
 {
+	uint32_t assoc, linesize;
+	uint32_t size, sets;
 	uint32_t val;
-	uint32_t assoc;
-	uint32_t linesize;
-	uint32_t size;
-	uint32_t sets;
 
 	if (PAGE_SIZE != L1_SETS * L1_LINESIZE)
 		CPC_ERR("System pagesize does not guarentee "
 			"virtual memory access will hit corresponding "
-			"physical cacheline, PAGE_SIZE != L1_SETS * L1_LINESIZE\n");
+			"physical cacheline, PAGE_SIZE != L1_SETS * L1_LINESIZE");
+
 
 	/* REF: https://developer.amd.com/resources/developer-guides-manuals
 	 * (PPR 17H 31H, P.81) */
 
-	asm volatile ("cpuid" : "=c"(val) : "a"(0x80000005));
+	val = native_cpuid_ecx(0x80000005);
 	size = ((val >> 24) & 0xFF) * 1024;
 	assoc = (val >> 16) & 0xFF;
 	linesize = val & 0xFF;
 	sets = size / (linesize * assoc);
 	if (size != L1_SIZE || assoc != L1_ASSOC
 			|| linesize != L1_LINESIZE || sets != L1_SETS) {
-		CPC_ERR("L1 topology is invalid!\n");
-		CPC_ERR("L1_SIZE (expected) %u vs. (real) %u\n",
+			CPC_ERR("L1 topology is invalid!\n");
+			CPC_ERR("L1_SIZE (expected) %u vs. (real) %u\n",
 			L1_SIZE, size);
 		CPC_ERR("L1_ASSOC (expected) %u vs. (real) %u\n",
 			L1_ASSOC, assoc);
@@ -61,7 +62,7 @@ cachepc_verify_topology(void)
 		return true;
 	}
 
-	asm volatile ("cpuid" : "=c"(val) : "a"(0x80000006));
+	val = native_cpuid_ecx(0x80000006);
 	size = ((val >> 16) & 0xFFFF) * 1024;
 	assoc = (val >> 12) & 0xF;
 	linesize = val & 0xFF;
@@ -117,18 +118,31 @@ cachepc_verify_topology(void)
 }
 
 void
+cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
+{
+	uint64_t val, newval;
+	uint32_t lo, hi;
+
+	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(addr));
+	val = (uint64_t) lo | ((uint64_t) hi << 32);
+	val &= ~clear_bits;
+	val |= set_bits;
+	asm volatile ("wrmsr" : : "c"(addr), "a"(val), "d"(0x00));
+
+	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(addr));
+	newval = (uint64_t) lo | ((uint64_t) hi << 32);
+	if (val != newval)
+		CPC_ERR("Write MSR failed at addr %08llX\n", addr);
+}
+
+void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user)
 {
-	uint64_t event;
 	uint64_t reg_addr;
+	uint64_t event;
 
-	/* REF: https://developer.amd.com/resources/developer-guides-manuals
-	 * (PPR 19H 01H, P.166)
-	 *
-	 * performance event selection via 0xC001_020X with X = (0..A)[::2]
-	 * performance event reading viea 0XC001_020X with X = (1..B)[::2]
-	 */
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.166 */
 
 	WARN_ON(index >= 6);
 	if (index >= 6) return;
@@ -138,7 +152,8 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	event |= (1ULL << 22); /* enable performance counter */
 	event |= ((kernel_user & 0b11) * 1ULL) << 16;
 	event |= ((host_guest & 0b11) * 1ULL) << 40;
-	printk(KERN_WARNING "CachePC: Initialized %i. PMC %02X:%02X (%016llx)\n",
+
+	printk(KERN_WARNING "CachePC: Initializing %i. PMC %02X:%02X (%016llx)\n",
 		index, event_no, event_mask, event);
 	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
 }
@@ -154,7 +169,8 @@ cachepc_reset_pmc(uint8_t index)
 
 	reg_addr = 0xc0010201 + index * 2;
 	value = 0;
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(value));
+
+	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(value), "d"(0x00));
 }
 
 cache_ctx *
@@ -247,6 +263,7 @@ cachepc_save_msrmts(cacheline *head)
 			cachepc_msrmts[curr_cl->cache_set] = curr_cl->count;
 		}
 
+		curr_cl->count = 0;
 		curr_cl = curr_cl->prev;
 	} while (curr_cl != head);
 
@@ -289,8 +306,8 @@ cachepc_update_baseline(void)
 void __attribute__((optimize(1))) // prevent instruction reordering
 cachepc_prime_vcall(uintptr_t ret, cacheline *cl)
 {
-	if (cachepc_single_step)
-		cachepc_apic_oneshot(cachepc_apic_timer);
+	if (cachepc_singlestep)
+		cachepc_apic_oneshot(cachepc_apic_timer / CPC_APIC_TIMER_SOFTDIV);
 	cachepc_prime(cl);
 	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
 }

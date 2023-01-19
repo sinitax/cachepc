@@ -42,6 +42,8 @@
 #define CPC_WARN(...) do { pr_warn("CachePC: " __VA_ARGS__); } while (0)
 #define CPC_ERR(...) do { pr_err("CachePC: " __VA_ARGS__); } while (0)
 
+#define CPC_APIC_TIMER_SOFTDIV 3
+
 typedef struct cacheline cacheline;
 typedef struct cache_ctx cache_ctx;
 
@@ -83,6 +85,7 @@ static_assert(CL_NEXT_OFFSET == 0 && CL_PREV_OFFSET == 8);
 
 bool cachepc_verify_topology(void);
 
+void cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits);
 void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user);
 void cachepc_reset_pmc(uint8_t index);
@@ -129,10 +132,11 @@ extern bool cachepc_baseline_active;
 
 extern bool cachepc_pause_vm;
 
-extern bool cachepc_single_step;
-extern uint32_t cachepc_track_mode;
+extern bool cachepc_singlestep;
+extern bool cachepc_singlestep_reset;
 extern uint32_t cachepc_apic_timer;
 
+extern uint32_t cachepc_track_mode;
 extern uint64_t cachepc_track_start_gfn;
 extern uint64_t cachepc_track_end_gfn;
 
@@ -166,7 +170,7 @@ cachepc_prime(cacheline *head)
 
 	cachepc_mfence();
 	cachepc_cpuid();
-	
+
 	curr_cl = head;
 	do {
 		prev_cl = curr_cl;

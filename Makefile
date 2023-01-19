@@ -22,6 +22,7 @@ all: build $(BINS)
 clean:
 	$(MAKE) -C $(LINUX) clean M=arch/x86/kvm
 	$(MAKE) -C $(LINUX) clean M=crypto
+	rm -f cachepc/*.o
 	rm -f $(BINS)
 
 $(LINUX)/arch/x86/kvm/cachepc:

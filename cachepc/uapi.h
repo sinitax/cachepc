@@ -33,8 +33,7 @@
 #define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x48, struct cpc_event)
 #define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x49, __u64)
 
-#define KVM_CPC_VM_PAUSE _IO(KVMIO, 0x50)
-#define KVM_CPC_VM_RESUME _IO(KVMIO, 0x51)
+#define KVM_CPC_VM_REQ_PAUSE _IO(KVMIO, 0x50)
 
 enum {
 	CPC_EVENT_NONE,
@@ -51,6 +50,7 @@ enum {
 
 enum {
 	CPC_TRACK_NONE,
+	CPC_TRACK_FAULT_NO_RUN,
 	CPC_TRACK_EXEC,
 	CPC_TRACK_FULL,
 };

@@ -8,7 +8,7 @@
 .global guest_without_stop
 
 guest_with_start:
-	movq (L1_LINESIZE * (TARGET_SET + L1_SETS)), %rbx
+	mov (L1_LINESIZE * (TARGET_SET + L1_SETS)), %rbx
 	hlt
 	jmp guest_with_start
 guest_with_stop:

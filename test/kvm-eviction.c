@@ -139,6 +139,12 @@ main(int argc, const char **argv)
 		}
 	}
 
+	printf("=== Baseline ===\n\n", i);
+	print_counts(baseline);
+	printf("\n");
+	print_counts_raw(baseline);
+	printf("\n");
+
 	/* apply baseline and output samples */
 	for (i = 0; i < SAMPLE_COUNT; i++) {
 		for (k = 0; k < L1_SETS; k++) {
@@ -146,7 +152,7 @@ main(int argc, const char **argv)
 			counts[WITHOUT][i][k] -= baseline[k];
 		}
 
-		printf("\n=== Sample %2i ===\n", i);
+		printf("=== Sample %2i ===\n", i);
 
 		printf("\nWith eviction:\n\n");
 		print_counts(counts[WITH][i]);
@@ -157,6 +163,7 @@ main(int argc, const char **argv)
 		print_counts(counts[WITHOUT][i]);
 		printf("\n");
 		print_counts_raw(counts[WITHOUT][i]);
+		printf("\n");
 	}
 
 	/* check for measurment errors */
@@ -174,7 +181,7 @@ main(int argc, const char **argv)
 		if (!counts[WITH][i][TARGET_SET])
 			warnx("sample %i: Missing eviction in target set %i (=%i,%i)",
 				i, TARGET_SET, counts[WITH][i][TARGET_SET],
-				counts[WITH][i][TARGET_SET] + baseline[i]);
+				counts[WITH][i][TARGET_SET] + baseline[TARGET_SET]);
 	}
 
 	vm_deinit(&vms[WITH]);

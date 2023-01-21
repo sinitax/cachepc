@@ -16,10 +16,13 @@
 #include <linux/types.h>
 #include <asm/uaccess.h>
 
-#define TEST_REPEAT_MAX 200
+#define TEST_REPEAT_MAX 1000
 
 bool cachepc_debug = false;
 EXPORT_SYMBOL(cachepc_debug);
+
+struct cacheline *cachepc_victim;
+EXPORT_SYMBOL(cachepc_victim);
 
 uint8_t *cachepc_msrmts = NULL;
 EXPORT_SYMBOL(cachepc_msrmts);
@@ -95,9 +98,14 @@ EXPORT_SYMBOL(cachepc_event_avail);
 bool cachepc_events_init;
 EXPORT_SYMBOL(cachepc_events_init);
 
-static noinline void cachepc_kvm_prime_probe_test(void);
-static noinline void cachepc_kvm_stream_hwpf_test(void);
-static noinline void cachepc_kvm_single_eviction_test(void *p);
+void cachepc_prime_probe_test_asm(void);
+static noinline void cachepc_prime_probe_test(void);
+
+uint64_t cachepc_stream_hwpf_test_asm(void *lines);
+static noinline void cachepc_stream_hwpf_test(void);
+
+void cachepc_single_eviction_test_asm(void *ptr);
+static noinline void cachepc_single_eviction_test(void *p);
 
 static void cachepc_kvm_system_setup(void);
 
@@ -129,31 +137,21 @@ static int cachepc_kvm_ack_event_ioctl(void __user *arg_user);
 static int cachepc_kvm_req_pause_ioctl(void __user *arg_user);
 
 void
-cachepc_kvm_prime_probe_test(void)
+cachepc_prime_probe_test(void)
 {
-	cacheline *lines;
-	cacheline *cl, *head;
-	uint32_t count;
-	int n;
+	int i, n, count;
 
 	/* l2 data cache hit & miss */
-	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
-
-	lines = cachepc_aligned_alloc(PAGE_SIZE, cachepc_ctx->cache_size);
-
-	wbinvd();
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, 0, PMC_KERNEL);
 
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
-		head = cachepc_prime(cachepc_ds);
-		cachepc_probe(head);
+		memset(cachepc_msrmts, 0, L1_SETS);
+		cachepc_prime_probe_test_asm();
+		cachepc_save_msrmts(cachepc_ds);
 
 		count = 0;
-		cl = head = cachepc_ds;
-		do {
-			if (CL_IS_FIRST(cl->flags))
-				count += cl->count;
-			cl = cl->next;
-		} while (cl != head);
+		for (i = 0; i < L1_SETS; i++)
+			count += cachepc_msrmts[i];
 
 		if (count != 0) {
 			CPC_ERR("Prime-probe %i. test failed (%u vs. %u)\n",
@@ -163,30 +161,25 @@ cachepc_kvm_prime_probe_test(void)
 	}
 
 	if (n == TEST_REPEAT_MAX)
-		CPC_WARN("Prime-probe test ok (%u vs. %u)\n", count, 0);
-
-	kfree(lines);
+		CPC_INFO("Prime-probe test ok (%u vs. %u)\n", count, 0);
 }
 
-uint64_t stream_hwpf_test(void *lines);
-
 void
-cachepc_kvm_stream_hwpf_test(void)
+cachepc_stream_hwpf_test(void)
 {
-	cacheline *lines;
 	const uint32_t max = 10;
+	cacheline *lines;
 	uint32_t count;
 	int n;
 
 	/* l2 data cache hit & miss */
-	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, 0, PMC_KERNEL);
 
 	lines = cachepc_aligned_alloc(L1_SIZE, L1_SIZE);
 
 	count = 0;
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
-		count = stream_hwpf_test(lines);
-		//count = cachepc_read_pmc(CPC_L1MISS_PMC);
+		count = cachepc_stream_hwpf_test_asm(lines);
 		if (count != max) {
 			CPC_ERR("HWPF %i. test failed (%u vs. %u)\n",
 				n, count, max);
@@ -201,51 +194,39 @@ cachepc_kvm_stream_hwpf_test(void)
 }
 
 void
-cachepc_kvm_single_eviction_test(void *p)
+cachepc_single_eviction_test(void *p)
 {
-	cacheline *head, *cl, *evicted;
-        cacheline *ptr;
+	cacheline *victim;
 	uint32_t target;
 	uint32_t *arg;
-	int n, count;
+	int n, i, count;
 
 	arg = p;
 
 	/* l2 data cache hit & miss */
-	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, PMC_HOST, PMC_KERNEL);
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, 0, PMC_KERNEL);
 
 	WARN_ON(arg && *arg >= L1_SETS);
 	if (arg && *arg >= L1_SETS) return;
 	target = arg ? *arg : 48;
 
-	ptr = cachepc_prepare_victim(cachepc_ctx, target);
-
-	wbinvd();
+	victim = cachepc_prepare_victim(cachepc_ctx, target);
 
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
-		head = cachepc_prime(cachepc_ds);
-		cachepc_victim(ptr);
-		cachepc_probe(head);
+		memset(cachepc_msrmts, 0, L1_SETS);
+		cachepc_single_eviction_test_asm(victim);
+		cachepc_save_msrmts(cachepc_ds);
 
 		count = 0;
-		evicted = NULL;
-		cl = head = cachepc_ds;
-		do {
-			if (CL_IS_FIRST(cl->flags) && cl->count > 0) {
-				evicted = cl;
-				count += cl->count;
-			}
-			cl = cl->next;
-		} while (cl != head);
+		for (i = 0; i < L1_SETS; i++)
+			count += cachepc_msrmts[i];
 
-		if (count != 1 || evicted->cache_set != target) {
+		if (count != 1 || cachepc_msrmts[target] != 1) {
 			CPC_ERR("Single eviction %i. test failed (%u vs %u)\n",
 				n, count, 1);
 			if (arg) *arg = count;
 			break;
 		}
-
-		cachepc_save_msrmts(head);
 	}
 
 	if (n == TEST_REPEAT_MAX) {
@@ -253,7 +234,7 @@ cachepc_kvm_single_eviction_test(void *p)
 		if (arg) *arg = count;
 	}
 
-	cachepc_release_victim(cachepc_ctx, ptr);
+	cachepc_release_victim(cachepc_ctx, victim);
 }
 
 void
@@ -263,17 +244,11 @@ cachepc_kvm_system_setup(void)
 	 * guessing work was involved, it is likely that one or more of
 	 * these operations are not needed */
 
-	// /* disable streaming store */
-	// cachepc_write_msr(0xc0011020, 0, 1ULL << 13);
-
-	// /* disable speculative data cache tlb reloads */
-	// cachepc_write_msr(0xc0011022, 0, 1ULL << 4);
-
-	// /* disable data cache hw prefetchers */
-	// cachepc_write_msr(0xc0011022, 0, 1ULL << 13);
-
-	/* disable inst cache hw prefetchers */
-	cachepc_write_msr(0xc0011021, 0, 1ULL << 13);
+	/* REF: BKDG Family 15h Model 00h-0Fh Rev 3.14 January 23, 2013 P.38 */
+	/* disable streaming store */
+	cachepc_write_msr(0xc0011020, 0, 1ULL << 28);
+	/* disable data cache hw prefetcher */
+	cachepc_write_msr(0xc0011022, 0, 1ULL << 13);
 
 	/* REF: https://arxiv.org/pdf/2204.03290.pdf */
 	/* l1 and l2 prefetchers */
@@ -283,17 +258,13 @@ cachepc_kvm_system_setup(void)
 	/* REF: https://community.amd.com/t5/archives-discussions/modifying-msr-to-disable-the-prefetcher/td-p/143443 */
 	cachepc_write_msr(0xc001102b, 0, 1ULL << 18);
 
-	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.168
-	 * disable L1 and L2 prefetcher */
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.168 */
+	/* disable L1 and L2 prefetcher */
 	cachepc_write_msr(0xC0000108, 0, 0b00101111);
 
-	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.111
-	 * disable speculation */
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.111 */
+	/* disable speculation */
 	cachepc_write_msr(0x00000048, 0, 0b10000111);
-
-	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.175
-	 * disable core performance boost */
-	cachepc_write_msr(0xC0010015, 0, 1ULL << 25);
 }
 
 int
@@ -301,10 +272,7 @@ cachepc_kvm_reset_ioctl(void __user *arg_user)
 {
 	int cpu;
 
-	if (arg_user) return -EINVAL;
-
 	cpu = get_cpu();
-
 	if (cpu != CPC_ISOLCPU) {
 		put_cpu();
 		return -EFAULT;
@@ -357,8 +325,8 @@ cachepc_kvm_test_eviction_ioctl(void __user *arg_user)
 	if (copy_from_user(&u32, arg_user, sizeof(u32)))
 		return -EFAULT;
 
-	ret = smp_call_function_single(2,
-		cachepc_kvm_single_eviction_test, &u32, true);
+	ret = smp_call_function_single(CPC_ISOLCPU,
+		cachepc_single_eviction_test, &u32, true);
 	WARN_ON(ret != 0);
 
 	if (copy_to_user(arg_user, &u32, sizeof(u32)))
@@ -452,19 +420,12 @@ cachepc_kvm_vmsa_read_ioctl(void __user *arg_user)
 int
 cachepc_kvm_svme_read_ioctl(void __user *arg_user)
 {
-	uint32_t lo, hi;
 	uint64_t res;
 	uint32_t svme;
 
 	if (!arg_user) return -EINVAL;
 
-	asm volatile (
-		"rdmsr"
-		: "=a" (lo), "=d" (hi)
-		: "c" (0xC0000080)
-	);
-	res = (((uint64_t) hi) << 32) | (uint64_t) lo;
-
+	res = __rdmsr(0xC0000080);
 	svme = (res >> 12) & 1;
 	if (copy_to_user(arg_user, &svme, sizeof(uint32_t)))
 		return -EFAULT;
@@ -701,20 +662,22 @@ cachepc_kvm_setup_test(void *p)
 
 	cpu = get_cpu();
 
-	CPC_WARN("Running on core %i\n", cpu);
+	CPC_INFO("Running on core %i\n", cpu);
 
 	if (cachepc_verify_topology())
 		goto exit;
 
-	cachepc_ctx = cachepc_get_ctx(L1_CACHE);
+	cachepc_ctx = cachepc_get_ctx();
 	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
+
+	cachepc_victim = cachepc_prepare_victim(cachepc_ctx, 13);
 
 	cachepc_kvm_system_setup();
 
 	spin_lock_irq(&lock);
-	cachepc_kvm_prime_probe_test();
-	cachepc_kvm_stream_hwpf_test();
-	cachepc_kvm_single_eviction_test(NULL);
+	cachepc_prime_probe_test();
+	cachepc_stream_hwpf_test();
+	cachepc_single_eviction_test(NULL);
 	spin_unlock_irq(&lock);
 
 exit:
@@ -730,6 +693,7 @@ cachepc_kvm_init(void)
 	cachepc_ds = NULL;
 
 	cachepc_debug = false;
+	cachepc_victim = NULL;
 
 	cachepc_retinst = 0;
 	cachepc_singlestep = false;
@@ -751,7 +715,8 @@ cachepc_kvm_init(void)
 
 	cachepc_events_reset();
 
-	ret = smp_call_function_single(2, cachepc_kvm_setup_test, NULL, true);
+	ret = smp_call_function_single(CPC_ISOLCPU,
+		cachepc_kvm_setup_test, NULL, true);
 	WARN_ON(ret != 0);
 }
 
@@ -759,6 +724,8 @@ void
 cachepc_kvm_exit(void)
 {
 	kfree(cachepc_msrmts);
+	kfree(cachepc_baseline);
+	kfree(cachepc_victim);
 
 	if (cachepc_ds)
 		cachepc_release_ds(cachepc_ctx, cachepc_ds);

@@ -4,7 +4,7 @@
 #include "../../include/asm/processor.h"
 
 #include <linux/kernel.h>
-#include <linux/types.h> 
+#include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/ioctl.h>
@@ -39,10 +39,7 @@ cachepc_verify_topology(void)
 			"virtual memory access will hit corresponding "
 			"physical cacheline, PAGE_SIZE != L1_SETS * L1_LINESIZE");
 
-
-	/* REF: https://developer.amd.com/resources/developer-guides-manuals
-	 * (PPR 17H 31H, P.81) */
-
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.94 */
 	val = native_cpuid_ecx(0x80000005);
 	size = ((val >> 24) & 0xFF) * 1024;
 	assoc = (val >> 16) & 0xFF;
@@ -50,8 +47,8 @@ cachepc_verify_topology(void)
 	sets = size / (linesize * assoc);
 	if (size != L1_SIZE || assoc != L1_ASSOC
 			|| linesize != L1_LINESIZE || sets != L1_SETS) {
-			CPC_ERR("L1 topology is invalid!\n");
-			CPC_ERR("L1_SIZE (expected) %u vs. (real) %u\n",
+		CPC_ERR("L1 topology is invalid!\n");
+		CPC_ERR("L1_SIZE (expected) %u vs. (real) %u\n",
 			L1_SIZE, size);
 		CPC_ERR("L1_ASSOC (expected) %u vs. (real) %u\n",
 			L1_ASSOC, assoc);
@@ -62,6 +59,7 @@ cachepc_verify_topology(void)
 		return true;
 	}
 
+	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.94 */
 	val = native_cpuid_ecx(0x80000006);
 	size = ((val >> 16) & 0xFFFF) * 1024;
 	assoc = (val >> 12) & 0xF;
@@ -121,25 +119,23 @@ void
 cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
 {
 	uint64_t val, newval;
-	uint32_t lo, hi;
 
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(addr));
-	val = (uint64_t) lo | ((uint64_t) hi << 32);
+	val = __rdmsr(addr);
 	val &= ~clear_bits;
 	val |= set_bits;
-	asm volatile ("wrmsr" : : "c"(addr), "a"(val), "d"(0x00));
+	native_wrmsrl(addr, val);
 
-	asm volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(addr));
-	newval = (uint64_t) lo | ((uint64_t) hi << 32);
-	if (val != newval)
-		CPC_ERR("Write MSR failed at addr %08llX\n", addr);
+	newval = __rdmsr(addr);
+	if (val != newval) {
+		CPC_ERR("Write MSR at %08llX failed (%08llx vs %08llx)\n",
+			addr, val, newval);
+	}
 }
 
 void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user)
 {
-	uint64_t reg_addr;
 	uint64_t event;
 
 	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.166 */
@@ -147,34 +143,27 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	WARN_ON(index >= 6);
 	if (index >= 6) return;
 
-	reg_addr = 0xc0010200 + index * 2;
 	event = event_no | (event_mask << 8);
 	event |= (1ULL << 22); /* enable performance counter */
 	event |= ((kernel_user & 0b11) * 1ULL) << 16;
 	event |= ((host_guest & 0b11) * 1ULL) << 40;
 
-	printk(KERN_WARNING "CachePC: Initializing %i. PMC %02X:%02X (%016llx)\n",
-		index, event_no, event_mask, event);
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(event), "d"(0x00));
+	// CPC_INFO("Initializing %i. PMC %02X:%02X (%016llx)\n",
+	// 	index, event_no, event_mask, event);
+	cachepc_write_msr(0xc0010200 + index * 2, ~0ULL, event);
 }
 
 void
 cachepc_reset_pmc(uint8_t index)
 {
-	uint64_t reg_addr;
-	uint64_t value;
-
 	WARN_ON(index >= 6);
 	if (index >= 6) return;
 
-	reg_addr = 0xc0010201 + index * 2;
-	value = 0;
-
-	asm volatile ("wrmsr" : : "c"(reg_addr), "a"(value), "d"(0x00));
+	cachepc_write_msr(0xc0010201 + index * 2, ~0ULL, 0);
 }
 
 cache_ctx *
-cachepc_get_ctx(int cache_level)
+cachepc_get_ctx(void)
 {
 	cache_ctx *ctx;
 
@@ -183,7 +172,6 @@ cachepc_get_ctx(int cache_level)
 
 	ctx->sets = L1_SETS;
 	ctx->associativity = L1_ASSOC;
-	ctx->cache_level = cache_level;
 	ctx->nr_of_cachelines = ctx->sets * ctx->associativity;
 	ctx->set_size = L1_LINESIZE * ctx->associativity;
 	ctx->cache_size = ctx->sets * ctx->set_size;
@@ -197,9 +185,7 @@ cachepc_release_ctx(cache_ctx *ctx)
 	kfree(ctx);
 }
 
-/*
- * Initialises the complete cache data structure for the given context
- */
+/* initialises the complete cache data structure for the given context */
 cacheline *
 cachepc_prepare_ds(cache_ctx *ctx)
 {
@@ -261,11 +247,19 @@ cachepc_save_msrmts(cacheline *head)
 			BUG_ON(curr_cl->cache_set >= L1_SETS);
 			WARN_ON(curr_cl->count > L1_ASSOC);
 			cachepc_msrmts[curr_cl->cache_set] = curr_cl->count;
+		} else {
+			BUG_ON(curr_cl->count != 0);
 		}
 
-		curr_cl->count = 0;
 		curr_cl = curr_cl->prev;
 	} while (curr_cl != head);
+
+	if (cachepc_baseline_measure) {
+		for (i = 0; i < L1_SETS; i++) {
+			cachepc_baseline[i] = MIN(cachepc_baseline[i],
+				cachepc_msrmts[i]);
+		}
+	}
 
 	if (cachepc_baseline_active) {
 		for (i = 0; i < L1_SETS; i++) {
@@ -292,33 +286,6 @@ cachepc_print_msrmts(cacheline *head)
 	} while (curr_cl != head);
 }
 
-void
-cachepc_update_baseline(void)
-{
-	size_t i;
-
-	for (i = 0; i < L1_SETS; i++) {
-		cachepc_baseline[i] = MIN(cachepc_baseline[i],
-			cachepc_msrmts[i]);
-	}
-}
-
-void __attribute__((optimize(1))) // prevent instruction reordering
-cachepc_prime_vcall(uintptr_t ret, cacheline *cl)
-{
-	if (cachepc_singlestep)
-		cachepc_apic_oneshot(cachepc_apic_timer / CPC_APIC_TIMER_SOFTDIV);
-	cachepc_prime(cl);
-	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
-}
-
-void __attribute__((optimize(1))) // prevent instruction reordering
-cachepc_probe_vcall(uintptr_t ret, cacheline *cl)
-{
-	cachepc_probe(cl);
-	asm volatile ("mov %0, %%rax; jmp *%%rax" : : "r"(ret) : "rax");
-}
-
 cacheline *
 prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 {
@@ -335,8 +302,8 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 	last_cl_in_sets  = kzalloc(ctx->sets * sizeof(cacheline *), GFP_KERNEL);
 	BUG_ON(last_cl_in_sets == NULL);
 
-	// Find the cache groups that are used, so that we can delete the other ones
-	// later (to avoid memory leaks)
+	/* find the cache groups that are used, so that we can delete the
+	 * other ones later (to avoid memory leaks) */
 	cache_groups_max_len = ctx->sets / CACHE_GROUP_SIZE;
 	cache_groups = kmalloc(cache_groups_max_len * sizeof(uint32_t), GFP_KERNEL);
 	BUG_ON(cache_groups == NULL);
@@ -352,7 +319,8 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 	to_del_cls = NULL;
 	curr_cl = cache_ds;
 
-	// Extract the partial data structure for the cache sets and ensure correct freeing
+	/* extract the partial data structure for the cache sets and
+	 * ensure correct freeing */
 	do {
 		next_cl = curr_cl->next;
 
@@ -367,7 +335,7 @@ prepare_cache_set_ds(cache_ctx *ctx, uint32_t *sets, uint32_t sets_len)
 
 	} while (curr_cl != cache_ds);
 
-	// Fix partial cache set ds
+	/* fix partial cache set ds */
 	for (i = 0; i < sets_len; ++i) {
 		last_cl_in_sets[sets[i]]->next = first_cl_in_sets[sets[(i + 1) % sets_len]];
 		first_cl_in_sets[sets[(i + 1) % sets_len]]->prev = last_cl_in_sets[sets[i]];
@@ -423,13 +391,13 @@ build_cache_ds(cache_ctx *ctx, cacheline **cl_ptr_arr) {
 		idx_per_set[cl_ptr_arr[i]->cache_set] += 1;
 	}
 
-	// Build doubly linked list for every set
+	/* build doubly linked list for every set */
 	for (set = 0; set < ctx->sets; ++set) {
 		set_offset = set * set_len;
 		build_randomized_list_for_cache_set(ctx, cl_ptr_arr_sorted + set_offset);
 	}
 
-	// Relink the sets among each other
+	/* relink the sets among each other */
 	idx_map = kzalloc(ctx->sets * sizeof(uint32_t), GFP_KERNEL);
 	BUG_ON(idx_map == NULL);
 
@@ -552,7 +520,6 @@ gen_random_indices(uint32_t *arr, uint32_t arr_len)
 	random_perm(arr, arr_len);
 }
 
-
 bool
 is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len)
 {
@@ -564,4 +531,12 @@ is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len)
 	}
 
 	return false;
+}
+
+void
+cachepc_apic_oneshot(uint32_t interval)
+{
+	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
+	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_1);
+	native_apic_mem_write(APIC_TMICT, interval);
 }

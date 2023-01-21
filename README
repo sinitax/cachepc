@@ -54,9 +54,12 @@ setup
 Testing was done on a Supermicro H12SSL-i V1.01 motherboard and AMD EPYC 72F3
 (Family 0x19, Model 0x01) cpu.
 
-The following BIOS settings differ from the defaults:
+The following non-default BIOS settings were used:
 
 Advanced > CPU Configuration > Local APIC Mode = xAPIC
+Advanced > CPU Configuration > Core Performance Boost = Disabled
+Advanced > CPU Configuration > SMT Control = Disabled
+Advanced > CPU Configuration > Global C-state Control = Disabled
 Advanced > CPU Configuration > L1 Stream HW Prefetcher = Disabled
 Advanced > CPU Configuration > L2 Stream HW Prefetcher = Disabled
 Advanced > CPU Configuration > SMEE = Enabled
@@ -75,6 +78,7 @@ kvm_amd.sev=1 kvm_amd.sev_es=1 nokaslr debug systemd.log_level=info
 
 To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
 that a host kernel debian package was built using `make host`.
+
 
 Because of bad decisions made in regards to version control, the checked
 out commit of the modified kernel (previously the kernel patch file) might

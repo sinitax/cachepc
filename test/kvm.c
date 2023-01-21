@@ -203,27 +203,27 @@ snp_dbg_decrypt_rip(int vmfd)
 }
 
 void
-kvm_init(struct kvm *kvm, size_t ramsize,
+kvm_create_vm(struct kvm *kvm)
+{
+	kvm->vmfd = ioctl(kvm_dev, KVM_CREATE_VM, 0);
+	if (kvm->vmfd < 0) err(1, "KVM_CREATE_VM");
+}
+
+void
+kvm_init_memory(struct kvm *kvm, size_t ramsize,
 	void *code_start, void *code_stop)
 {
 	struct kvm_userspace_memory_region region;
-	struct kvm_regs regs;
-	struct kvm_sregs sregs;
 	int ret;
 
-	/* Create a kvm instance */
-	kvm->vmfd = ioctl(kvm_dev, KVM_CREATE_VM, 0);
-	if (kvm->vmfd < 0) err(1, "KVM_CREATE_VM");
-
-	/* Allocate guest memory */
 	kvm->memsize = ramsize;
 	kvm->mem = mmap(NULL, kvm->memsize, PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	if (!kvm->mem) err(1, "Allocating guest memory");
+	if (!kvm->mem) err(1, "mmap kvm->mem");
+	memset(kvm->mem, 0, kvm->memsize);
 	assert(code_stop - code_start <= kvm->memsize);
 	memcpy(kvm->mem, code_start, code_stop - code_start);
 
-	/* Map it into the vm */
 	memset(&region, 0, sizeof(region));
 	region.slot = 0;
 	region.memory_size = kvm->memsize;
@@ -231,19 +231,32 @@ kvm_init(struct kvm *kvm, size_t ramsize,
 	region.userspace_addr = (uintptr_t) kvm->mem;
 	ret = ioctl(kvm->vmfd, KVM_SET_USER_MEMORY_REGION, &region);
 	if (ret == -1) err(1, "KVM_SET_USER_MEMORY_REGION");
+}
 
-	/* Create virtual cpu core */
+void
+kvm_create_vcpu(struct kvm *kvm)
+{
+	int ret;
+
 	kvm->vcpufd = ioctl(kvm->vmfd, KVM_CREATE_VCPU, 0);
 	if (kvm->vcpufd < 0) err(1, "KVM_CREATE_VCPU");
 
-	/* Map the shared kvm_run structure and following data */
 	ret = ioctl(kvm_dev, KVM_GET_VCPU_MMAP_SIZE, NULL);
 	if (ret == -1) err(1, "KVM_GET_VCPU_MMAP_SIZE");
 	if (ret < sizeof(struct kvm_run))
 		errx(1, "KVM_GET_VCPU_MMAP_SIZE too small");
-	kvm->run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
+	kvm->runsize = ret;
+	kvm->run = mmap(NULL, kvm->runsize, PROT_READ | PROT_WRITE,
 		MAP_SHARED, kvm->vcpufd, 0);
-	if (!kvm->run) err(1, "mmap vcpu");
+	if (!kvm->run) err(1, "mmap kvm->run");
+}
+
+void
+kvm_init_regs(struct kvm *kvm)
+{
+	struct kvm_regs regs;
+	struct kvm_sregs sregs;
+	int ret;
 
 	/* Initialize segment regs */
 	memset(&sregs, 0, sizeof(sregs));
@@ -265,72 +278,38 @@ kvm_init(struct kvm *kvm, size_t ramsize,
 }
 
 void
+kvm_init(struct kvm *kvm, size_t ramsize,
+	void *code_start, void *code_stop)
+{
+	kvm_create_vm(kvm);
+
+	kvm_init_memory(kvm, ramsize, code_start, code_stop);
+
+	kvm_create_vcpu(kvm);
+
+	kvm_init_regs(kvm);
+}
+
+void
 sev_kvm_init(struct kvm *kvm, size_t ramsize,
 	void *code_start, void *code_stop)
 {
-	struct kvm_userspace_memory_region region;
 	struct kvm_sev_launch_update_data update;
 	struct kvm_sev_launch_start start;
-	struct kvm_regs regs;
-	struct kvm_sregs sregs;
 	int ret, fwerr;
 
-	/* Create a kvm instance */
-	kvm->vmfd = ioctl(kvm_dev, KVM_CREATE_VM, 0);
-	if (kvm->vmfd < 0) err(1, "KVM_CREATE_VM");
+	kvm_create_vm(kvm);
 
-	/* Allocate guest memory */
-	kvm->memsize = ramsize;
-	kvm->mem = mmap(NULL, kvm->memsize, PROT_READ | PROT_WRITE,
-		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	if (!kvm->mem) err(1, "Allocating guest memory");
-	assert(code_stop - code_start <= kvm->memsize);
-	memcpy(kvm->mem, code_start, code_stop - code_start);
-
-	/* Map it into the vm */
-	memset(&region, 0, sizeof(region));
-	region.slot = 0;
-	region.memory_size = kvm->memsize;
-	region.guest_phys_addr = 0;
-	region.userspace_addr = (uintptr_t) kvm->mem;
-	ret = ioctl(kvm->vmfd, KVM_SET_USER_MEMORY_REGION, &region);
-	if (ret == -1) err(1, "KVM_SET_USER_MEMORY_REGION");
+	kvm_init_memory(kvm, ramsize, code_start, code_stop);
 
 	/* Enable SEV for vm */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_INIT, NULL, &fwerr);
 	if (ret == -1) errx(1, "KVM_SEV_INIT: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
 
-	/* Create virtual cpu core */
-	kvm->vcpufd = ioctl(kvm->vmfd, KVM_CREATE_VCPU, 0);
-	if (kvm->vcpufd < 0) err(1, "KVM_CREATE_VCPU");
+	kvm_create_vcpu(kvm);
 
-	/* Map the shared kvm_run structure and following data */
-	ret = ioctl(kvm_dev, KVM_GET_VCPU_MMAP_SIZE, NULL);
-	if (ret == -1) err(1, "KVM_GET_VCPU_MMAP_SIZE");
-	if (ret < sizeof(struct kvm_run))
-		errx(1, "KVM_GET_VCPU_MMAP_SIZE too small");
-	kvm->run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
-		MAP_SHARED, kvm->vcpufd, 0);
-	if (!kvm->run) err(1, "mmap vcpu");
-
-	/* Initialize segment regs */
-	memset(&sregs, 0, sizeof(sregs));
-	ret = ioctl(kvm->vcpufd, KVM_GET_SREGS, &sregs);
-	if (ret == -1) err(1, "KVM_GET_SREGS");
-	sregs.cs.base = 0;
-	sregs.cs.selector = 0;
-	ret = ioctl(kvm->vcpufd, KVM_SET_SREGS, &sregs);
-	if (ret == -1) err(1, "KVM_SET_SREGS");
-
-	/* Initialize rest of registers */
-	memset(&regs, 0, sizeof(regs));
-	regs.rip = 0;
-	regs.rsp = kvm->memsize - 8;
-	regs.rbp = kvm->memsize - 8;
-	regs.rflags = 0x2;
-	ret = ioctl(kvm->vcpufd, KVM_SET_REGS, &regs);
-	if (ret == -1) err(1, "KVM_SET_REGS");
+	kvm_init_regs(kvm);
 
 	/* Generate encryption keys and set policy */
 	memset(&start, 0, sizeof(start));
@@ -365,69 +344,22 @@ void
 sev_es_kvm_init(struct kvm *kvm, size_t ramsize,
 	void *code_start, void *code_stop)
 {
-	struct kvm_userspace_memory_region region;
 	struct kvm_sev_launch_update_data update;
 	struct kvm_sev_launch_start start;
-	struct kvm_regs regs;
-	struct kvm_sregs sregs;
 	int ret, fwerr;
 
-	/* Create a kvm instance */
-	kvm->vmfd = ioctl(kvm_dev, KVM_CREATE_VM, 0);
-	if (kvm->vmfd < 0) err(1, "KVM_CREATE_VM");
+	kvm_create_vm(kvm);
 
-	/* Allocate guest memory */
-	kvm->memsize = ramsize;
-	kvm->mem = mmap(NULL, kvm->memsize, PROT_READ | PROT_WRITE,
-		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	if (!kvm->mem) err(1, "Allocating guest memory");
-	assert(code_stop - code_start <= kvm->memsize);
-	memcpy(kvm->mem, code_start, code_stop - code_start);
-
-	/* Map it into the vm */
-	memset(&region, 0, sizeof(region));
-	region.slot = 0;
-	region.memory_size = kvm->memsize;
-	region.guest_phys_addr = 0;
-	region.userspace_addr = (uintptr_t) kvm->mem;
-	ret = ioctl(kvm->vmfd, KVM_SET_USER_MEMORY_REGION, &region);
-	if (ret == -1) err(1, "KVM_SET_USER_MEMORY_REGION");
+	kvm_init_memory(kvm, ramsize, code_start, code_stop);
 
 	/* Enable SEV for vm */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_ES_INIT, NULL, &fwerr);
 	if (ret == -1) errx(1, "KVM_SEV_ES_INIT: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
 
-	/* Create virtual cpu core */
-	kvm->vcpufd = ioctl(kvm->vmfd, KVM_CREATE_VCPU, 0);
-	if (kvm->vcpufd < 0) err(1, "KVM_CREATE_VCPU");
+	kvm_create_vcpu(kvm);
 
-	/* Map the shared kvm_run structure and following data */
-	ret = ioctl(kvm_dev, KVM_GET_VCPU_MMAP_SIZE, NULL);
-	if (ret == -1) err(1, "KVM_GET_VCPU_MMAP_SIZE");
-	if (ret < sizeof(struct kvm_run))
-		errx(1, "KVM_GET_VCPU_MMAP_SIZE too small");
-	kvm->run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
-		MAP_SHARED, kvm->vcpufd, 0);
-	if (!kvm->run) err(1, "mmap vcpu");
-
-	/* Initialize segment regs */
-	memset(&sregs, 0, sizeof(sregs));
-	ret = ioctl(kvm->vcpufd, KVM_GET_SREGS, &sregs);
-	if (ret == -1) err(1, "KVM_GET_SREGS");
-	sregs.cs.base = 0;
-	sregs.cs.selector = 0;
-	ret = ioctl(kvm->vcpufd, KVM_SET_SREGS, &sregs);
-	if (ret == -1) err(1, "KVM_SET_SREGS");
-
-	/* Initialize rest of registers */
-	memset(&regs, 0, sizeof(regs));
-	regs.rip = 0;
-	regs.rsp = kvm->memsize - 8;
-	regs.rbp = kvm->memsize - 8;
-	regs.rflags = 0x2;
-	ret = ioctl(kvm->vcpufd, KVM_SET_REGS, &regs);
-	if (ret == -1) err(1, "KVM_SET_REGS");
+	kvm_init_regs(kvm);
 
 	/* Generate encryption keys and set policy */
 	memset(&start, 0, sizeof(start));
@@ -470,33 +402,13 @@ sev_snp_kvm_init(struct kvm *kvm, size_t ramsize,
 	struct kvm_sev_snp_launch_update update;
 	struct kvm_sev_snp_launch_start start;
 	struct kvm_sev_snp_launch_finish finish;
-	struct kvm_snp_init init;
-	struct kvm_userspace_memory_region region;
 	struct kvm_enc_region enc_region;
-	struct kvm_sregs sregs;
-	struct kvm_regs regs;
+	struct kvm_snp_init init;
 	int ret, fwerr;
 
-	/* Create a kvm instance */
-	kvm->vmfd = ioctl(kvm_dev, KVM_CREATE_VM, 0);
-	if (kvm->vmfd < 0) err(1, "KVM_CREATE_VM");
+	kvm_create_vm(kvm);
 
-	/* Allocate guest memory */
-	kvm->memsize = ramsize;
-	kvm->mem = mmap(NULL, kvm->memsize, PROT_READ | PROT_WRITE,
-		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	if (!kvm->mem) err(1, "Allocating guest memory");
-	assert(code_stop - code_start <= kvm->memsize);
-	memcpy(kvm->mem, code_start, code_stop - code_start);
-
-	/* Map it into the vm */
-	memset(&region, 0, sizeof(region));
-	region.slot = 0;
-	region.memory_size = kvm->memsize;
-	region.guest_phys_addr = 0;
-	region.userspace_addr = (uintptr_t) kvm->mem;
-	ret = ioctl(kvm->vmfd, KVM_SET_USER_MEMORY_REGION, &region);
-	if (ret == -1) err(1, "KVM_SET_USER_MEMORY_REGION");
+	kvm_init_memory(kvm, ramsize, code_start, code_stop);
 
 	/* Enable SEV for vm */
 	memset(&init, 0, sizeof(init));
@@ -511,35 +423,9 @@ sev_snp_kvm_init(struct kvm *kvm, size_t ramsize,
 	ret = ioctl(kvm->vmfd, KVM_MEMORY_ENCRYPT_REG_REGION, &enc_region);
 	if (ret == -1) err(1, "KVM_MEMORY_ENCRYPT_REG_REGION");
 
-	/* Create virtual cpu */
-	kvm->vcpufd = ioctl(kvm->vmfd, KVM_CREATE_VCPU, 0);
-	if (kvm->vcpufd < 0) err(1, "KVM_CREATE_VCPU");
+	kvm_create_vcpu(kvm);
 
-	/* Map the shared kvm_run structure and following data */
-	ret = ioctl(kvm_dev, KVM_GET_VCPU_MMAP_SIZE, NULL);
-	if (ret == -1) err(1, "KVM_GET_VCPU_MMAP_SIZE");
-	if (ret < sizeof(struct kvm_run))
-		errx(1, "KVM_GET_VCPU_MMAP_SIZE too small");
-	kvm->run = mmap(NULL, ret, PROT_READ | PROT_WRITE,
-		MAP_SHARED, kvm->vcpufd, 0);
-	if (!kvm->run) err(1, "mmap vcpu");
-
-	/* Initialize segment regs */
-	memset(&sregs, 0, sizeof(sregs));
-	ret = ioctl(kvm->vcpufd, KVM_GET_SREGS, &sregs);
-	if (ret == -1) err(1, "KVM_GET_SREGS");
-	sregs.cs.base = 0;
-	sregs.cs.selector = 0;
-	ret = ioctl(kvm->vcpufd, KVM_SET_SREGS, &sregs);
-	if (ret == -1) err(1, "KVM_SET_SREGS");
-
-	/* Initialize rest of registers */
-	memset(&regs, 0, sizeof(regs));
-	regs.rip = 0;
-	regs.rsp = kvm->memsize - 8 - L1_LINESIZE * L1_SETS;
-	regs.rbp = kvm->memsize - 8 - L1_LINESIZE * L1_SETS;
-	ret = ioctl(kvm->vcpufd, KVM_SET_REGS, &regs);
-	if (ret == -1) err(1, "KVM_SET_REGS");
+	kvm_init_regs(kvm);
 
 	/* Generate encryption keys and set policy */
 	memset(&start, 0, sizeof(start));
@@ -573,6 +459,7 @@ kvm_deinit(struct kvm *kvm)
 	close(kvm->vmfd);
 	close(kvm->vcpufd);
 	munmap(kvm->mem, kvm->memsize);
+	munmap(kvm->run, kvm->runsize);
 }
 
 void

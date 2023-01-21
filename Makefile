@@ -49,12 +49,14 @@ load:
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm.ko
 	sudo insmod $(LINUX)/arch/x86/kvm/kvm-amd.ko
 
-freq:
+prep:
+	sudo sh -c "echo 0 > /proc/sys/kernel/watchdog"
 	sudo cpupower frequency-set -f 3.7GHz
 
 util/%: util/%.c $(CACHEPC_UAPI)
 
-test/%: test/%.c $(CACHEPC_UAPI)
+test/eviction: test/eviction.c test/util.c $(CACHEPC_UAPI)
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS)
 
 test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction_guest.S test/util.c \
 		test/util.h test/kvm.c test/kvm.h test/kvm-eviction.h $(CACHEPC_UAPI)
@@ -64,4 +66,4 @@ test/kvm-step: test/kvm-step.c test/kvm-step_guest.S \
 		test/util.c test/util.h test/kvm.c test/kvm.h $(CACHEPC_UAPI)
 	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS)
 
-.PHONY: all clean host build load freq
+.PHONY: all clean host build load prep

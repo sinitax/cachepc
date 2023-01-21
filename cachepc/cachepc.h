@@ -1,13 +1,9 @@
 #pragma once
 
-#include "asm.h"
 #include "uapi.h"
 
 #include "../../include/asm/apic.h"
 #include "../../include/asm/irq_vectors.h"
-
-#define L1_CACHE 0
-#define L2_CACHE 1
 
 #define CACHE_GROUP_SIZE (PAGE_SIZE / L1_LINESIZE)
 
@@ -27,9 +23,6 @@
 #define CL_IS_LAST(flags) CACHEPC_GET_BIT(flags, 1)
 #define CL_IS_GROUP_INIT(flags) CACHEPC_GET_BIT(flags, 2)
 
-#define CL_NEXT_OFFSET offsetof(struct cacheline, next)
-#define CL_PREV_OFFSET offsetof(struct cacheline, prev)
-
 #define PMC_KERNEL (1 << 1)
 #define PMC_USER   (1 << 0)
 
@@ -42,14 +35,10 @@
 #define CPC_WARN(...) do { pr_warn("CachePC: " __VA_ARGS__); } while (0)
 #define CPC_ERR(...) do { pr_err("CachePC: " __VA_ARGS__); } while (0)
 
-#define CPC_APIC_TIMER_SOFTDIV 3
-
 typedef struct cacheline cacheline;
 typedef struct cache_ctx cache_ctx;
 
 struct cache_ctx {
-	int cache_level;
-
 	uint32_t sets;
 	uint32_t associativity;
 	uint32_t nr_of_cachelines;
@@ -58,18 +47,15 @@ struct cache_ctx {
 };
 
 struct cacheline {
-	/* Doubly linked cache lines inside same cache set */
 	cacheline *next;
 	cacheline *prev;
+	uint64_t count;
 
 	uint32_t cache_set;
 	uint32_t cache_line;
 	uint32_t flags;
 
-	uint64_t count;
-
-	/* padding to fill cache line */
-	char padding[24];
+	char padding[28];
 };
 
 struct cpc_fault {
@@ -79,19 +65,20 @@ struct cpc_fault {
 	struct list_head list;
 };
 
-static_assert(sizeof(struct cacheline) == L1_LINESIZE,
-	"Bad cache line struct size");
+static_assert(sizeof(struct cacheline) == L1_LINESIZE, "Bad cacheline struct");
 static_assert(CPC_CL_NEXT_OFFSET == offsetof(struct cacheline, next));
 static_assert(CPC_CL_PREV_OFFSET == offsetof(struct cacheline, prev));
+static_assert(CPC_CL_COUNT_OFFSET == offsetof(struct cacheline, count));
 
 bool cachepc_verify_topology(void);
 
 void cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits);
+
 void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user);
 void cachepc_reset_pmc(uint8_t index);
 
-cache_ctx *cachepc_get_ctx(int cache_level);
+cache_ctx *cachepc_get_ctx(void);
 void cachepc_release_ctx(cache_ctx *ctx);
 
 cacheline *cachepc_prepare_ds(cache_ctx *ctx);
@@ -104,27 +91,17 @@ void *cachepc_aligned_alloc(size_t alignment, size_t size);
 
 void cachepc_save_msrmts(cacheline *head);
 void cachepc_print_msrmts(cacheline *head);
-void cachepc_update_baseline(void);
 
-void cachepc_prime_vcall(uintptr_t ret, cacheline *cl);
-void cachepc_probe_vcall(uintptr_t ret, cacheline *cl);
+cacheline *cachepc_prime(cacheline *head);
+void cachepc_probe(cacheline *head);
 
-__attribute__((always_inline))
-static inline cacheline *cachepc_prime(cacheline *head);
+uint64_t cachepc_read_pmc(uint64_t event);
 
-__attribute__((always_inline))
-static inline cacheline *cachepc_probe(cacheline *head);
-
-__attribute__((always_inline))
-static inline void cachepc_victim(void *p);
-
-__attribute__((always_inline))
-static inline uint64_t cachepc_read_pmc(uint64_t event);
-
-__attribute__((always_inline))
-static inline void cachepc_apic_oneshot(uint32_t interval);
+void cachepc_apic_oneshot(uint32_t interval);
 
 extern bool cachepc_debug;
+
+extern struct cacheline *cachepc_victim;
 
 extern uint8_t *cachepc_msrmts;
 extern uint8_t *cachepc_baseline;
@@ -159,117 +136,3 @@ extern cacheline *cachepc_ds;
 
 extern uint64_t cachepc_regs_tmp[16];
 extern uint64_t cachepc_regs_vm[16];
-
-/*
- * Prime phase: fill the target cache (encoded in the size of the data structure)
- * with the prepared data structure, i.e. with attacker data.
- */
-cacheline *
-cachepc_prime(cacheline *head)
-{
-	cacheline *curr_cl, *prev_cl;
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	curr_cl = head;
-	do {
-		prev_cl = curr_cl;
-		curr_cl = curr_cl->next;
-	} while (curr_cl != head);
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	return prev_cl;
-}
-
-cacheline *
-cachepc_probe(cacheline *start_cl)
-{
-	uint64_t pre, post;
-	cacheline *next_cl;
-	cacheline *curr_cl;
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	curr_cl = start_cl;
-
-	do {
-		pre = cachepc_read_pmc(0);
-
-		asm volatile(
-			"mov 8(%[curr_cl]), %%rax \n\t"              // +8
-			"mov 8(%%rax), %%rcx \n\t"                   // +16
-			"mov 8(%%rcx), %%rax \n\t"                   // +24
-			"mov 8(%%rax), %%rcx \n\t"                   // +32
-			"mov 8(%%rcx), %%rax \n\t"                   // +40
-			"mov 8(%%rax), %%rcx \n\t"                   // +48
-			"mov 8(%%rcx), %[curr_cl_out] \n\t"          // +56
-			"mov 8(%[curr_cl_out]), %[next_cl_out] \n\t" // +64
-			: [next_cl_out] "=r" (next_cl),
-			  [curr_cl_out] "=r" (curr_cl)
-			: [curr_cl] "r" (curr_cl)
-			: "rax", "rcx"
-		);
-
-		post = cachepc_read_pmc(0);
-
-		/* works across size boundary */
-		curr_cl->count = post - pre;
-
-		curr_cl = next_cl;
-	} while (__builtin_expect(curr_cl != start_cl, 1));
-
-	next_cl = curr_cl->next;
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	return next_cl;
-}
-
-void
-cachepc_victim(void *p)
-{
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	cachepc_readq(p);
-
-	cachepc_mfence();
-	cachepc_cpuid();
-}
-
-uint64_t
-cachepc_read_pmc(uint64_t event)
-{
-	uint32_t lo, hi;
-	uint64_t res;
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	event = 0xC0010201 + 2 * event;
-
-	asm volatile (
-		"rdmsr"
-		: "=a" (lo), "=d" (hi)
-		: "c"(event)
-	);
-	res = (((uint64_t) hi) << 32) | (uint64_t) lo;
-
-	cachepc_mfence();
-	cachepc_cpuid();
-
-	return res;
-}
-
-void
-cachepc_apic_oneshot(uint32_t interval)
-{
-	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
-	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_1);
-	native_apic_mem_write(APIC_TMICT, interval);
-}

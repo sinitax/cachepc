@@ -18,7 +18,7 @@ enum {
 struct kvm {
 	int fd, vmfd, vcpufd;
 	void *mem;
-	size_t memsize;
+	size_t memsize, runsize;
 	struct kvm_run *run;
 };
 

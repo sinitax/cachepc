@@ -1,3 +1,4 @@
+#include "test/util.h"
 #include "cachepc/uapi.h"
 
 #include <sys/ioctl.h>
@@ -14,7 +15,7 @@ main(int argc, const char **argv)
 {
 	uint8_t counts[L1_SETS];
 	uint32_t set;
-	int i, fd, ret;
+	int fd, ret;
 
 	fd = open("/dev/kvm", O_RDONLY);
 	if (fd < 0) err(1, "open");
@@ -30,16 +31,9 @@ main(int argc, const char **argv)
 	ret = ioctl(fd, KVM_CPC_READ_COUNTS, counts);
 	if (ret == -1) err(1, "ioctl KVM_CPC_READ_COUNTS");
 
-	for (i = 0; i < 64; i++) {
-		if (i % 16 == 0 && i)
-			printf("\n");
-		if (counts[i] > 0)
-			printf("\x1b[91m");
-		printf("%2i ", i);
-		if (counts[i] > 0)
-			printf("\x1b[0m");
-	}
+	print_counts(counts);
 	printf("\n");
+	print_counts_raw(counts);
 
 	close(fd);
 }

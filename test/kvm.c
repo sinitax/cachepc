@@ -29,6 +29,7 @@
 #include <stdlib.h>
 
 int kvm_dev, sev_dev;
+const char *vmtype;
 
 const char *sev_fwerr_strs[] = {
 	[0x00] = "Success",
@@ -463,6 +464,62 @@ kvm_deinit(struct kvm *kvm)
 	close(kvm->vcpufd);
 	munmap(kvm->mem, kvm->memsize);
 	munmap(kvm->run, kvm->runsize);
+}
+
+void
+parse_vmtype(int argc, const char **argv)
+{
+	vmtype = "kvm";
+	if (argc > 1) vmtype = argv[1];
+	if (strcmp(vmtype, "kvm") && strcmp(vmtype, "sev")
+			&& strcmp(vmtype, "sev-es")
+			&& strcmp(vmtype, "sev-snp"))
+		errx(1, "invalid vm mode: %s", vmtype);
+}
+
+uint64_t
+vm_get_rip(struct kvm *kvm)
+{
+	struct kvm_regs regs;
+	uint64_t rip;
+	int ret;
+
+	if (!strcmp(vmtype, "sev-snp")) {
+		rip = snp_dbg_decrypt_rip(kvm->vmfd);
+	} else if (!strcmp(vmtype, "sev-es")) {
+		rip = sev_dbg_decrypt_rip(kvm->vmfd);
+	} else {
+		ret = ioctl(kvm_dev, KVM_CPC_GET_REGS, &regs);
+		if (ret == -1) err(1, "KVM_CPC_GET_REGS");
+		rip = regs.rip;
+	}
+
+	return rip;
+}
+
+void
+vm_init(struct kvm *kvm, void *code_start, void *code_end)
+{
+	size_t ramsize;
+
+	ramsize = L1_SIZE * 2;
+	if (!strcmp(vmtype, "kvm")) {
+		kvm_init(kvm, ramsize, code_start, code_end);
+	} else if (!strcmp(vmtype, "sev")) {
+		sev_kvm_init(kvm, ramsize, code_start, code_end);
+	} else if (!strcmp(vmtype, "sev-es")) {
+		sev_es_kvm_init(kvm, ramsize, code_start, code_end);
+	} else if (!strcmp(vmtype, "sev-snp")) {
+		sev_snp_kvm_init(kvm, ramsize, code_start, code_end);
+	} else {
+		errx(1, "invalid version");
+	}
+}
+
+void
+vm_deinit(struct kvm *kvm)
+{
+	kvm_deinit(kvm);
 }
 
 void

@@ -1,33 +1,19 @@
-#define _GNU_SOURCE
-
+#include "test/kvm-eviction.h"
 #include "test/kvm.h"
 #include "test/util.h"
 #include "cachepc/uapi.h"
 
-#include <linux/psp-sev.h>
-#include <linux/kvm.h>
-#include <sys/syscall.h>
-#include <sys/ioctl.h>
-#include <sys/user.h>
-#include <sys/wait.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <signal.h>
-#include <dirent.h>
-#include <assert.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <err.h>
-#include <fcntl.h>
-#include <sched.h>
 #include <string.h>
 #include <stdbool.h>
-#include <stdlib.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdarg.h>
+#include <stdlib.h>
 
 #define TARGET_CORE 2
 #define SECONDARY_CORE 3
@@ -35,52 +21,7 @@
 extern uint8_t guest_start[];
 extern uint8_t guest_stop[];
 
-static const char *vmtype;
-
-uint64_t
-vm_get_rip(struct kvm *kvm)
-{
-	struct kvm_regs regs;
-	uint64_t rip;
-	int ret;
-
-	if (!strcmp(vmtype, "sev-snp")) {
-		rip = snp_dbg_decrypt_rip(kvm->vmfd);
-	} else if (!strcmp(vmtype, "sev-es")) {
-		rip = sev_dbg_decrypt_rip(kvm->vmfd);
-	} else {
-		ret = ioctl(kvm_dev, KVM_CPC_GET_REGS, &regs);
-		if (ret == -1) err(1, "KVM_CPC_GET_REGS");
-		rip = regs.rip;
-	}
-
-	return rip;
-}
-
-void
-vm_init(struct kvm *kvm, void *code_start, void *code_end)
-{
-	size_t ramsize;
-
-	ramsize = L1_SIZE * 2;
-	if (!strcmp(vmtype, "kvm")) {
-		kvm_init(kvm, ramsize, code_start, code_end);
-	} else if (!strcmp(vmtype, "sev")) {
-		sev_kvm_init(kvm, ramsize, code_start, code_end);
-	} else if (!strcmp(vmtype, "sev-es")) {
-		sev_es_kvm_init(kvm, ramsize, code_start, code_end);
-	} else if (!strcmp(vmtype, "sev-snp")) {
-		sev_snp_kvm_init(kvm, ramsize, code_start, code_end);
-	} else {
-		errx(1, "invalid version");
-	}
-}
-
-void
-vm_deinit(struct kvm *kvm)
-{
-	kvm_deinit(kvm);
-}
+static int child;
 
 uint64_t
 monitor(struct kvm *kvm, bool baseline)
@@ -113,14 +54,20 @@ monitor(struct kvm *kvm, bool baseline)
 	return 1;
 }
 
+void
+kill_child(void)
+{
+	kill(child, SIGKILL);
+}
+
 int
 main(int argc, const char **argv)
 {
+	struct ipc *ipc;
 	struct kvm kvm;
 	uint8_t baseline[L1_SETS];
 	struct cpc_event event;
 	uint64_t eventcnt;
-	pid_t ppid, pid;
 	uint32_t arg;
 	int ret;
 
@@ -133,21 +80,24 @@ main(int argc, const char **argv)
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	pin_process(0, TARGET_CORE, true);
-
 	kvm_setup_init();
 
-	vm_init(&kvm, guest_start, guest_stop);
+	ipc = ipc_alloc();
 
-	/* reset kernel module state */
-	ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
-	if (ret < 0) err(1, "ioctl KVM_CPC_RESET");
+	child = fork();
+	if (child < 0) err(1, "fork");
 
-	ppid = getpid();
-	if ((pid = fork())) {
-		if (pid < 0) err(1, "fork");
+	if (child == 0) {
+		pin_process(0, TARGET_CORE, true);
 
-		sleep(1); /* give time for child to pin other core */
+		vm_init(&kvm, guest_start, guest_stop);
+
+		/* reset kernel module state */
+		ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
+		if (ret < 0) err(1, "ioctl KVM_CPC_RESET");
+
+		ipc_signal_parent(ipc);
+		ipc_wait_parent(ipc);
 
 		printf("VM start\n");
 
@@ -160,8 +110,16 @@ main(int argc, const char **argv)
 		} while (kvm.run->exit_reason == KVM_EXIT_HLT);
 
 		printf("VM exit\n");
+
+		vm_deinit(&kvm);
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
+
+		atexit(kill_child);
+
+		ipc_wait_child(ipc);
+
+		printf("Monitor start\n");
 
 		/* capture baseline by just letting it fault over and over */
 		arg = CPC_TRACK_FAULT_NO_RUN;
@@ -173,14 +131,13 @@ main(int argc, const char **argv)
 		ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &arg);
 		if (ret) err(1, "ioctl KVM_CPC_CALC_BASELINE");
 
-		printf("Monitor ready\n");
+		ipc_signal_child(ipc);
 
 		/* run vm while baseline is calculated */
 		eventcnt = 0;
 		while (eventcnt < 50) {
 			eventcnt += monitor(&kvm, true);
 		}
-		printf("Baseline done\n");
 
 		ret = ioctl(kvm_dev, KVM_CPC_VM_REQ_PAUSE);
 		if (ret) err(1, "ioctl KVM_CPC_VM_REQ_PAUSE");
@@ -227,11 +184,10 @@ main(int argc, const char **argv)
 			eventcnt += monitor(&kvm, false);
 		}
 
-		kill(ppid, SIGINT);
-		exit(0);
+		printf("Monitor exit\n");
 	}
 
-	vm_deinit(&kvm);
+	ipc_free(ipc);
 
 	kvm_setup_deinit();
 }

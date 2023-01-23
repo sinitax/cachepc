@@ -6,7 +6,7 @@ JOBS ?= $(CORES)
 PWD := $(shell pwd)
 
 BINS = test/eviction test/kvm-eviction
-BINS += test/kvm-step #test/kvm-execstep
+BINS += test/kvm-step test/kvm-pagestep
 # BINS += test/qemu-eviction_guest test/qemu-eviction_host
 # BINS += test/qemu-aes_guest test/qemu-aes_host
 BINS += util/debug util/reset
@@ -14,6 +14,8 @@ BINS += util/debug util/reset
 CFLAGS = -I . -I linux/usr/include
 CFLAGS += -g -Wunused-variable -Wunknown-pragmas -Wunused-function
 CFLAGS += -fsanitize=address
+
+LDLIBS = -lpthread
 
 CACHEPC_UAPI = cachepc/uapi.h cachepc/const.h
 
@@ -56,14 +58,18 @@ prep:
 util/%: util/%.c $(CACHEPC_UAPI)
 
 test/eviction: test/eviction.c test/util.c $(CACHEPC_UAPI)
-	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS)
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
 test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction_guest.S test/util.c \
 		test/util.h test/kvm.c test/kvm.h test/kvm-eviction.h $(CACHEPC_UAPI)
-	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS)
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
 test/kvm-step: test/kvm-step.c test/kvm-step_guest.S \
 		test/util.c test/util.h test/kvm.c test/kvm.h $(CACHEPC_UAPI)
-	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS)
+	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
+
+test/kvm-pagestep: test/kvm-pagestep.c test/kvm-pagestep_guest.S \
+		test/util.c test/util.h test/kvm.c test/kvm.h $(CACHEPC_UAPI)
+	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
 .PHONY: all clean host build load prep

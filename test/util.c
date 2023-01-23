@@ -2,6 +2,8 @@
 
 #include "test/util.h"
 
+#include <pthread.h>
+#include <sys/mman.h>
 #include <err.h>
 #include <sched.h>
 #include <string.h>
@@ -103,4 +105,90 @@ print_counts_raw(uint8_t *counts)
 			printf("\x1b[0m");
 	}
 	printf("\n");
+}
+
+struct ipc *
+ipc_alloc(void)
+{
+	pthread_mutexattr_t mutex_attr;
+	pthread_condattr_t cond_attr;
+	struct ipc *ipc;
+
+	pthread_condattr_init(&cond_attr);
+	pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
+
+	pthread_mutexattr_init(&mutex_attr);
+	pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
+
+	ipc = mmap(NULL, sizeof(struct ipc), PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (ipc == MAP_FAILED) err(1, "mmap");
+
+	pthread_mutex_init(&ipc->lock, &mutex_attr);
+
+	pthread_cond_init(&ipc->sig_parent, &cond_attr);
+	ipc->has_sig_parent = false;
+
+	pthread_cond_init(&ipc->sig_child, &cond_attr);
+	ipc->has_sig_child = false;
+
+	ipc->init = true;
+
+	return ipc;
+}
+
+void
+ipc_free(struct ipc *ipc)
+{
+	if (ipc->init) {
+		pthread_mutex_destroy(&ipc->lock);
+		pthread_cond_destroy(&ipc->sig_parent);
+		pthread_cond_destroy(&ipc->sig_child);
+		ipc->init = false;
+	}
+	munmap(ipc, sizeof(ipc));
+}
+
+void
+ipc_signal_parent(struct ipc *ipc)
+{
+	if (!ipc->init) errx(1, "ipc deinit");
+	pthread_mutex_lock(&ipc->lock);
+	if (!ipc->has_sig_child)
+		pthread_cond_signal(&ipc->sig_child);
+	ipc->has_sig_child = true;
+	pthread_mutex_unlock(&ipc->lock);
+}
+
+void
+ipc_wait_child(struct ipc *ipc)
+{
+	if (!ipc->init) errx(1, "ipc deinit");
+	pthread_mutex_lock(&ipc->lock);
+	while (!ipc->has_sig_child)
+		pthread_cond_wait(&ipc->sig_child, &ipc->lock);
+	ipc->has_sig_child = false;
+	pthread_mutex_unlock(&ipc->lock);
+}
+
+void
+ipc_signal_child(struct ipc *ipc)
+{
+	if (!ipc->init) errx(1, "ipc deinit");
+	pthread_mutex_lock(&ipc->lock);
+	if (!ipc->has_sig_parent)
+		pthread_cond_signal(&ipc->sig_parent);
+	ipc->has_sig_parent = true;
+	pthread_mutex_unlock(&ipc->lock);
+}
+
+void
+ipc_wait_parent(struct ipc *ipc)
+{
+	if (!ipc->init) errx(1, "ipc deinit");
+	pthread_mutex_lock(&ipc->lock);
+	while (!ipc->has_sig_parent)
+		pthread_cond_wait(&ipc->sig_parent, &ipc->lock);
+	ipc->has_sig_parent = false;
+	pthread_mutex_unlock(&ipc->lock);
 }

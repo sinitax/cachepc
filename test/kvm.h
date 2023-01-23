@@ -43,8 +43,14 @@ void sev_snp_kvm_init(struct kvm *kvm, size_t ramsize,
 	void *code_start, void *code_stop);
 void kvm_deinit(struct kvm *kvm);
 
+void parse_vmtype(int argc, const char **argv);
+uint64_t vm_get_rip(struct kvm *kvm);
+void vm_init(struct kvm *kvm, void *code_start, void *code_end);
+void vm_deinit(struct kvm *kvm);
+
 void kvm_setup_init(void);
 void kvm_setup_deinit(void);
 
 extern int kvm_dev, sev_dev;
+extern const char *vmtype;
 

@@ -9,7 +9,7 @@ BINS = test/eviction test/kvm-eviction
 BINS += test/kvm-step #test/kvm-execstep
 # BINS += test/qemu-eviction_guest test/qemu-eviction_host
 # BINS += test/qemu-aes_guest test/qemu-aes_host
-BINS += util/svme util/debug util/reset
+BINS += util/debug util/reset
 
 CFLAGS = -I . -I linux/usr/include
 CFLAGS += -g -Wunused-variable -Wunknown-pragmas -Wunused-function

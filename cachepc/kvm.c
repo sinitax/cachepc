@@ -126,9 +126,6 @@ static int cachepc_kvm_calc_baseline_ioctl(void __user *arg_user);
 static int cachepc_kvm_read_baseline_ioctl(void __user *arg_user);
 static int cachepc_kvm_apply_baseline_ioctl(void __user *arg_user);
 
-static int cachepc_kvm_vmsa_read_ioctl(void __user *arg_user);
-static int cachepc_kvm_svme_read_ioctl(void __user *arg_user);
-
 static int cachepc_kvm_reset_tracking_ioctl(void __user *arg_user);
 static int cachepc_kvm_track_mode_ioctl(void __user *arg_user);
 // static int cachepc_kvm_track_page_ioctl(void __user *arg_user);
@@ -467,42 +464,6 @@ cachepc_kvm_long_step_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_vmsa_read_ioctl(void __user *arg_user)
-{
-	struct kvm_vcpu *vcpu;
-	struct vcpu_svm *svm;
-
-	if (!arg_user) return -EINVAL;
-
-	if (!main_vm || xa_empty(&main_vm->vcpu_array))
-		return -EFAULT;
-
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-	svm = to_svm(vcpu);
-
-	if (copy_to_user(arg_user, svm->sev_es.vmsa, PAGE_SIZE))
-		return -EFAULT;
-
-	return 0;
-}
-
-int
-cachepc_kvm_svme_read_ioctl(void __user *arg_user)
-{
-	uint64_t res;
-	uint32_t svme;
-
-	if (!arg_user) return -EINVAL;
-
-	res = __rdmsr(0xC0000080);
-	svme = (res >> 12) & 1;
-	if (copy_to_user(arg_user, &svme, sizeof(uint32_t)))
-		return -EFAULT;
-
-	return 0;
-}
-
-int
 cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
@@ -706,10 +667,6 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_apply_baseline_ioctl(arg_user);
 	case KVM_CPC_LONG_STEP:
 		return cachepc_kvm_long_step_ioctl(arg_user);
-	case KVM_CPC_VMSA_READ:
-		return cachepc_kvm_vmsa_read_ioctl(arg_user);
-	case KVM_CPC_SVME_READ:
-		return cachepc_kvm_svme_read_ioctl(arg_user);
 	case KVM_CPC_RESET_TRACKING:
 		return cachepc_kvm_reset_tracking_ioctl(arg_user);
 	case KVM_CPC_TRACK_MODE:

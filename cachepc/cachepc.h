@@ -97,7 +97,7 @@ void cachepc_probe(cacheline *head);
 
 uint64_t cachepc_read_pmc(uint64_t event);
 
-void cachepc_apic_oneshot(uint32_t interval);
+void cachepc_apic_oneshot_run(uint32_t interval);
 
 extern bool cachepc_debug;
 
@@ -112,6 +112,9 @@ extern bool cachepc_pause_vm;
 
 extern bool cachepc_singlestep;
 extern bool cachepc_singlestep_reset;
+extern bool cachepc_long_step;
+
+extern bool cachepc_apic_oneshot;
 extern uint32_t cachepc_apic_timer;
 
 extern uint32_t cachepc_track_mode;

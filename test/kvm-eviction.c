@@ -50,7 +50,7 @@ vm_init(struct kvm *kvm, void *code_start, void *code_end)
 {
 	size_t ramsize;
 
-	ramsize = L1_SIZE * 2;
+	ramsize = L1_SIZE;
 	if (!strcmp(vmtype, "kvm")) {
 		kvm_init(kvm, ramsize, code_start, code_end);
 	} else if (!strcmp(vmtype, "sev")) {
@@ -77,15 +77,17 @@ collect(struct kvm *kvm, uint8_t *counts)
 
 	ret = ioctl(kvm->vcpufd, KVM_RUN, NULL);
 	if (ret == -1) err(1, "KVM_RUN");
-	// warnx("rip:%lu code:%i", vm_get_rip(kvm), kvm->run->exit_reason);
 
-	if (kvm->run->exit_reason != KVM_EXIT_HLT) {
+	if (kvm->run->exit_reason == KVM_EXIT_MMIO) {
+		errx(1, "KVM died from OOB access! rip:%lu addr:%lu",
+			vm_get_rip(kvm), kvm->run->mmio.phys_addr);
+	} else if (kvm->run->exit_reason != KVM_EXIT_HLT) {
 		errx(1, "KVM died! rip:%lu code:%i",
 			vm_get_rip(kvm), kvm->run->exit_reason);
 	}
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-	if (ret == -1) err(1, "ioctl KVM_CPC_READ_COUNTS");
+	if (ret == -1) err(1, "KVM_CPC_READ_COUNTS");
 }
 
 int
@@ -114,7 +116,10 @@ main(int argc, const char **argv)
 
 	/* reset kernel module state */
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
-	if (ret == -1) err(1, "ioctl KVM_CPC_RESET");
+	if (ret == -1) err(1, "KVM_CPC_RESET");
+
+	ret = ioctl(kvm_dev, KVM_CPC_LONG_STEP);
+	if (ret == -1) err(1, "KVM_CPC_LONG_STEP");
 
 	/* resolve page faults in advance (code only covers 1 page)..
 	 * we want the read counts to apply between KVM_RUN and KVM_EXIT_HLT,

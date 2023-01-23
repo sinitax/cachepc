@@ -35,19 +35,51 @@
 extern uint8_t guest_start[];
 extern uint8_t guest_stop[];
 
-uint8_t *
-read_counts()
+static const char *vmtype;
+
+uint64_t
+vm_get_rip(struct kvm *kvm)
 {
-	uint8_t *counts;
+	struct kvm_regs regs;
+	uint64_t rip;
 	int ret;
 
-	counts = malloc(L1_SETS * sizeof(uint8_t));
-	if (!counts) err(1, "malloc");
+	if (!strcmp(vmtype, "sev-snp")) {
+		rip = snp_dbg_decrypt_rip(kvm->vmfd);
+	} else if (!strcmp(vmtype, "sev-es")) {
+		rip = sev_dbg_decrypt_rip(kvm->vmfd);
+	} else {
+		ret = ioctl(kvm_dev, KVM_CPC_GET_REGS, &regs);
+		if (ret == -1) err(1, "KVM_CPC_GET_REGS");
+		rip = regs.rip;
+	}
 
-	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-	if (ret) err(1, "ioctl KVM_CPC_READ_COUNTS");
+	return rip;
+}
 
-	return counts;
+void
+vm_init(struct kvm *kvm, void *code_start, void *code_end)
+{
+	size_t ramsize;
+
+	ramsize = L1_SIZE * 2;
+	if (!strcmp(vmtype, "kvm")) {
+		kvm_init(kvm, ramsize, code_start, code_end);
+	} else if (!strcmp(vmtype, "sev")) {
+		sev_kvm_init(kvm, ramsize, code_start, code_end);
+	} else if (!strcmp(vmtype, "sev-es")) {
+		sev_es_kvm_init(kvm, ramsize, code_start, code_end);
+	} else if (!strcmp(vmtype, "sev-snp")) {
+		sev_snp_kvm_init(kvm, ramsize, code_start, code_end);
+	} else {
+		errx(1, "invalid version");
+	}
+}
+
+void
+vm_deinit(struct kvm *kvm)
+{
+	kvm_deinit(kvm);
 }
 
 uint64_t
@@ -68,8 +100,8 @@ monitor(struct kvm *kvm, bool baseline)
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 	if (ret) err(1, "ioctl KVM_CPC_READ_COUNTS");
 
-	printf("Event: cnt:%llu rip:%lu inst:%llu data:%llu retired:%llu\n",
-		event.step.fault_count, snp_dbg_decrypt_rip(kvm->vmfd),
+	printf("Event: rip:%llu cnt:%llu inst:%llu data:%llu ret:%llu\n",
+		vm_get_rip(kvm), event.step.fault_count,
 		event.step.fault_gfns[0], event.step.fault_gfns[1],
 		event.step.retinst);
 	print_counts(counts);
@@ -92,13 +124,20 @@ main(int argc, const char **argv)
 	uint32_t arg;
 	int ret;
 
+	vmtype = "kvm";
+	if (argc > 1) vmtype = argv[1];
+	if (strcmp(vmtype, "kvm") && strcmp(vmtype, "sev")
+			&& strcmp(vmtype, "sev-es")
+			&& strcmp(vmtype, "sev-snp"))
+		errx(1, "invalid vm mode: %s", vmtype);
+
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	pin_process(0, TARGET_CORE, true);
 
 	kvm_setup_init();
 
-	sev_snp_kvm_init(&kvm, L1_SIZE * 2, guest_start, guest_stop);
+	vm_init(&kvm, guest_start, guest_stop);
 
 	/* reset kernel module state */
 	ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
@@ -141,6 +180,7 @@ main(int argc, const char **argv)
 		while (eventcnt < 50) {
 			eventcnt += monitor(&kvm, true);
 		}
+		printf("Baseline done\n");
 
 		ret = ioctl(kvm_dev, KVM_CPC_VM_REQ_PAUSE);
 		if (ret) err(1, "ioctl KVM_CPC_VM_REQ_PAUSE");
@@ -191,7 +231,7 @@ main(int argc, const char **argv)
 		exit(0);
 	}
 
-	kvm_deinit(&kvm);
+	vm_deinit(&kvm);
 
 	kvm_setup_deinit();
 }

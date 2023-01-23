@@ -1,8 +1,13 @@
 #!/bin/sh
 
 if [ $# -lt 2 ]; then
-	echo "Usage: guest_asm FILE FUNC"
+	echo "Usage: guest_asm FILE FUNC (guest)"
 	exit 1
 fi
 
-gdb --batch -ex "disassemble $2" $1
+ARCH="i386"
+if [ "$3" = "guest" ]; then
+	ARCH="i8086"
+fi
+
+gdb --batch -ex "set architecture $ARCH" -ex "disassemble $2" $1

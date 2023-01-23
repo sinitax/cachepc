@@ -51,7 +51,7 @@ load:
 
 prep:
 	sudo sh -c "echo 0 > /proc/sys/kernel/watchdog"
-	sudo cpupower frequency-set -f 3.7GHz
+	sudo cpupower frequency-set -d 3.7GHz -u 3.7GHz
 
 util/%: util/%.c $(CACHEPC_UAPI)
 

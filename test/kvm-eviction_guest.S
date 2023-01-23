@@ -7,13 +7,20 @@
 .global guest_without_start
 .global guest_without_stop
 
+.align(16)
+.code16gcc
+
 guest_with_start:
-	mov (L1_LINESIZE * (TARGET_SET + L1_SETS)), %rbx
+	mov $(L1_LINESIZE * (L1_SETS + TARGET_SET)), %bx
+    movb (%bx), %bl
 	hlt
-	jmp guest_with_start
+
+    mov $0x00, %ax
+	jmp *%ax
 guest_with_stop:
 
 guest_without_start:
 	hlt
-	jmp guest_without_start
+	mov $0x00, %ax
+    jmp *%ax
 guest_without_stop:

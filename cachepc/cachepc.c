@@ -534,7 +534,7 @@ is_in_arr(uint32_t elem, uint32_t *arr, uint32_t arr_len)
 }
 
 void
-cachepc_apic_oneshot(uint32_t interval)
+cachepc_apic_oneshot_run(uint32_t interval)
 {
 	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
 	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_1);

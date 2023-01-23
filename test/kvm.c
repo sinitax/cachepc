@@ -220,9 +220,13 @@ kvm_init_memory(struct kvm *kvm, size_t ramsize,
 	kvm->mem = mmap(NULL, kvm->memsize, PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (!kvm->mem) err(1, "mmap kvm->mem");
-	memset(kvm->mem, 0, kvm->memsize);
+	/* nop slide oob to detect errors quickly */
+	memset(kvm->mem, 0x90, kvm->memsize);
 	assert(code_stop - code_start <= kvm->memsize);
 	memcpy(kvm->mem, code_start, code_stop - code_start);
+
+	printf("KVM Memory:\n");
+	hexdump(code_start, code_stop - code_start);
 
 	memset(&region, 0, sizeof(region));
 	region.slot = 0;
@@ -272,7 +276,6 @@ kvm_init_regs(struct kvm *kvm)
 	regs.rip = 0;
 	regs.rsp = kvm->memsize - 8;
 	regs.rbp = kvm->memsize - 8;
-	regs.rflags = 0x2;
 	ret = ioctl(kvm->vcpufd, KVM_SET_REGS, &regs);
 	if (ret == -1) err(1, "KVM_SET_REGS");
 }

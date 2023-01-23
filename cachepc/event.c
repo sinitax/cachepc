@@ -52,7 +52,7 @@ cachepc_send_event(struct cpc_event event)
 	write_unlock(&cachepc_event_lock);
 
 	/* wait for ack with timeout */
-	deadline = ktime_get_ns() + 20000000000ULL; /* 20s in ns */
+	deadline = ktime_get_ns() + 10000000000ULL; /* 10s in ns */
 	while (!cachepc_event_is_done(cachepc_event.id)) {
 		if (ktime_get_ns() > deadline) {
 			CPC_WARN("Timeout waiting for ack of event %llu\n",

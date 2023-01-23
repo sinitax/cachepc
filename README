@@ -80,7 +80,6 @@ To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
 that a host kernel debian package was built using `make host`.
 
 
-Because of bad decisions made in regards to version control, the checked
-out commit of the modified kernel (previously the kernel patch file) might
-be incorrect for older revisions.
+Note, the checked out commit of the modified kernel (previously the kernel
+patch file) may be incorrect for revisions older than 864f5fa9d539.
 

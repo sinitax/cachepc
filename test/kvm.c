@@ -204,6 +204,35 @@ snp_dbg_decrypt_rip(int vmfd)
 }
 
 void
+guest_init(struct guest *guest, const char *filename)
+{
+	FILE *f;
+
+	f = fopen(filename, "r");
+	if (!f) err(1, "fopen");
+
+	fseek(f, 0, SEEK_END);
+	guest->code_size = ftell(f);
+	fseek(f, 0, SEEK_SET);
+
+	guest->code = malloc(guest->code_size);
+	if (!guest->code) err(1, "malloc");
+
+	if (!fread(guest->code, guest->code_size, 1, f))
+		errx(1, "read guest");
+
+	guest->mem_size = 0;
+
+	fclose(f);
+}
+
+void
+guest_deinit(struct guest *guest)
+{
+	free(guest->code);
+}
+
+void
 kvm_create_vm(struct kvm *kvm)
 {
 	kvm->vmfd = ioctl(kvm_dev, KVM_CREATE_VM, 0);
@@ -211,20 +240,19 @@ kvm_create_vm(struct kvm *kvm)
 }
 
 void
-kvm_init_memory(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop)
+kvm_init_memory(struct kvm *kvm, size_t mem_size, void *code, size_t code_size)
 {
 	struct kvm_userspace_memory_region region;
 	int ret;
 
-	kvm->memsize = ramsize;
+	kvm->memsize = mem_size;
 	kvm->mem = mmap(NULL, kvm->memsize, PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (!kvm->mem) err(1, "mmap kvm->mem");
 	/* nop slide oob to detect errors quickly */
 	memset(kvm->mem, 0x90, kvm->memsize);
-	assert(code_stop - code_start <= kvm->memsize);
-	memcpy(kvm->mem, code_start, code_stop - code_start);
+	assert(code_size <= kvm->memsize);
+	memcpy(kvm->mem, code, code_size);
 
 	memset(&region, 0, sizeof(region));
 	region.slot = 0;
@@ -279,12 +307,11 @@ kvm_init_regs(struct kvm *kvm)
 }
 
 void
-kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop)
+kvm_init(struct kvm *kvm, struct guest *guest)
 {
 	kvm_create_vm(kvm);
 
-	kvm_init_memory(kvm, ramsize, code_start, code_stop);
+	kvm_init_memory(kvm, guest->mem_size, guest->code, guest->code_size);
 
 	kvm_create_vcpu(kvm);
 
@@ -292,8 +319,7 @@ kvm_init(struct kvm *kvm, size_t ramsize,
 }
 
 void
-sev_kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop)
+sev_kvm_init(struct kvm *kvm, struct guest *guest)
 {
 	struct kvm_sev_launch_update_data update;
 	struct kvm_sev_launch_start start;
@@ -301,7 +327,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize,
 
 	kvm_create_vm(kvm);
 
-	kvm_init_memory(kvm, ramsize, code_start, code_stop);
+	kvm_init_memory(kvm, guest->mem_size, guest->code, guest->code_size);
 
 	/* Enable SEV for vm */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_INIT, NULL, &fwerr);
@@ -323,7 +349,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize,
 	/* Prepare the vm memory (by encrypting it) */
 	memset(&update, 0, sizeof(update));
 	update.uaddr = (uintptr_t) kvm->mem;
-	update.len = ramsize;
+	update.len = kvm->memsize;
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_DATA, &update, &fwerr);
 	if (ret == -1) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
@@ -342,8 +368,7 @@ sev_kvm_init(struct kvm *kvm, size_t ramsize,
 }
 
 void
-sev_es_kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop)
+sev_es_kvm_init(struct kvm *kvm, struct guest *guest)
 {
 	struct kvm_sev_launch_update_data update;
 	struct kvm_sev_launch_start start;
@@ -351,7 +376,7 @@ sev_es_kvm_init(struct kvm *kvm, size_t ramsize,
 
 	kvm_create_vm(kvm);
 
-	kvm_init_memory(kvm, ramsize, code_start, code_stop);
+	kvm_init_memory(kvm, guest->mem_size, guest->code, guest->code_size);
 
 	/* Enable SEV for vm */
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_ES_INIT, NULL, &fwerr);
@@ -373,7 +398,7 @@ sev_es_kvm_init(struct kvm *kvm, size_t ramsize,
 	/* Prepare the vm memory (by encrypting it) */
 	memset(&update, 0, sizeof(update));
 	update.uaddr = (uintptr_t) kvm->mem;
-	update.len = ramsize;
+	update.len = kvm->memsize;
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_LAUNCH_UPDATE_DATA, &update, &fwerr);
 	if (ret == -1) errx(1, "KVM_SEV_LAUNCH_UPDATE_DATA: (%s) %s",
 		strerror(errno), sev_fwerr_str(fwerr));
@@ -397,8 +422,7 @@ sev_es_kvm_init(struct kvm *kvm, size_t ramsize,
 }
 
 void
-sev_snp_kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop)
+sev_snp_kvm_init(struct kvm *kvm, struct guest *guest)
 {
 	struct kvm_sev_snp_launch_update update;
 	struct kvm_sev_snp_launch_start start;
@@ -409,7 +433,7 @@ sev_snp_kvm_init(struct kvm *kvm, size_t ramsize,
 
 	kvm_create_vm(kvm);
 
-	kvm_init_memory(kvm, ramsize, code_start, code_stop);
+	kvm_init_memory(kvm, guest->mem_size, guest->code, guest->code_size);
 
 	/* Enable SEV for vm */
 	memset(&init, 0, sizeof(init));
@@ -440,7 +464,7 @@ sev_snp_kvm_init(struct kvm *kvm, size_t ramsize,
 	/* Prepare the vm memory */
 	memset(&update, 0, sizeof(update));
 	update.uaddr = (uintptr_t) kvm->mem;
-	update.len = ramsize;
+	update.len = kvm->memsize;
 	update.start_gfn = 0;
 	update.page_type = KVM_SEV_SNP_PAGE_TYPE_NORMAL;
 	ret = sev_ioctl(kvm->vmfd, KVM_SEV_SNP_LAUNCH_UPDATE, &update, &fwerr);
@@ -495,19 +519,19 @@ vm_get_rip(struct kvm *kvm)
 }
 
 void
-vm_init(struct kvm *kvm, void *code_start, void *code_end)
+vm_init(struct kvm *kvm, struct guest *guest)
 {
-	size_t ramsize;
+	if (!guest->mem_size)
+		guest->mem_size = L1_SIZE * 2;
 
-	ramsize = L1_SIZE * 2;
 	if (!strcmp(vmtype, "kvm")) {
-		kvm_init(kvm, ramsize, code_start, code_end);
+		kvm_init(kvm, guest);
 	} else if (!strcmp(vmtype, "sev")) {
-		sev_kvm_init(kvm, ramsize, code_start, code_end);
+		sev_kvm_init(kvm, guest);
 	} else if (!strcmp(vmtype, "sev-es")) {
-		sev_es_kvm_init(kvm, ramsize, code_start, code_end);
+		sev_es_kvm_init(kvm, guest);
 	} else if (!strcmp(vmtype, "sev-snp")) {
-		sev_snp_kvm_init(kvm, ramsize, code_start, code_end);
+		sev_snp_kvm_init(kvm, guest);
 	} else {
 		errx(1, "invalid version");
 	}

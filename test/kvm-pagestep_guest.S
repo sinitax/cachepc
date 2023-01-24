@@ -2,28 +2,23 @@
 
 #define TARGET_SET 15
 
-.global guest_start
-.global guest_stop
-
+.text
 .align(16)
 .code16gcc
 
-guest_start:
+guest:
 .rept L1_SIZE
-	nop
+    nop
 .endr
 
-	mov $0x01, %bx
-	cmp $0x00, %bx
+    mov $0x01, %bx
+    cmp $0x00, %bx
 
-	# NOTE: this needs to be a relative jmp
-	je skip
+    je skip
 .rept L1_LINESIZE * L1_SETS * 2
-	nop
+    nop
 .endr
 skip:
 
-	mov $0x00, %ax
-	jmp *%ax
-guest_stop:
+    jmp guest
 

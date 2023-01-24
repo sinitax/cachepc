@@ -18,9 +18,6 @@
 #define TARGET_CORE 2
 #define SECONDARY_CORE 3
 
-extern uint8_t guest_start[];
-extern uint8_t guest_stop[];
-
 static int child;
 
 uint64_t
@@ -58,6 +55,7 @@ int
 main(int argc, const char **argv)
 {
 	struct ipc *ipc;
+	struct guest guest;
 	struct kvm kvm;
 	uint64_t eventcnt;
 	uint32_t arg;
@@ -82,7 +80,9 @@ main(int argc, const char **argv)
 	if (child == 0) {
 		pin_process(0, TARGET_CORE, true);
 
-		vm_init(&kvm, guest_start, guest_stop);
+		guest_init(&guest, "test/kvm-pagestep_guest");
+		vm_init(&kvm, &guest);
+		guest_deinit(&guest);
 
 		/* reset kernel module state */
 		ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);

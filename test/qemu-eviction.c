@@ -260,9 +260,8 @@ main(int argc, const char **argv)
 	struct cpc_event event;
 	cpc_msrmt_t baseline[64];
 	int ret, i;
-	
-	kvm_dev = open("/dev/kvm", O_RDWR);
-	if (!kvm_dev) err(1, "open /dev/kvm");
+
+	kvm_setup_init();
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -357,5 +356,7 @@ main(int argc, const char **argv)
 	arg = KVM_PAGE_TRACK_EXEC;
 	ret = ioctl(kvm_dev, KVM_CPC_UNTRACK_ALL, &arg);
 	if (ret) err(1, "ioctl UNTRACK_ALL");
+
+	kvm_setup_deinit();
 }
 

@@ -1,7 +1,7 @@
 CachePC
 =======
 
-This repository contains proof-of-concept code for a novel cache side-channel
+This repository contains proof-of-concept code for a cache side-channel
 attack dubbed PRIME+COUNT that we demonstrate can be used to circumvent
 AMD's latest secure virtualization solution SEV-SNP to access sensitive
 guest information.

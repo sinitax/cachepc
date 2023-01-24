@@ -1,5 +1,7 @@
 #pragma once
 
+#include "util.h"
+
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -22,6 +24,12 @@ struct kvm {
 	struct kvm_run *run;
 };
 
+struct guest {
+	void *code;
+	size_t code_size;
+	size_t mem_size;
+};
+
 const char *sev_fwerr_str(int code);
 const char *sev_gstate_str(int code);
 
@@ -33,19 +41,18 @@ uint64_t sev_dbg_decrypt_rip(int vmfd);
 void snp_dbg_decrypt(int vmfd, void *src, void *dst, size_t size);
 uint64_t snp_dbg_decrypt_rip(int vmfd);
 
-void kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop);
-void sev_kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop);
-void sev_es_kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop);
-void sev_snp_kvm_init(struct kvm *kvm, size_t ramsize,
-	void *code_start, void *code_stop);
+void guest_init(struct guest *guest, const char *filename);
+void guest_deinit(struct guest *guest);
+
+void kvm_init(struct kvm *kvm, struct guest *guest);
+void sev_kvm_init(struct kvm *kvm, struct guest *guest);
+void sev_es_kvm_init(struct kvm *kvm, struct guest *guest);
+void sev_snp_kvm_init(struct kvm *kvm, struct guest *guest);
 void kvm_deinit(struct kvm *kvm);
 
 void parse_vmtype(int argc, const char **argv);
 uint64_t vm_get_rip(struct kvm *kvm);
-void vm_init(struct kvm *kvm, void *code_start, void *code_end);
+void vm_init(struct kvm *kvm, struct guest *guest);
 void vm_deinit(struct kvm *kvm);
 
 void kvm_setup_init(void);

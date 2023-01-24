@@ -6,9 +6,11 @@ JOBS ?= $(CORES)
 PWD := $(shell pwd)
 
 BINS = test/eviction test/kvm-eviction
-BINS += test/kvm-step test/kvm-pagestep
-# BINS += test/qemu-eviction_guest test/qemu-eviction_host
-# BINS += test/qemu-aes_guest test/qemu-aes_host
+BINS += test/kvm-eviction-with_guest test/kvm-eviction-without_guest
+BINS += test/kvm-step test/kvm-step_guest
+BINS += test/kvm-pagestep test/kvm-pagestep_guest
+#BINS += test/qemu-eviction_guest test/qemu-eviction
+# BINS += test/qemu-aes_guest test/qemu-aes
 BINS += util/debug util/reset
 
 CFLAGS = -I . -I linux/usr/include
@@ -17,7 +19,8 @@ CFLAGS += -fsanitize=address
 
 LDLIBS = -lpthread
 
-CACHEPC_UAPI = cachepc/uapi.h cachepc/const.h
+TEST_SRCS = test/util.c test/util.h test/kvm.c test/kvm.h
+TEST_SRCS += cachepc/uapi.h cachepc/const.h
 
 all: build $(BINS)
 
@@ -57,19 +60,25 @@ prep:
 
 util/%: util/%.c $(CACHEPC_UAPI)
 
-test/eviction: test/eviction.c test/util.c $(CACHEPC_UAPI)
+test/%.o: test/%.c
+	$(CC) -c -o $@ $^ $(CFLAGS)
+
+test/%.o: test/%.S
+	$(CC) -c -o $@ $^ $(CFLAGS)
+
+test/%_guest: test/%_guest.o test/guest.lds
+	$(LD) -Ttest/guest.lds -o $@ $<
+
+test/eviction: test/eviction.c test/util.c $(TEST_SRCS)
 	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
-test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction_guest.S test/util.c \
-		test/util.h test/kvm.c test/kvm.h test/kvm-eviction.h $(CACHEPC_UAPI)
+test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction.h $(TEST_SRCS)
 	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
-test/kvm-step: test/kvm-step.c test/kvm-step_guest.S \
-		test/util.c test/util.h test/kvm.c test/kvm.h $(CACHEPC_UAPI)
+test/kvm-step: test/kvm-step.c $(TEST_SRCS)
 	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
-test/kvm-pagestep: test/kvm-pagestep.c test/kvm-pagestep_guest.S \
-		test/util.c test/util.h test/kvm.c test/kvm.h $(CACHEPC_UAPI)
+test/kvm-pagestep: test/kvm-pagestep.c $(TEST_SRCS)
 	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
 .PHONY: all clean host build load prep

@@ -1,12 +1,12 @@
 #!/bin/sh
 
 if [ $# -lt 2 ]; then
-	echo "Usage: guest_asm FILE FUNC (guest)"
+	echo "Usage: guest_asm FILE FUNC"
 	exit 1
 fi
 
 ARCH="i386"
-if [ "$3" = "guest" ]; then
+if [ "$2" = "guest" ]; then
 	ARCH="i8086"
 fi
 

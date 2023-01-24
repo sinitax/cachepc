@@ -513,7 +513,6 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
 
-	cachepc_apic_timer = 0;
 	cachepc_apic_oneshot = false;
 	cachepc_singlestep = false;
 	cachepc_singlestep_reset = false;

@@ -18,11 +18,6 @@
 #define TARGET_CORE 2
 #define SECONDARY_CORE 3
 
-extern uint8_t guest_with_start[];
-extern uint8_t guest_with_stop[];
-extern uint8_t guest_without_start[];
-extern uint8_t guest_without_stop[];
-
 void
 collect(struct kvm *kvm, uint8_t *counts)
 {
@@ -47,6 +42,7 @@ int
 main(int argc, const char **argv)
 {
 	struct kvm vms[2];
+	struct guest guests[2];
 	uint8_t counts[2][SAMPLE_COUNT][L1_SETS];
 	uint8_t baseline[L1_SETS];
 	int i, k, ret;
@@ -64,8 +60,13 @@ main(int argc, const char **argv)
 
 	kvm_setup_init();
 
-	vm_init(&vms[WITH], guest_with_start, guest_with_stop);
-	vm_init(&vms[WITHOUT], guest_without_start, guest_without_stop);
+	guest_init(&guests[WITH], "test/kvm-eviction-with_guest");
+	vm_init(&vms[WITH], &guests[WITH]);
+	guest_deinit(&guests[WITH]);
+
+	guest_init(&guests[WITHOUT], "test/kvm-eviction-without_guest");
+	vm_init(&vms[WITHOUT], &guests[WITHOUT]);
+	guest_deinit(&guests[WITHOUT]);
 
 	/* reset kernel module state */
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);

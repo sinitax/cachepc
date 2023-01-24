@@ -192,3 +192,4 @@ ipc_wait_parent(struct ipc *ipc)
 	ipc->has_sig_parent = false;
 	pthread_mutex_unlock(&ipc->lock);
 }
+

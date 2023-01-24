@@ -1,7 +1,15 @@
+*.o
 eviction
 kvm-eviction
+kvm-eviction-with_guest
+kvm-eviction-without_guest
 kvm-step
+kvm-step_guest
 kvm-pagestep
+kvm-pagestep_guest
 qemu-eviction
+qemu-eviction_guest
 qemu-aes
+qemu-aes_guest
 qemu-poc
+qemu-poc_guest

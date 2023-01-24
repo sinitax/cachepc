@@ -65,6 +65,12 @@ struct cpc_fault {
 	struct list_head list;
 };
 
+struct cpc_track_exec {
+	bool cur_avail;
+	uint64_t cur_gfn;
+	uint64_t retinst;
+};
+
 static_assert(sizeof(struct cacheline) == L1_LINESIZE, "Bad cacheline struct");
 static_assert(CPC_CL_NEXT_OFFSET == offsetof(struct cacheline, next));
 static_assert(CPC_CL_PREV_OFFSET == offsetof(struct cacheline, prev));
@@ -128,9 +134,7 @@ extern uint64_t cachepc_rip;
 extern uint64_t cachepc_rip_prev;
 extern bool cachepc_rip_prev_set;
 
-extern uint64_t cachepc_inst_fault_gfn;
-extern uint32_t cachepc_inst_fault_err;
-extern uint64_t cachepc_inst_fault_retinst;
+extern struct cpc_track_exec cachepc_track_exec;
 
 extern struct list_head cachepc_faults;
 

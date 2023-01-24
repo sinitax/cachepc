@@ -5,8 +5,8 @@
 
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <unistd.h>
 #include <signal.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <err.h>
@@ -21,11 +21,12 @@
 extern uint8_t guest_start[];
 extern uint8_t guest_stop[];
 
+static int child;
+
 uint64_t
 monitor(struct kvm *kvm, bool baseline)
 {
 	struct cpc_event event;
-	uint8_t counts[64];
 	int ret;
 
 	/* Get page fault info */
@@ -33,17 +34,12 @@ monitor(struct kvm *kvm, bool baseline)
 	if (ret && errno == EAGAIN) return 0;
 	if (ret) err(1, "ioctl KVM_CPC_POLL_EVENT");
 
-	if (event.type != CPC_EVENT_TRACK_STEP)
+	if (event.type != CPC_EVENT_TRACK_PAGE)
 		errx(1, "unexpected event type %i", event.type);
 
-	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-	if (ret) err(1, "ioctl KVM_CPC_READ_COUNTS");
-
-	printf("Event: rip:%llu cnt:%llu inst:%llu data:%llu ret:%llu\n",
-		vm_get_rip(kvm), event.step.fault_count,
-		event.step.fault_gfns[0], event.step.fault_gfns[1],
-		event.step.retinst);
-	print_counts(counts);
+	printf("Event: rip:%08llx prev:%llu next:%llu ret:%llu\n",
+		vm_get_rip(kvm), event.page.inst_gfn_prev,
+		event.page.inst_gfn, event.page.retinst);
 	printf("\n");
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
@@ -52,36 +48,48 @@ monitor(struct kvm *kvm, bool baseline)
 	return 1;
 }
 
+void
+kill_child(void)
+{
+	kill(child, SIGKILL);
+}
+
 int
 main(int argc, const char **argv)
 {
+	struct ipc *ipc;
 	struct kvm kvm;
-	uint8_t baseline[L1_SETS];
-	struct cpc_event event;
 	uint64_t eventcnt;
-	pid_t ppid, pid;
 	uint32_t arg;
 	int ret;
 
-	parse_vmtype(argc, argv);
+	vmtype = "kvm";
+	if (argc > 1) vmtype = argv[1];
+	if (strcmp(vmtype, "kvm") && strcmp(vmtype, "sev")
+			&& strcmp(vmtype, "sev-es")
+			&& strcmp(vmtype, "sev-snp"))
+		errx(1, "invalid vm mode: %s", vmtype);
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	pin_process(0, TARGET_CORE, true);
-
 	kvm_setup_init();
 
-	vm_init(&kvm, guest_start, guest_stop);
+	ipc = ipc_alloc();
 
-	/* reset kernel module state */
-	ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
-	if (ret < 0) err(1, "ioctl KVM_CPC_RESET");
+	child = fork();
+	if (child < 0) err(1, "fork");
 
-	ppid = getpid();
-	if ((pid = fork())) {
-		if (pid < 0) err(1, "fork");
+	if (child == 0) {
+		pin_process(0, TARGET_CORE, true);
 
-		sleep(1); /* give time for child to pin other core */
+		vm_init(&kvm, guest_start, guest_stop);
+
+		/* reset kernel module state */
+		ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
+		if (ret < 0) err(1, "ioctl KVM_CPC_RESET");
+
+		ipc_signal_parent(ipc);
+		ipc_wait_parent(ipc);
 
 		printf("VM start\n");
 
@@ -94,72 +102,32 @@ main(int argc, const char **argv)
 		} while (kvm.run->exit_reason == KVM_EXIT_HLT);
 
 		printf("VM exit\n");
+
+		vm_deinit(&kvm);
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
 
-		/* capture baseline by just letting it fault over and over */
+		atexit(kill_child);
+
+		ipc_wait_child(ipc);
+
+		printf("Monitor start\n");
+
 		arg = CPC_TRACK_EXEC;
 		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
 		if (ret) err(1, "ioctl KVM_CPC_TRACK_MODE");
 
-		printf("Monitor ready\n");
+		ipc_signal_child(ipc);
 
-		/* run vm while baseline is calculated */
 		eventcnt = 0;
 		while (eventcnt < 50) {
 			eventcnt += monitor(&kvm, true);
 		}
 
-		ret = ioctl(kvm_dev, KVM_CPC_VM_REQ_PAUSE);
-		if (ret) err(1, "ioctl KVM_CPC_VM_REQ_PAUSE");
-
-		while (1) {
-			ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
-			if (ret && errno == EAGAIN) continue;
-			if (ret) err(1, "ioctl KVM_CPC_POLL_EVENT");
-
-			if (event.type == CPC_EVENT_PAUSE) break;
-
-			printf("Skipping non-pause event..\n");
-			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-			if (ret) err(1, "ioctl KVM_CPC_ACK_EVENT");
-		}
-
-		arg = false;
-		ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &arg);
-		if (ret) err(1, "ioctl KVM_CPC_CALC_BASELINE");
-
-		ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
-		if (ret) err(1, "ioctl KVM_CPC_READ_BASELINE");
-
-		printf("\nBaseline:\n");
-		print_counts(baseline);
-		printf("\n");
-		print_counts_raw(baseline);
-		printf("\n\n");
-
-		arg = true;
-		ret = ioctl(kvm_dev, KVM_CPC_APPLY_BASELINE, &arg);
-		if (ret) err(1, "ioctl KMV_CPC_APPLY_BASELINE");
-
-		/* single step and log all accessed pages */
-		arg = CPC_TRACK_FULL;
-		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-		if (ret) err(1, "ioctl KVM_CPC_TRACK_MODE");
-
-		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-		if (ret) err(1, "ioctl KVM_CPC_ACK_EVENT");
-
-		eventcnt = 0;
-		while (eventcnt < 50) {
-			eventcnt += monitor(&kvm, false);
-		}
-
-		kill(ppid, SIGINT);
-		exit(0);
+		printf("Monitor exit\n");
 	}
 
-	vm_deinit(&kvm);
+	ipc_free(ipc);
 
 	kvm_setup_deinit();
 }

@@ -226,9 +226,6 @@ kvm_init_memory(struct kvm *kvm, size_t ramsize,
 	assert(code_stop - code_start <= kvm->memsize);
 	memcpy(kvm->mem, code_start, code_stop - code_start);
 
-	printf("KVM Memory:\n");
-	hexdump(code_start, code_stop - code_start);
-
 	memset(&region, 0, sizeof(region));
 	region.slot = 0;
 	region.memory_size = kvm->memsize;

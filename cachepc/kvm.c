@@ -71,12 +71,8 @@ EXPORT_SYMBOL(cachepc_track_end_gfn);
 LIST_HEAD(cachepc_faults);
 EXPORT_SYMBOL(cachepc_faults);
 
-uint64_t cachepc_inst_fault_gfn = 0;
-uint32_t cachepc_inst_fault_err = 0;
-uint64_t cachepc_inst_fault_retinst = 0;
-EXPORT_SYMBOL(cachepc_inst_fault_gfn);
-EXPORT_SYMBOL(cachepc_inst_fault_err);
-EXPORT_SYMBOL(cachepc_inst_fault_retinst);
+struct cpc_track_exec cachepc_track_exec;
+EXPORT_SYMBOL(cachepc_track_exec);
 
 cache_ctx *cachepc_ctx = NULL;
 cacheline *cachepc_ds = NULL;
@@ -290,6 +286,8 @@ cachepc_kvm_reset_ioctl(void __user *arg_user)
 
 	put_cpu();
 
+	cachepc_events_reset();
+
 	cachepc_kvm_reset_tracking_ioctl(NULL);
 	cachepc_kvm_reset_baseline_ioctl(NULL);
 
@@ -477,11 +475,10 @@ cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
 
-	cachepc_inst_fault_gfn = 0;
-	cachepc_inst_fault_err = 0;
-
 	cachepc_track_start_gfn = 0;
 	cachepc_track_end_gfn = 0;
+
+	memset(&cachepc_track_exec, 0, sizeof(cachepc_track_exec));
 
 	cachepc_singlestep = false;
 	cachepc_singlestep_reset = false;
@@ -526,21 +523,21 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 	case CPC_TRACK_FULL:
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
 		cachepc_singlestep_reset = true;
-		cachepc_track_mode = CPC_TRACK_FULL;
 		break;
 	case CPC_TRACK_EXEC:
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		cachepc_singlestep_reset = true;
-		cachepc_track_mode = CPC_TRACK_EXEC;
 		break;
 	case CPC_TRACK_FAULT_NO_RUN:
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
-		cachepc_track_mode = CPC_TRACK_FAULT_NO_RUN;
+		break;
+	case CPC_TRACK_NONE:
 		break;
 	default:
-		cachepc_track_mode = CPC_TRACK_NONE;
-		break;
+		return -EINVAL;
 	}
+
+	cachepc_track_mode = mode;
 
 	return 0;
 }
@@ -740,8 +737,7 @@ cachepc_kvm_init(void)
 	cachepc_apic_oneshot = false;
 	cachepc_apic_timer = 0;
 
-	cachepc_inst_fault_gfn = 0;
-	cachepc_inst_fault_err = 0;
+	memset(&cachepc_track_exec, 0, sizeof(cachepc_track_exec));
 
 	INIT_LIST_HEAD(&cachepc_faults);
 

@@ -13,6 +13,16 @@ guest_start:
 	nop
 .endr
 
+	mov $0x01, %bx
+	cmp $0x00, %bx
+
+	# NOTE: this needs to be a relative jmp
+	je skip
+.rept L1_LINESIZE * L1_SETS * 2
+	nop
+.endr
+skip:
+
 	mov $0x00, %ax
 	jmp *%ax
 guest_stop:

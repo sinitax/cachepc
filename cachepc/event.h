@@ -17,5 +17,5 @@ int cachepc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t reti
 
 bool cachepc_event_is_done(uint64_t id);
 
-int cachepc_handle_poll_event_ioctl(struct cpc_event *user);
-int cachepc_handle_ack_event_ioctl(uint64_t eventid);
+int cachepc_poll_event_ioctl(void __user *arg_user);
+int cachepc_ack_event_ioctl(void __user *arg_user);

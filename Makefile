@@ -57,6 +57,7 @@ load:
 prep:
 	sudo sh -c "echo 0 > /proc/sys/kernel/watchdog"
 	sudo cpupower frequency-set -d 3.7GHz -u 3.7GHz
+	sudo sh -c "echo 1 > /proc/irq/127/smp_affinity"
 
 util/%: util/%.c $(CACHEPC_UAPI)
 

@@ -169,7 +169,7 @@ cachepc_event_is_done(uint64_t id)
 }
 
 int
-cachepc_handle_poll_event_ioctl(struct cpc_event __user *event)
+cachepc_poll_event_ioctl(void __user *arg_user)
 {
 	int err;
 
@@ -182,10 +182,19 @@ cachepc_handle_poll_event_ioctl(struct cpc_event __user *event)
 	}
 	read_unlock(&cachepc_event_lock);
 
+	err = 0;
 	write_lock(&cachepc_event_lock);
 	if (cachepc_event_avail) {
-		err = copy_to_user(event, &cachepc_event, sizeof(struct cpc_event));
+		CPC_DBG("Event Poll: Event is avail %px %llu %llu\n", arg_user,
+			cachepc_last_event_sent, cachepc_last_event_acked);
+		err = copy_to_user(arg_user, &cachepc_event, sizeof(cachepc_event));
+		if (err != 0) {
+			CPC_ERR("copy_to_user %i %lu\n", err, sizeof(cachepc_event));
+			err = -EFAULT;
+		}
 	} else {
+		CPC_DBG("Event Poll: Event was avail %llu %llu\n",
+			cachepc_last_event_sent, cachepc_last_event_acked);
 		err = -EAGAIN;
 	}
 	if (!err) cachepc_event_avail = false;
@@ -195,18 +204,24 @@ cachepc_handle_poll_event_ioctl(struct cpc_event __user *event)
 }
 
 int
-cachepc_handle_ack_event_ioctl(uint64_t eventid)
+cachepc_ack_event_ioctl(void __user *arg_user)
 {
+	uint64_t eventid;
 	int err;
 
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))
+		return -EFAULT;
+
+	err = 0;
 	write_lock(&cachepc_event_lock);
 	if (!eventid || eventid == cachepc_last_event_sent) {
 		if (cachepc_event.type == CPC_EVENT_PAUSE)
 			cachepc_pause_vm = false;
-		err = 0;
 		cachepc_last_event_acked = cachepc_last_event_sent;
 	} else {
-		err = 1;
+		err = -EFAULT;
 		CPC_WARN("Acked event (%llu) does not match sent (%llu)\n",
 			eventid, cachepc_last_event_sent);
 	}

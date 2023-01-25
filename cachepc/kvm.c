@@ -110,9 +110,6 @@ static int cachepc_kvm_track_mode_ioctl(void __user *arg_user);
 // static int cachepc_kvm_track_range_end_ioctl(void __user *arg_user);
 // static int cachepc_kvm_track_exec_cur_ioctl(void __user *arg_user);
 
-static int cachepc_kvm_poll_event_ioctl(void __user *arg_user);
-static int cachepc_kvm_ack_event_ioctl(void __user *arg_user);
-
 static int cachepc_kvm_req_pause_ioctl(void __user *arg_user);
 
 void
@@ -586,25 +583,6 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 // }
 
 int
-cachepc_kvm_poll_event_ioctl(void __user *arg_user)
-{
-	return cachepc_handle_poll_event_ioctl(arg_user);
-}
-
-int
-cachepc_kvm_ack_event_ioctl(void __user *arg_user)
-{
-	uint64_t eventid;
-
-	if (!arg_user) return -EINVAL;
-
-	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))
-		return -EFAULT;
-
-	return cachepc_handle_ack_event_ioctl(eventid);
-}
-
-int
 cachepc_kvm_req_pause_ioctl(void __user *arg_user)
 {
 	if (arg_user) return -EINVAL;
@@ -646,9 +624,9 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 	case KVM_CPC_TRACK_MODE:
 		return cachepc_kvm_track_mode_ioctl(arg_user);
 	case KVM_CPC_POLL_EVENT:
-		return cachepc_kvm_poll_event_ioctl(arg_user);
+		return cachepc_poll_event_ioctl(arg_user);
 	case KVM_CPC_ACK_EVENT:
-		return cachepc_kvm_ack_event_ioctl(arg_user);
+		return cachepc_ack_event_ioctl(arg_user);
 	// case KVM_CPC_TRACK_PAGE:
 	// 	return cachepc_kvm_track_page_ioctl(arg_user);
 	// case KVM_CPC_TRACK_RANGE_START:

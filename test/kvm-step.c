@@ -19,11 +19,11 @@
 #define SECONDARY_CORE 3
 
 static int child;
+static struct cpc_event event;
 
 uint64_t
 monitor(struct kvm *kvm, bool baseline)
 {
-	struct cpc_event event;
 	uint8_t counts[64];
 	int ret;
 
@@ -44,6 +44,8 @@ monitor(struct kvm *kvm, bool baseline)
 		event.step.retinst);
 	print_counts(counts);
 	printf("\n");
+	print_counts_raw(counts);
+	printf("\n");
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 	if (ret) err(1, "ioctl KVM_CPC_ACK_EVENT");
@@ -54,6 +56,7 @@ monitor(struct kvm *kvm, bool baseline)
 void
 kill_child(void)
 {
+	printf("Killing vm..\n");
 	kill(child, SIGKILL);
 }
 
@@ -64,7 +67,6 @@ main(int argc, const char **argv)
 	struct guest guest;
 	struct kvm kvm;
 	uint8_t baseline[L1_SETS];
-	struct cpc_event event;
 	uint64_t eventcnt;
 	uint32_t arg;
 	int ret;

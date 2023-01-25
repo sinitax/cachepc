@@ -1,11 +1,13 @@
 #include "macro.S"
 
+#include <linux/linkage.h>
+
 .global cachepc_read_pmc
 .global cachepc_prime_probe_test_asm
 .global cachepc_stream_hwpf_test_asm
 .global cachepc_single_eviction_test_asm
 
-cachepc_read_pmc:
+SYM_FUNC_START(cachepc_read_pmc)
     push %rbx
     push %rcx
     push %rdx
@@ -20,8 +22,9 @@ cachepc_read_pmc:
     pop %rbx
 
     ret
+SYM_FUNC_END(cachepc_read_pmc)
 
-cachepc_prime_probe_test_asm:
+SYM_FUNC_START(cachepc_prime_probe_test_asm)
     push %rbx
     push %rcx
     push %rdx
@@ -49,8 +52,9 @@ cachepc_prime_probe_test_asm:
     pop %rbx
 
     ret
+SYM_FUNC_END(cachepc_prime_probe_test_asm)
 
-cachepc_stream_hwpf_test_asm:
+SYM_FUNC_START(cachepc_stream_hwpf_test_asm)
     push %rbx
     push %rcx
     push %rdx
@@ -84,8 +88,9 @@ cachepc_stream_hwpf_test_asm:
     pop %rbx
 
     ret
+SYM_FUNC_END(cachepc_stream_hwpf_test_asm)
 
-cachepc_single_eviction_test_asm:
+SYM_FUNC_START(cachepc_single_eviction_test_asm)
     push %rbx
     push %rcx
     push %rdx
@@ -114,4 +119,5 @@ cachepc_single_eviction_test_asm:
     pop %rbx
 
     ret
+SYM_FUNC_END(cachepc_single_eviction_test_asm)
 

@@ -11,6 +11,8 @@
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
+EXPORT_SYMBOL(cachepc_read_pmc);
+
 bool
 cachepc_verify_topology(void)
 {
@@ -45,6 +47,7 @@ cachepc_verify_topology(void)
 
 	return false;
 }
+EXPORT_SYMBOL(cachepc_verify_topology);
 
 void
 cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
@@ -62,6 +65,7 @@ cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
 			addr, val, newval);
 	}
 }
+EXPORT_SYMBOL(cachepc_write_msr);
 
 void
 cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
@@ -83,6 +87,7 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 		index, event_no, event_mask, event);
 	cachepc_write_msr(0xc0010200 + index * 2, ~0ULL, event);
 }
+EXPORT_SYMBOL(cachepc_init_pmc);
 
 void
 cachepc_reset_pmc(uint8_t index)
@@ -92,6 +97,7 @@ cachepc_reset_pmc(uint8_t index)
 
 	cachepc_write_msr(0xc0010201 + index * 2, ~0ULL, 0);
 }
+EXPORT_SYMBOL(cachepc_reset_pmc);
 
 struct cacheline *
 cachepc_ds_alloc(struct cacheline **cl_arr_out)
@@ -129,6 +135,7 @@ cachepc_ds_alloc(struct cacheline **cl_arr_out)
 
 	return ds;
 }
+EXPORT_SYMBOL(cachepc_ds_alloc);
 
 void *
 cachepc_aligned_alloc(size_t alignment, size_t size)
@@ -142,6 +149,7 @@ cachepc_aligned_alloc(size_t alignment, size_t size)
 
 	return p;
 }
+EXPORT_SYMBOL(cachepc_aligned_alloc);
 
 void
 cachepc_save_msrmts(struct cacheline *head)
@@ -156,7 +164,7 @@ cachepc_save_msrmts(struct cacheline *head)
 			WARN_ON(cl->count > L1_ASSOC);
 			cachepc_msrmts[cl->cache_set] = cl->count;
 		} else {
-			WARN_ON(cl->count != 0);
+			BUG_ON(cl->count != 0);
 		}
 		cl->count = 0;
 
@@ -178,6 +186,7 @@ cachepc_save_msrmts(struct cacheline *head)
 		}
 	}
 }
+EXPORT_SYMBOL(cachepc_save_msrmts);
 
 void
 cachepc_print_msrmts(struct cacheline *head)
@@ -194,6 +203,7 @@ cachepc_print_msrmts(struct cacheline *head)
 		cl = cl->prev;
 	} while (cl != head);
 }
+EXPORT_SYMBOL(cachepc_print_msrmts);
 
 void
 cachepc_apic_oneshot_run(uint32_t interval)
@@ -202,3 +212,4 @@ cachepc_apic_oneshot_run(uint32_t interval)
 	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_1);
 	native_apic_mem_write(APIC_TMICT, interval);
 }
+EXPORT_SYMBOL(cachepc_apic_oneshot_run);

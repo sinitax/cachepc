@@ -2,18 +2,10 @@
 
 #include "uapi.h"
 
+#include <linux/swait.h>
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
 #include <linux/types.h>
-
-extern uint64_t cachepc_last_event_sent;
-extern uint64_t cachepc_last_event_acked;
-extern rwlock_t cachepc_event_lock;
-
-extern struct cpc_event cachepc_event;
-extern bool cachepc_event_avail;
-
-extern bool cachepc_events_init;
 
 void cachepc_events_reset(void);
 

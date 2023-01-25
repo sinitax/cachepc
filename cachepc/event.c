@@ -13,6 +13,15 @@
 
 #define ARRLEN(x) (sizeof(x)/sizeof((x)[0]))
 
+uint64_t cachepc_last_event_sent;
+uint64_t cachepc_last_event_acked;
+rwlock_t cachepc_event_lock;
+
+struct cpc_event cachepc_event;
+bool cachepc_event_avail;
+
+bool cachepc_events_init;
+
 void
 cachepc_events_reset(void)
 {
@@ -77,6 +86,7 @@ cachepc_send_guest_event(uint64_t type, uint64_t val)
 
 	return cachepc_send_event(event);
 }
+EXPORT_SYMBOL(cachepc_send_guest_event);
 
 int
 cachepc_send_pause_event(void)
@@ -87,6 +97,7 @@ cachepc_send_pause_event(void)
 
 	return cachepc_send_event(event);
 }
+EXPORT_SYMBOL(cachepc_send_pause_event);
 
 int
 cachepc_send_track_step_event(struct list_head *list)
@@ -110,6 +121,7 @@ cachepc_send_track_step_event(struct list_head *list)
 
 	return cachepc_send_event(event);
 }
+EXPORT_SYMBOL(cachepc_send_track_step_event);
 
 int
 cachepc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
@@ -124,6 +136,7 @@ cachepc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
 
 	return cachepc_send_event(event);
 }
+EXPORT_SYMBOL(cachepc_send_track_page_event);
 
 int
 cachepc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
@@ -139,6 +152,7 @@ cachepc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retins
 
 	return cachepc_send_event(event);
 }
+EXPORT_SYMBOL(cachepc_send_track_step_event_single);
 
 bool
 cachepc_event_is_done(uint64_t id)

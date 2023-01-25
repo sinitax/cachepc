@@ -80,21 +80,6 @@ uint64_t cachepc_regs_vm[16];
 EXPORT_SYMBOL(cachepc_regs_tmp);
 EXPORT_SYMBOL(cachepc_regs_vm);
 
-uint64_t cachepc_last_event_sent;
-uint64_t cachepc_last_event_acked;
-DEFINE_RWLOCK(cachepc_event_lock);
-EXPORT_SYMBOL(cachepc_last_event_sent);
-EXPORT_SYMBOL(cachepc_last_event_acked);
-EXPORT_SYMBOL(cachepc_event_lock);
-
-struct cpc_event cachepc_event;
-bool cachepc_event_avail;
-EXPORT_SYMBOL(cachepc_event);
-EXPORT_SYMBOL(cachepc_event_avail);
-
-bool cachepc_events_init;
-EXPORT_SYMBOL(cachepc_events_init);
-
 void cachepc_prime_probe_test_asm(void);
 static noinline void cachepc_prime_probe_test(void);
 
@@ -603,9 +588,6 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 int
 cachepc_kvm_poll_event_ioctl(void __user *arg_user)
 {
-	if (!cachepc_events_init)
-		return -EINVAL;
-
 	return cachepc_handle_poll_event_ioctl(arg_user);
 }
 
@@ -615,9 +597,6 @@ cachepc_kvm_ack_event_ioctl(void __user *arg_user)
 	uint64_t eventid;
 
 	if (!arg_user) return -EINVAL;
-
-	if (!cachepc_events_init)
-		return -EINVAL;
 
 	if (copy_from_user(&eventid, arg_user, sizeof(eventid)))
 		return -EFAULT;

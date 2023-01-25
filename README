@@ -74,7 +74,7 @@ The following kernel parameters were used:
 
 kvm_amd.sev=1 kvm_amd.sev_es=1 nokaslr debug systemd.log_level=info
     isolcpus=2,10,3,11 nohz_full=2,10,3,11 rcu_nocbs=2,10,3,11 nmi_watchdog=0
-    transparent_hugepage=never apic lapic panic=-1
+    transparent_hugepage=never apic lapic panic=-1 preempt=none quiet
 
 To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
 that a host kernel debian package was built using `make host`.

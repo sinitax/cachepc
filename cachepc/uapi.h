@@ -55,6 +55,7 @@ enum {
 	CPC_TRACK_FAULT_NO_RUN,
 	CPC_TRACK_EXEC,
 	CPC_TRACK_FULL,
+	CPC_TRACK_AUTO_FULL,
 };
 
 struct cpc_track_config {

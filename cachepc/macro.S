@@ -2,8 +2,8 @@
 
 # clobbers rax, rbx, rcx, rdx
 .macro barrier
-    lfence # memory barrier
-    rdtsc # compiler barrier
+    mfence # memory barrier
+    rdtsc # serializing
 .endm
 
 # clobbers rax, rbx, rcx, rdx, (out)

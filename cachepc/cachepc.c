@@ -161,7 +161,9 @@ cachepc_save_msrmts(struct cacheline *head)
 	do {
 		if (cl->first) {
 			BUG_ON(cl->cache_set >= L1_SETS);
-			WARN_ON(cl->count > L1_ASSOC);
+			if (cl->count > L1_ASSOC)
+				CPC_ERR("Read count %llu for set %u line %u",
+					cl->count, cl->cache_set, cl->cache_line);
 			cachepc_msrmts[cl->cache_set] = cl->count;
 		} else {
 			BUG_ON(cl->count != 0);

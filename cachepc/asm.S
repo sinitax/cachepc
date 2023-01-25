@@ -35,9 +35,7 @@ cachepc_prime_probe_test_asm:
 
     mov cachepc_ds, %r9
     prime prime_probe_test %r9 %r10 %r8
-    mov cachepc_ds, %r9
     prime prime_probe_test1 %r9 %r10 %r8
-    mov cachepc_ds, %r9
     prime prime_probe_test2 %r9 %r10 %r8
     probe prime_probe_test %r8 %r9 %r10 %r11 %r12
 
@@ -101,9 +99,7 @@ cachepc_single_eviction_test_asm:
 
     mov cachepc_ds, %r9
     prime single_eviction_test %r9 %r10 %r8
-    mov cachepc_ds, %r9
     prime single_eviction_test2 %r9 %r10 %r8
-    mov cachepc_ds, %r9
     prime single_eviction_test3 %r9 %r10 %r8
     mov (%rdi), %rax
     probe single_eviction_test %r8 %r9 %r10 %r11 %r12

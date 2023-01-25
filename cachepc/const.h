@@ -4,11 +4,7 @@
 #define L1_LINESIZE 64
 #define L1_SETS 64
 #define L1_SIZE (L1_SETS * L1_ASSOC * L1_LINESIZE)
-
-#define L2_ASSOC 8
-#define L2_LINESIZE 64
-#define L2_SETS 1024
-#define L2_SIZE (L2_SETS * L2_ASSOC * L2_LINESIZE)
+#define L1_LINES (L1_SETS * L1_ASSOC)
 
 #define CPC_ISOLCPU 2
 

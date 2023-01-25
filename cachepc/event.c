@@ -49,6 +49,8 @@ cachepc_send_event(struct cpc_event event)
 	event.id = cachepc_last_event_sent;
 	cachepc_event_avail = true;
 	cachepc_event = event;
+
+	CPC_DBG("Sent Event: id %llu\n", event.id);
 	write_unlock(&cachepc_event_lock);
 
 	/* wait for ack with timeout */
@@ -144,7 +146,9 @@ cachepc_event_is_done(uint64_t id)
 	bool done;
 
 	read_lock(&cachepc_event_lock);
-	done = cachepc_last_event_acked >= id;
+	CPC_DBG("Event Send: Event not done %llu %llu\n",
+		cachepc_last_event_acked, id);
+	done = cachepc_last_event_acked == id;
 	read_unlock(&cachepc_event_lock);
 
 	return done;
@@ -157,6 +161,8 @@ cachepc_handle_poll_event_ioctl(struct cpc_event __user *event)
 
 	read_lock(&cachepc_event_lock);
 	if (!cachepc_event_avail) {
+		CPC_DBG("Event Poll: No event avail %llu %llu\n",
+			cachepc_last_event_sent, cachepc_last_event_acked);
 		read_unlock(&cachepc_event_lock);
 		return -EAGAIN;
 	}
@@ -165,10 +171,10 @@ cachepc_handle_poll_event_ioctl(struct cpc_event __user *event)
 	write_lock(&cachepc_event_lock);
 	if (cachepc_event_avail) {
 		err = copy_to_user(event, &cachepc_event, sizeof(struct cpc_event));
-		cachepc_event_avail = false;
 	} else {
 		err = -EAGAIN;
 	}
+	if (!err) cachepc_event_avail = false;
 	write_unlock(&cachepc_event_lock);
 
 	return err;

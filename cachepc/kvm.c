@@ -21,9 +21,6 @@
 bool cachepc_debug = false;
 EXPORT_SYMBOL(cachepc_debug);
 
-struct cacheline *cachepc_victim;
-EXPORT_SYMBOL(cachepc_victim);
-
 uint8_t *cachepc_msrmts = NULL;
 EXPORT_SYMBOL(cachepc_msrmts);
 
@@ -74,9 +71,8 @@ EXPORT_SYMBOL(cachepc_faults);
 struct cpc_track_exec cachepc_track_exec;
 EXPORT_SYMBOL(cachepc_track_exec);
 
-cache_ctx *cachepc_ctx = NULL;
-cacheline *cachepc_ds = NULL;
-EXPORT_SYMBOL(cachepc_ctx);
+struct cacheline *cachepc_ds_ul = NULL;
+struct cacheline *cachepc_ds = NULL;
 EXPORT_SYMBOL(cachepc_ds);
 
 uint64_t cachepc_regs_tmp[16];
@@ -166,7 +162,7 @@ void
 cachepc_stream_hwpf_test(void)
 {
 	const uint32_t max = 10;
-	cacheline *lines;
+	struct cacheline *lines;
 	uint32_t count;
 	int n;
 
@@ -194,9 +190,9 @@ cachepc_stream_hwpf_test(void)
 void
 cachepc_single_eviction_test(void *p)
 {
-	cacheline *victim;
-	uint32_t target;
-	uint32_t *arg;
+	struct cacheline *victim_ul;
+	struct cacheline *victim;
+	uint32_t target, *arg;
 	int n, i, count;
 
 	arg = p;
@@ -208,7 +204,8 @@ cachepc_single_eviction_test(void *p)
 	if (arg && *arg >= L1_SETS) return;
 	target = arg ? *arg : 48;
 
-	victim = cachepc_prepare_victim(cachepc_ctx, target);
+	victim_ul = cachepc_aligned_alloc(PAGE_SIZE, L1_SIZE);
+	victim = &victim_ul[target];
 
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
 		memset(cachepc_msrmts, 0, L1_SETS);
@@ -232,7 +229,7 @@ cachepc_single_eviction_test(void *p)
 		if (arg) *arg = count;
 	}
 
-	cachepc_release_victim(cachepc_ctx, victim);
+	kfree(victim_ul);
 }
 
 void
@@ -290,6 +287,8 @@ cachepc_kvm_reset_ioctl(void __user *arg_user)
 
 	cachepc_kvm_reset_tracking_ioctl(NULL);
 	cachepc_kvm_reset_baseline_ioctl(NULL);
+
+	cachepc_pause_vm = false;
 
 	cachepc_singlestep = false;
 	cachepc_singlestep_reset = false;
@@ -699,10 +698,7 @@ cachepc_kvm_setup_test(void *p)
 	if (cachepc_verify_topology())
 		goto exit;
 
-	cachepc_ctx = cachepc_get_ctx();
-	cachepc_ds = cachepc_prepare_ds(cachepc_ctx);
-
-	cachepc_victim = cachepc_prepare_victim(cachepc_ctx, 15);
+	cachepc_ds = cachepc_ds_alloc(&cachepc_ds_ul);
 
 	cachepc_kvm_system_setup();
 
@@ -721,11 +717,10 @@ cachepc_kvm_init(void)
 {
 	int ret;
 
-	cachepc_ctx = NULL;
-	cachepc_ds = NULL;
-
 	cachepc_debug = false;
-	cachepc_victim = NULL;
+
+	cachepc_ds = NULL;
+	cachepc_ds_ul = NULL;
 
 	cachepc_retinst = 0;
 	cachepc_long_step = false;
@@ -759,12 +754,9 @@ void
 cachepc_kvm_exit(void)
 {
 	kfree(cachepc_msrmts);
+
 	kfree(cachepc_baseline);
-	kfree(cachepc_victim);
 
-	if (cachepc_ds)
-		cachepc_release_ds(cachepc_ctx, cachepc_ds);
-
-	if (cachepc_ctx)
-		cachepc_release_ctx(cachepc_ctx);
+	if (cachepc_ds_ul)
+		kfree(cachepc_ds_ul);
 }

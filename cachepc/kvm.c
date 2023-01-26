@@ -34,6 +34,9 @@ EXPORT_SYMBOL(cachepc_baseline_active);
 bool cachepc_pause_vm = false;
 EXPORT_SYMBOL(cachepc_pause_vm);
 
+bool cachepc_prime_probe = false;
+EXPORT_SYMBOL(cachepc_prime_probe);
+
 uint64_t cachepc_retinst = 0;
 uint64_t cachepc_retinst_prev = 0;
 EXPORT_SYMBOL(cachepc_retinst);
@@ -69,7 +72,9 @@ LIST_HEAD(cachepc_faults);
 EXPORT_SYMBOL(cachepc_faults);
 
 struct cpc_track_exec cachepc_track_exec;
+bool cachepc_track_signalled_enable;
 EXPORT_SYMBOL(cachepc_track_exec);
+EXPORT_SYMBOL(cachepc_track_signalled_enable);
 
 struct cacheline *cachepc_ds_ul = NULL;
 struct cacheline *cachepc_ds = NULL;
@@ -89,10 +94,13 @@ static noinline void cachepc_stream_hwpf_test(void);
 void cachepc_single_eviction_test_asm(void *ptr);
 static noinline void cachepc_single_eviction_test(void *p);
 
+static void cachepc_kvm_pmc_setup(void *p);
 static void cachepc_kvm_system_setup(void);
 
 static int cachepc_kvm_reset_ioctl(void __user *arg_user);
 static int cachepc_kvm_debug_ioctl(void __user *arg_user);
+
+static int cachepc_kvm_memory_encrypt_op_ioctl(void __user *arg_user);
 
 static int cachepc_kvm_test_eviction_ioctl(void __user *arg_user);
 
@@ -215,6 +223,18 @@ cachepc_single_eviction_test(void *p)
 }
 
 void
+cachepc_kvm_pmc_setup(void *p)
+{
+	/* L1 misses in host kernel */
+	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8,
+		PMC_HOST, PMC_KERNEL);
+
+	/* retired instructions in guest */
+	cachepc_init_pmc(CPC_RETINST_PMC, 0xC0, 0x00,
+		PMC_GUEST, PMC_KERNEL | PMC_USER);
+}
+
+void
 cachepc_kvm_system_setup(void)
 {
 	/* NOTE: since most of these MSRs are poorly documented and some
@@ -247,23 +267,11 @@ cachepc_kvm_system_setup(void)
 int
 cachepc_kvm_reset_ioctl(void __user *arg_user)
 {
-	int cpu;
+	int ret;
 
-	cpu = get_cpu();
-	if (cpu != CPC_ISOLCPU) {
-		put_cpu();
-		return -EFAULT;
-	}
-
-	/* L1 misses in host kernel */
-	cachepc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8,
-		PMC_HOST, PMC_KERNEL);
-
-	/* retired instructions in guest */
-	cachepc_init_pmc(CPC_RETINST_PMC, 0xC0, 0x00,
-		PMC_GUEST, PMC_KERNEL | PMC_USER);
-
-	put_cpu();
+	ret = smp_call_function_single(CPC_ISOLCPU,
+		cachepc_kvm_pmc_setup, NULL, true);
+	if (ret) return -EFAULT;
 
 	cachepc_events_reset();
 
@@ -300,51 +308,11 @@ cachepc_kvm_debug_ioctl(void __user *arg_user)
 }
 
 int
-cachepc_kvm_get_regs_ioctl(void __user *arg_user)
+cachepc_kvm_memory_encrypt_op_ioctl(void __user *arg_user)
 {
-	struct kvm_regs *regs;
-	struct kvm_vcpu *vcpu;
+	if (!arg_user || !main_vm) return -EFAULT;
 
-	if (!arg_user) return -EINVAL;
-
-	if (!main_vm || xa_empty(&main_vm->vcpu_array))
-		return -EFAULT;
-
-	vcpu = xa_load(&main_vm->vcpu_array, 0);
-
-	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
-	if (!regs) return -ENOMEM;
-
-	regs->rax = kvm_rax_read(vcpu);
-	regs->rbx = kvm_rbx_read(vcpu);
-	regs->rcx = kvm_rcx_read(vcpu);
-	regs->rdx = kvm_rdx_read(vcpu);
-	regs->rsi = kvm_rsi_read(vcpu);
-	regs->rdi = kvm_rdi_read(vcpu);
-	regs->rsp = kvm_rsp_read(vcpu);
-	regs->rbp = kvm_rbp_read(vcpu);
-#ifdef CONFIG_X86_64
-	regs->r8 = kvm_r8_read(vcpu);
-	regs->r9 = kvm_r9_read(vcpu);
-	regs->r10 = kvm_r10_read(vcpu);
-	regs->r11 = kvm_r11_read(vcpu);
-	regs->r12 = kvm_r12_read(vcpu);
-	regs->r13 = kvm_r13_read(vcpu);
-	regs->r14 = kvm_r14_read(vcpu);
-	regs->r15 = kvm_r15_read(vcpu);
-#endif
-
-	regs->rip = kvm_rip_read(vcpu);
-	regs->rflags = kvm_get_rflags(vcpu);
-
-	if (copy_to_user(arg_user, regs, sizeof(struct kvm_regs))) {
-		kfree(regs);
-		return -EFAULT;
-	}
-
-	kfree(regs);
-
-	return 0;
+	return static_call(kvm_x86_mem_enc_ioctl)(main_vm, arg_user);
 }
 
 int
@@ -459,8 +427,6 @@ cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 	cachepc_track_start_gfn = 0;
 	cachepc_track_end_gfn = 0;
 
-	memset(&cachepc_track_exec, 0, sizeof(cachepc_track_exec));
-
 	cachepc_singlestep = false;
 	cachepc_singlestep_reset = false;
 
@@ -495,21 +461,32 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
 
 	cachepc_apic_oneshot = false;
+	cachepc_prime_probe = false;
 	cachepc_singlestep = false;
 	cachepc_singlestep_reset = false;
 	cachepc_long_step = false;
 
 	switch (mode) {
-	case CPC_TRACK_FULL:
+	case CPC_TRACK_FAULT_NO_RUN:
+		cachepc_prime_probe = true;
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
-		cachepc_singlestep_reset = true;
 		break;
-	case CPC_TRACK_EXEC:
+	case CPC_TRACK_EXIT_EVICTIONS:
+		cachepc_prime_probe = true;
+		cachepc_long_step = true;
+		break;
+	case CPC_TRACK_PAGES:
+		memset(&cachepc_track_exec, 0, sizeof(cachepc_track_exec));
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		cachepc_singlestep_reset = true;
 		break;
-	case CPC_TRACK_FAULT_NO_RUN:
+	case CPC_TRACK_STEPS:
+		cachepc_prime_probe = true;
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
+		cachepc_singlestep_reset = true;
+		break;
+	case CPC_TRACK_STEPS_SIGNALLED:
+		cachepc_track_signalled_enable = false;
 		break;
 	case CPC_TRACK_NONE:
 		break;
@@ -603,8 +580,8 @@ cachepc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cachepc_kvm_reset_ioctl(arg_user);
 	case KVM_CPC_DEBUG:
 		return cachepc_kvm_debug_ioctl(arg_user);
-	case KVM_CPC_GET_REGS:
-		return cachepc_kvm_get_regs_ioctl(arg_user);
+	case KVM_CPC_MEMORY_ENCRYPT_OP:
+		return cachepc_kvm_memory_encrypt_op_ioctl(arg_user);
 	case KVM_CPC_TEST_EVICTION:
 		return cachepc_kvm_test_eviction_ioctl(arg_user);
 	case KVM_CPC_READ_COUNTS:
@@ -687,8 +664,6 @@ cachepc_kvm_init(void)
 
 	cachepc_apic_oneshot = false;
 	cachepc_apic_timer = 0;
-
-	memset(&cachepc_track_exec, 0, sizeof(cachepc_track_exec));
 
 	INIT_LIST_HEAD(&cachepc_faults);
 

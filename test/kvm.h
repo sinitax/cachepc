@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define MAIN_VMFD -0x42
+
 enum { WITH, WITHOUT };
 
 enum {
@@ -36,10 +38,6 @@ const char *sev_gstate_str(int code);
 int sev_ioctl(int vmfd, int cmd, void *data, int *error);
 void sev_get_measure(int vmfd);
 uint8_t sev_guest_state(int vmfd, uint32_t handle);
-void sev_dbg_decrypt(int vmfd, void *src, void *dst, size_t size);
-uint64_t sev_dbg_decrypt_rip(int vmfd);
-void snp_dbg_decrypt(int vmfd, void *src, void *dst, size_t size);
-uint64_t snp_dbg_decrypt_rip(int vmfd);
 
 void guest_init(struct guest *guest, const char *filename);
 void guest_deinit(struct guest *guest);
@@ -50,8 +48,8 @@ void sev_es_kvm_init(struct kvm *kvm, struct guest *guest);
 void sev_snp_kvm_init(struct kvm *kvm, struct guest *guest);
 void kvm_deinit(struct kvm *kvm);
 
+uint64_t vm_get_rip(void);
 void parse_vmtype(int argc, const char **argv);
-uint64_t vm_get_rip(struct kvm *kvm);
 void vm_init(struct kvm *kvm, struct guest *guest);
 void vm_deinit(struct kvm *kvm);
 

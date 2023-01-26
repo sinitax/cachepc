@@ -78,6 +78,8 @@ extern bool cachepc_baseline_active;
 
 extern bool cachepc_pause_vm;
 
+extern bool cachepc_prime_probe;
+
 extern bool cachepc_singlestep;
 extern bool cachepc_singlestep_reset;
 extern bool cachepc_long_step;
@@ -97,6 +99,7 @@ extern uint64_t cachepc_rip_prev;
 extern bool cachepc_rip_prev_set;
 
 extern struct cpc_track_exec cachepc_track_exec;
+extern bool cachepc_track_signalled_enable;
 
 extern struct list_head cachepc_faults;
 

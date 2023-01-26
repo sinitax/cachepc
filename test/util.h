@@ -21,6 +21,7 @@ void hexdump(void *data, int len);
 bool pin_process(pid_t pid, int cpu, bool assert);
 
 int read_stat_core(pid_t pid);
+int pgrep(const char *cmd);
 
 void print_counts(uint8_t *counts);
 void print_counts_raw(uint8_t *counts);

@@ -161,9 +161,10 @@ cachepc_save_msrmts(struct cacheline *head)
 	do {
 		if (cl->first) {
 			BUG_ON(cl->cache_set >= L1_SETS);
-			if (cl->count > L1_ASSOC)
+			if (cl->count > L1_ASSOC) {
 				CPC_ERR("Read count %llu for set %u line %u",
 					cl->count, cl->cache_set, cl->cache_line);
+			}
 			cachepc_msrmts[cl->cache_set] = cl->count;
 		} else {
 			BUG_ON(cl->count != 0);
@@ -182,8 +183,12 @@ cachepc_save_msrmts(struct cacheline *head)
 
 	if (cachepc_baseline_active) {
 		for (i = 0; i < L1_SETS; i++) {
-			if (!cachepc_baseline_active)
-				WARN_ON(cachepc_msrmts[i] < cachepc_baseline[i]);
+			if (cachepc_msrmts[i] < cachepc_baseline[i]) {
+				CPC_ERR("Count (%u) under baseline (%u) "
+					"for set %u line %u",
+					cachepc_msrmts[i], cachepc_baseline[i],
+					cl->cache_set, cl->cache_line);
+			}
 			cachepc_msrmts[i] -= cachepc_baseline[i];
 		}
 	}

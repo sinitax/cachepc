@@ -29,18 +29,18 @@ monitor(struct kvm *kvm, bool baseline)
 	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (ret && errno == EAGAIN) return 0;
-	if (ret) err(1, "ioctl KVM_CPC_POLL_EVENT");
+	if (ret) err(1, "KVM_CPC_POLL_EVENT");
 
 	if (event.type != CPC_EVENT_TRACK_PAGE)
 		errx(1, "unexpected event type %i", event.type);
 
 	printf("Event: rip:%08llx prev:%llu next:%llu ret:%llu\n",
-		vm_get_rip(kvm), event.page.inst_gfn_prev,
+		vm_get_rip(), event.page.inst_gfn_prev,
 		event.page.inst_gfn, event.page.retinst);
 	printf("\n");
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-	if (ret) err(1, "ioctl KVM_CPC_ACK_EVENT");
+	if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
 	return 1;
 }
@@ -86,7 +86,7 @@ main(int argc, const char **argv)
 
 		/* reset kernel module state */
 		ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
-		if (ret < 0) err(1, "ioctl KVM_CPC_RESET");
+		if (ret < 0) err(1, "KVM_CPC_RESET");
 
 		ipc_signal_parent(ipc);
 		ipc_wait_parent(ipc);
@@ -113,9 +113,9 @@ main(int argc, const char **argv)
 
 		printf("Monitor start\n");
 
-		arg = CPC_TRACK_EXEC;
+		arg = CPC_TRACK_PAGES;
 		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-		if (ret) err(1, "ioctl KVM_CPC_TRACK_MODE");
+		if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
 		ipc_signal_child(ipc);
 

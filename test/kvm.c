@@ -100,8 +100,13 @@ sev_ioctl(int vmfd, int cmd, void *data, int *error)
 	input.sev_fd = sev_dev;
 	input.data = (uintptr_t) data;
 
-	ret = ioctl(vmfd, KVM_MEMORY_ENCRYPT_OP, &input);
-	if (error) *error = input.error;
+	if (vmfd == MAIN_VMFD) {
+		ret = ioctl(kvm_dev, KVM_CPC_MEMORY_ENCRYPT_OP, &input);
+		if (error) *error = input.error;
+	} else {
+		ret = ioctl(vmfd, KVM_MEMORY_ENCRYPT_OP, &input);
+		if (error) *error = input.error;
+	}
 
 	return ret;
 }
@@ -141,66 +146,6 @@ sev_guest_state(int vmfd, uint32_t handle)
 		strerror(errno), sev_fwerr_str(fwerr));
 
 	return status.state;
-}
-
-void
-sev_dbg_decrypt(int vmfd, void *src, void *dst, size_t size)
-{
-	struct kvm_sev_dbg enc;
-	int ret, fwerr;
-
-	enc.src_uaddr = (uintptr_t) src;
-	enc.dst_uaddr = (uintptr_t) dst;
-	enc.len = size;
-	ret = sev_ioctl(vmfd, KVM_SEV_DBG_DECRYPT, &enc, &fwerr);
-	if (ret == -1) errx(1, "KVM_SEV_DBG_DECRYPT: (%s) %s",
-		strerror(errno), sev_fwerr_str(fwerr));
-}
-
-uint64_t
-sev_dbg_decrypt_rip(int vmfd)
-{
-	uint8_t vmsa[PAGE_SIZE];
-	uint64_t rip;
-
-	memset(vmsa, 0, PAGE_SIZE);
-	sev_dbg_decrypt(vmfd, vmsa, CPC_VMSA_MAGIC_ADDR, PAGE_SIZE);
-
-	rip = *(uint64_t *)(vmsa + 0x178);
-
-	return rip;
-}
-
-void
-snp_dbg_decrypt(int vmfd, void *src, void *dst, size_t size)
-{
-	struct kvm_sev_dbg enc;
-	int ret, fwerr;
-
-	assert(src == CPC_VMSA_MAGIC_ADDR);
-
-	memset(&enc, 0, sizeof(struct kvm_sev_dbg));
-	enc.src_uaddr = (uintptr_t) src;
-	enc.dst_uaddr = (uintptr_t) dst;
-	enc.len = size;
-
-	ret = sev_ioctl(vmfd, KVM_SEV_DBG_DECRYPT, &enc, &fwerr);
-	if (ret < 0) errx(1, "KVM_SEV_DBG_DECRYPT: (%s) %s",
-		strerror(errno), sev_fwerr_str(fwerr));
-}
-
-uint64_t
-snp_dbg_decrypt_rip(int vmfd)
-{
-	uint8_t vmsa[PAGE_SIZE];
-	uint64_t rip;
-
-	memset(vmsa, 0, PAGE_SIZE);
-	snp_dbg_decrypt(vmfd, CPC_VMSA_MAGIC_ADDR, vmsa, PAGE_SIZE);
-
-	rip = *(uint64_t *)(vmsa + 0x178);
-
-	return rip;
 }
 
 void
@@ -487,6 +432,20 @@ kvm_deinit(struct kvm *kvm)
 	munmap(kvm->run, kvm->runsize);
 }
 
+uint64_t
+vm_get_rip(void)
+{
+	struct cpc_sev_cmd cmd;
+	int ret, fwerr;
+
+	cmd.id = SEV_CPC_GET_RIP;
+	ret = sev_ioctl(MAIN_VMFD, KVM_SEV_CACHEPC, &cmd, &fwerr);
+	if (ret == -1) errx(1, "KVM_SEV_CACHEPC: (%s) %s",
+		strerror(errno), sev_fwerr_str(fwerr));
+
+	return cmd.data;
+}
+
 void
 parse_vmtype(int argc, const char **argv)
 {
@@ -496,26 +455,6 @@ parse_vmtype(int argc, const char **argv)
 			&& strcmp(vmtype, "sev-es")
 			&& strcmp(vmtype, "sev-snp"))
 		errx(1, "invalid vm mode: %s", vmtype);
-}
-
-uint64_t
-vm_get_rip(struct kvm *kvm)
-{
-	struct kvm_regs regs;
-	uint64_t rip;
-	int ret;
-
-	if (!strcmp(vmtype, "sev-snp")) {
-		rip = snp_dbg_decrypt_rip(kvm->vmfd);
-	} else if (!strcmp(vmtype, "sev-es")) {
-		rip = sev_dbg_decrypt_rip(kvm->vmfd);
-	} else {
-		ret = ioctl(kvm_dev, KVM_CPC_GET_REGS, &regs);
-		if (ret == -1) err(1, "KVM_CPC_GET_REGS");
-		rip = regs.rip;
-	}
-
-	return rip;
 }
 
 void

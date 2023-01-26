@@ -2,8 +2,10 @@
 
 #include "test/util.h"
 
-#include <pthread.h>
+#include <sys/types.h>
 #include <sys/mman.h>
+#include <dirent.h>
+#include <pthread.h>
 #include <err.h>
 #include <sched.h>
 #include <string.h>
@@ -67,6 +69,41 @@ read_stat_core(pid_t pid)
 	fclose(file);
 
 	return cpu;
+}
+
+pid_t
+pgrep(const char *bin)
+{
+	char path[PATH_MAX];
+	char buf[PATH_MAX];
+	struct dirent *ent;
+	char *cmp;
+	FILE *f;
+	DIR *dir;
+	pid_t pid;
+
+	dir = opendir("/proc");
+	if (!dir) err(1, "opendir");
+
+	pid = 0;
+	while (!pid && (ent = readdir(dir))) {
+		snprintf(path, sizeof(path), "/proc/%s/cmdline", ent->d_name);
+		f = fopen(path, "rb");
+		if (!f) continue;
+		memset(buf, 0, sizeof(buf));
+		fread(buf, 1, sizeof(buf), f);
+		if ((cmp = strrchr(buf, '/')))
+			cmp += 1;
+		else
+			cmp = buf;
+		if (!strcmp(cmp, bin))
+			pid = atoi(ent->d_name);
+		fclose(f);
+	}
+
+	closedir(dir);
+
+	return pid;
 }
 
 void

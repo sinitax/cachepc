@@ -80,7 +80,7 @@ cachepc_send_guest_event(uint64_t type, uint64_t val)
 {
 	struct cpc_event event;
 
-	event.type = CPC_EVENT_CPUID;
+	event.type = CPC_EVENT_GUEST;
 	event.guest.type = type;
 	event.guest.val = val;
 

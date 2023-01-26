@@ -28,10 +28,10 @@ collect(struct kvm *kvm, uint8_t *counts)
 
 	if (kvm->run->exit_reason == KVM_EXIT_MMIO) {
 		errx(1, "KVM died from OOB access! rip:%lu addr:%lu",
-			vm_get_rip(kvm), kvm->run->mmio.phys_addr);
+			vm_get_rip(), kvm->run->mmio.phys_addr);
 	} else if (kvm->run->exit_reason != KVM_EXIT_HLT) {
 		errx(1, "KVM died! rip:%lu code:%i",
-			vm_get_rip(kvm), kvm->run->exit_reason);
+			vm_get_rip(), kvm->run->exit_reason);
 	}
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
@@ -45,6 +45,7 @@ main(int argc, const char **argv)
 	struct guest guests[2];
 	uint8_t counts[2][SAMPLE_COUNT][L1_SETS];
 	uint8_t baseline[L1_SETS];
+	uint32_t arg;
 	int i, k, ret;
 
 	vmtype = "kvm";
@@ -72,8 +73,9 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
 	if (ret == -1) err(1, "KVM_CPC_RESET");
 
-	ret = ioctl(kvm_dev, KVM_CPC_LONG_STEP);
-	if (ret == -1) err(1, "KVM_CPC_LONG_STEP");
+	arg = CPC_TRACK_EXIT_EVICTIONS;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	if (ret == -1) err(1, "KVM_CPC_TRACK_MODE");
 
 	/* resolve page faults in advance (code only covers 1 page)..
 	 * we want the read counts to apply between KVM_RUN and KVM_EXIT_HLT,

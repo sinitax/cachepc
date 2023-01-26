@@ -24,22 +24,21 @@ static struct cpc_event event;
 uint64_t
 monitor(struct kvm *kvm, bool baseline)
 {
-	uint8_t counts[64];
+	uint8_t counts[L1_SETS];
 	int ret;
 
-	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (ret && errno == EAGAIN) return 0;
-	if (ret) err(1, "ioctl KVM_CPC_POLL_EVENT");
+	if (ret) err(1, "KVM_CPC_POLL_EVENT");
 
 	if (event.type != CPC_EVENT_TRACK_STEP)
 		errx(1, "unexpected event type %i", event.type);
 
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-	if (ret) err(1, "ioctl KVM_CPC_READ_COUNTS");
+	if (ret) err(1, "KVM_CPC_READ_COUNTS");
 
 	printf("Event: rip:%llu cnt:%llu inst:%llu data:%llu ret:%llu\n",
-		vm_get_rip(kvm), event.step.fault_count,
+		vm_get_rip(), event.step.fault_count,
 		event.step.fault_gfns[0], event.step.fault_gfns[1],
 		event.step.retinst);
 	print_counts(counts);
@@ -48,7 +47,7 @@ monitor(struct kvm *kvm, bool baseline)
 	printf("\n");
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-	if (ret) err(1, "ioctl KVM_CPC_ACK_EVENT");
+	if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
 	return 1;
 }
@@ -96,7 +95,7 @@ main(int argc, const char **argv)
 
 		/* reset kernel module state */
 		ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
-		if (ret < 0) err(1, "ioctl KVM_CPC_RESET");
+		if (ret < 0) err(1, "KVM_CPC_RESET");
 
 		ipc_signal_parent(ipc);
 		ipc_wait_parent(ipc);
@@ -123,15 +122,14 @@ main(int argc, const char **argv)
 
 		printf("Monitor start\n");
 
-		/* capture baseline by just letting it fault over and over */
-		arg = CPC_TRACK_FAULT_NO_RUN;
+		/* single step and log all accessed pages */
+		arg = CPC_TRACK_STEPS;
 		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-		if (ret) err(1, "ioctl KVM_CPC_TRACK_MODE");
+		if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
-		/* calculate baseline while running vm */
 		arg = true;
 		ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &arg);
-		if (ret) err(1, "ioctl KVM_CPC_CALC_BASELINE");
+		if (ret) err(1, "KVM_CPC_CALC_BASELINE");
 
 		ipc_signal_child(ipc);
 
@@ -141,30 +139,30 @@ main(int argc, const char **argv)
 			eventcnt += monitor(&kvm, true);
 		}
 
-		printf("Req pause\n");
+		printf("Monitor req pause\n");
 		ret = ioctl(kvm_dev, KVM_CPC_VM_REQ_PAUSE);
-		if (ret) err(1, "ioctl KVM_CPC_VM_REQ_PAUSE");
+		if (ret) err(1, "KVM_CPC_VM_REQ_PAUSE");
 
 		while (1) {
 			printf("Monitor Polling\n");
 			ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 			if (ret && errno == EAGAIN) continue;
-			if (ret) err(1, "ioctl KVM_CPC_POLL_EVENT");
+			if (ret) err(1, "KVM_CPC_POLL_EVENT");
 			printf("Monitor Event\n");
 
 			if (event.type == CPC_EVENT_PAUSE) break;
 
 			printf("Skipping non-pause event..\n");
 			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-			if (ret) err(1, "ioctl KVM_CPC_ACK_EVENT");
+			if (ret) err(1, "KVM_CPC_ACK_EVENT");
 		}
 
 		arg = false;
 		ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &arg);
-		if (ret) err(1, "ioctl KVM_CPC_CALC_BASELINE");
+		if (ret) err(1, "KVM_CPC_CALC_BASELINE");
 
 		ret = ioctl(kvm_dev, KVM_CPC_READ_BASELINE, baseline);
-		if (ret) err(1, "ioctl KVM_CPC_READ_BASELINE");
+		if (ret) err(1, "KVM_CPC_READ_BASELINE");
 
 		printf("\nBaseline:\n");
 		print_counts(baseline);
@@ -174,15 +172,10 @@ main(int argc, const char **argv)
 
 		arg = true;
 		ret = ioctl(kvm_dev, KVM_CPC_APPLY_BASELINE, &arg);
-		if (ret) err(1, "ioctl KMV_CPC_APPLY_BASELINE");
-
-		/* single step and log all accessed pages */
-		arg = CPC_TRACK_FULL;
-		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-		if (ret) err(1, "ioctl KVM_CPC_TRACK_MODE");
+		if (ret) err(1, "KMV_CPC_APPLY_BASELINE");
 
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
-		if (ret) err(1, "ioctl KVM_CPC_ACK_EVENT");
+		if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
 		eventcnt = 0;
 		while (eventcnt < 50) {

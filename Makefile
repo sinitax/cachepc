@@ -9,13 +9,15 @@ BINS = test/eviction test/kvm-eviction
 BINS += test/kvm-eviction-with_guest test/kvm-eviction-without_guest
 BINS += test/kvm-step test/kvm-step_guest
 BINS += test/kvm-pagestep test/kvm-pagestep_guest
-# BINS += test/qemu-eviction_guest test/qemu-eviction
+BINS += test/qemu-eviction test/qemu-eviction_guest
 # BINS += test/qemu-aes_guest test/qemu-aes
 BINS += util/debug util/reset
 
 CFLAGS = -I . -I linux/usr/include
 CFLAGS += -g -Wunused-variable -Wunknown-pragmas -Wunused-function
-CFLAGS += -fsanitize=address
+
+HOST_CFLAGS = $(CFLAGS) -fsanitize=address
+GUEST_CFLAGS = $(CFLAGS) -static
 
 LDLIBS = -lpthread
 
@@ -67,19 +69,22 @@ test/%.o: test/%.c
 test/%.o: test/%.S
 	$(CC) -c -o $@ $^ $(CFLAGS)
 
-test/%_guest: test/%_guest.o test/guest.lds
-	$(LD) -Ttest/guest.lds -o $@ $<
-
-test/eviction: test/eviction.c test/util.c $(TEST_SRCS)
+test/%: test/%.c $(TEST_SRCS)
 	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
+
+test/kvm-%_guest: test/kvm-%_guest.o test/guest.lds
+	$(LD) -Ttest/kvm-guest.lds -o $@ $<
+
+test/kvm-%: test/kvm-%.c $(TEST_SRCS)
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(HOST_CFLAGS) $(LDLIBS)
 
 test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction.h $(TEST_SRCS)
-	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(HOST_CFLAGS) $(LDLIBS)
 
-test/kvm-step: test/kvm-step.c $(TEST_SRCS)
-	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
+test/qemu-%: test/qemu-%.c $(TEST_SRCS)
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(HOST_CFLAGS) $(LDLIBS)
 
-test/kvm-pagestep: test/kvm-pagestep.c $(TEST_SRCS)
-	$(CC) -o $@  $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
+test/qemu-%_guest: test/qemu-%_guest.c
+	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(GUEST_CFLAGS) $(LDLIBS)
 
 .PHONY: all clean host build load prep

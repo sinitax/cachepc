@@ -7,15 +7,14 @@
 #include <linux/ioctl.h>
 
 #define CPC_DO_VMMCALL(action, type, val) \
-	asm volatile("vmmcall" : : "a" (KVM_HC_CPC_VMMCALL_ ## action), \
-		"b"(type), "c" (val) : "rdx")
+	asm volatile("vmmcall" : : "a" (action), "b"(type), "c" (val) : "rdx")
 
 #define KVM_CPC_RESET _IOWR(KVMIO, 0x20, __u32)
 #define KVM_CPC_DEBUG _IOW(KVMIO, 0x21, __u32)
 
-#define KVM_CPC_GET_REGS _IOW(KVMIO, 0x22, __u32)
+#define KVM_CPC_MEMORY_ENCRYPT_OP _IOWR(KVMIO, 0x22, struct kvm_sev_cmd)
 
-#define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x23, __u32)
+#define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x24, __u32)
 
 #define KVM_CPC_READ_COUNTS _IOR(KVMIO, 0x25, __u64)
 
@@ -26,9 +25,6 @@
 
 #define KVM_CPC_LONG_STEP _IO(KVMIO, 0x2A)
 
-#define KVM_CPC_VMSA_READ _IOR(KVMIO, 0x2C, __u64)
-#define KVM_CPC_SVME_READ _IOR(KVMIO, 0x2D, __u32)
-
 #define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x40, __u32)
 #define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x44)
 
@@ -37,12 +33,14 @@
 
 #define KVM_CPC_VM_REQ_PAUSE _IO(KVMIO, 0x50)
 
+#define KVM_SEV_CACHEPC 0xd0
+
 enum {
 	CPC_EVENT_NONE,
 	CPC_EVENT_TRACK_STEP,
 	CPC_EVENT_TRACK_PAGE,
 	CPC_EVENT_PAUSE,
-	CPC_EVENT_CPUID,
+	CPC_EVENT_GUEST,
 };
 
 enum {
@@ -53,9 +51,14 @@ enum {
 enum {
 	CPC_TRACK_NONE,
 	CPC_TRACK_FAULT_NO_RUN,
-	CPC_TRACK_EXEC,
-	CPC_TRACK_FULL,
-	CPC_TRACK_AUTO_FULL,
+	CPC_TRACK_EXIT_EVICTIONS,
+	CPC_TRACK_PAGES,
+	CPC_TRACK_STEPS,
+	CPC_TRACK_STEPS_SIGNALLED,
+};
+
+enum {
+	SEV_CPC_GET_RIP
 };
 
 struct cpc_track_config {
@@ -91,4 +94,9 @@ struct cpc_event {
 		struct cpc_track_page_event page;
 		struct cpc_guest_event guest;
 	};
+};
+
+struct cpc_sev_cmd {
+	__u32 id;
+	__u64 data;
 };

@@ -9,6 +9,7 @@ BINS = test/eviction test/kvm-eviction
 BINS += test/kvm-eviction-with_guest test/kvm-eviction-without_guest
 BINS += test/kvm-step test/kvm-step_guest
 BINS += test/kvm-pagestep test/kvm-pagestep_guest
+BINS += test/qemu-pagestep
 BINS += test/qemu-eviction test/qemu-eviction_guest
 # BINS += test/qemu-aes_guest test/qemu-aes
 BINS += util/debug util/reset

@@ -71,10 +71,10 @@ EXPORT_SYMBOL(cachepc_track_end_gfn);
 LIST_HEAD(cachepc_faults);
 EXPORT_SYMBOL(cachepc_faults);
 
-struct cpc_track_exec cachepc_track_exec;
-bool cachepc_track_signalled_enable;
-EXPORT_SYMBOL(cachepc_track_exec);
-EXPORT_SYMBOL(cachepc_track_signalled_enable);
+struct cpc_track_pages cpc_track_pages;
+struct cpc_track_steps_signalled cpc_track_steps_signalled;
+EXPORT_SYMBOL(cpc_track_pages);
+EXPORT_SYMBOL(cpc_track_steps_signalled);
 
 struct cacheline *cachepc_ds_ul = NULL;
 struct cacheline *cachepc_ds = NULL;
@@ -286,6 +286,8 @@ cachepc_kvm_reset_ioctl(void __user *arg_user)
 	cachepc_apic_oneshot = false;
 	cachepc_apic_timer = 0;
 
+	cachepc_prime_probe = false;
+
 	cachepc_retinst = 0;
 	cachepc_rip_prev_set = false;
 
@@ -430,6 +432,8 @@ cachepc_kvm_reset_tracking_ioctl(void __user *arg_user)
 	cachepc_singlestep = false;
 	cachepc_singlestep_reset = false;
 
+	cachepc_long_step = false;
+
 	cachepc_track_mode = CPC_TRACK_NONE;
 
 	list_for_each_entry_safe(fault, next, &cachepc_faults, list) {
@@ -460,6 +464,7 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_ACCESS);
 	cachepc_untrack_all(vcpu, KVM_PAGE_TRACK_WRITE);
 
+	cachepc_apic_timer = 0;
 	cachepc_apic_oneshot = false;
 	cachepc_prime_probe = false;
 	cachepc_singlestep = false;
@@ -476,17 +481,18 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 		cachepc_long_step = true;
 		break;
 	case CPC_TRACK_PAGES:
-		memset(&cachepc_track_exec, 0, sizeof(cachepc_track_exec));
+	case CPC_TRACK_PAGES_RESOLVE:
+		memset(&cpc_track_pages, 0, sizeof(cpc_track_pages));
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
-		cachepc_singlestep_reset = true;
 		break;
-	case CPC_TRACK_STEPS:
+	case CPC_TRACK_STEPS_AND_FAULTS:
 		cachepc_prime_probe = true;
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
 		cachepc_singlestep_reset = true;
 		break;
 	case CPC_TRACK_STEPS_SIGNALLED:
-		cachepc_track_signalled_enable = false;
+		memset(&cpc_track_steps_signalled, 0,
+			sizeof(cpc_track_steps_signalled));
 		break;
 	case CPC_TRACK_NONE:
 		break;

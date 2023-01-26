@@ -15,9 +15,6 @@
 
 #define SAMPLE_COUNT 64
 
-#define TARGET_CORE 2
-#define SECONDARY_CORE 3
-
 void
 collect(struct kvm *kvm, uint8_t *counts)
 {

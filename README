@@ -34,6 +34,9 @@ test/kvm-pagestep:
 	which can be used to infer what the guest is doing and to begin
 	fine-grained single-stepping.
 
+test/qemu-pagestep:
+	Replicate result from kvm-pagestep on a qemu-based vm running debian.
+
 test/qemu-eviction:
 	Replicate result from kvm-eviction on a qemu-based vm running debian
 	using a specially crafted guest program to signal when measurement
@@ -46,6 +49,41 @@ test/qemu-aes:
 test/qemu-poc:
 	Demonstrate that AES encryption keys can be leaked from an
 	unmodified qemu-based linux guest.
+
+
+modes
+-----
+
+The kernel module employs a few different modes of tracking described
+in more detail below:
+
+CPC_TRACK_FAULT_NO_RUN:
+	Tracks access to all guest pages and lets the guest page fault over and over
+	without untracking / handling any page faults. This results in a decent
+	baseline measurement when we dont want to step the vm.
+
+CPC_TRACK_EXIT_EVICTION:
+	Set apic timer such that for any reasonably short KVM_RUN no local apic
+	interrupts will occur to cause exits. Good for collecting PRIME+COUNT
+	measurements over a clean run to a "natural" exit such as KVM_EXIT_HLT.
+
+CPC_TRACK_PAGES:
+	Track execution of all guest pages. While the guest is running untrack
+	a single executable page at a time based on page-faults. Allows tracking
+	which guest pages are executed and how long using retired instructions.
+
+CPC_TRACK_STEPS_AND_FAULTS:
+	Track access to all guest pages and single-step guest exection. For each
+	step, collect all page-faults that needed to be handled to enable that
+	step. Allows tracking not only which sets were evicted but what gfns
+	were involved in the access.
+
+CPC_TRACK_STEPS_SIGNALLED:
+	Track execution of a specific set of guest pages and single-step guest
+	execution for only this set. A guest program makes a specific vmmcall
+	to signal when to start and stop tracking. When a page-fault signals
+	that the target pages were reached, single-stepping begins and the
+	target pages are retracked to detect when the pages are left.
 
 
 setup

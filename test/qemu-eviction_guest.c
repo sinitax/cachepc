@@ -25,6 +25,19 @@ main(int argc, const char **argv)
 		printf("LOOP\n");
 		CPC_DO_VMMCALL(KVM_HC_CPC_VMMCALL_SIGNAL,
 			CPC_GUEST_START_TRACK, 0);
+		*(uint8_t *)(buf + L1_LINESIZE * 9) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 10) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 11) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 12) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 13) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 14) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 15) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 9) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 10) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 11) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 12) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 13) = 1;
+		*(uint8_t *)(buf + L1_LINESIZE * 14) = 1;
 		*(uint8_t *)(buf + L1_LINESIZE * 15) = 1;
 		CPC_DO_VMMCALL(KVM_HC_CPC_VMMCALL_SIGNAL,
 			CPC_GUEST_STOP_TRACK, 0);

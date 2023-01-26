@@ -15,9 +15,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TARGET_CORE 2
-#define SECONDARY_CORE 3
-
 static int child;
 static struct cpc_event event;
 
@@ -123,7 +120,7 @@ main(int argc, const char **argv)
 		printf("Monitor start\n");
 
 		/* single step and log all accessed pages */
-		arg = CPC_TRACK_STEPS;
+		arg = CPC_TRACK_STEPS_AND_FAULTS;
 		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
 		if (ret) err(1, "KVM_CPC_TRACK_MODE");
 

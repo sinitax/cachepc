@@ -7,6 +7,9 @@
 #define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 
+#define TARGET_CORE 2
+#define SECONDARY_CORE 3
+
 struct ipc {
 	pthread_mutex_t lock;
 	pthread_cond_t sig_parent;

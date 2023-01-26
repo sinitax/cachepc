@@ -15,9 +15,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TARGET_CORE 2
-#define SECONDARY_CORE 3
-
 static int child;
 
 uint64_t
@@ -26,7 +23,6 @@ monitor(struct kvm *kvm, bool baseline)
 	struct cpc_event event;
 	int ret;
 
-	/* Get page fault info */
 	ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 	if (ret && errno == EAGAIN) return 0;
 	if (ret) err(1, "KVM_CPC_POLL_EVENT");

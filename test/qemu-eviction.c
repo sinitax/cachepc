@@ -15,9 +15,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TARGET_CORE 2
-#define SECONDARY_CORE 3
-
 static struct cpc_event event;
 
 int
@@ -32,6 +29,7 @@ monitor(bool baseline)
 
 	switch (event.type) {
 	case CPC_EVENT_GUEST:
+		printf("Guest event: %i\n", event.guest.type);
 		if (event.guest.type == CPC_GUEST_STOP_TRACK)
 			return 2;
 		break;
@@ -40,7 +38,7 @@ monitor(bool baseline)
 		if (ret) err(1, "KVM_CPC_READ_COUNTS");
 
 		printf("Event: rip:%016llx cnt:%llu "
-			"inst:%08llu data:%08llx ret:%llu\n",
+			"inst:%08llx data:%08llx ret:%llu\n",
 			vm_get_rip(), event.step.fault_count,
 			event.step.fault_gfns[0], event.step.fault_gfns[1],
 			event.step.retinst);
@@ -74,11 +72,7 @@ main(int argc, const char **argv)
 	uint8_t baseline[L1_SETS];
 	uint32_t eventcnt;
 	uint32_t arg;
-	pid_t qemu;
 	int ret;
-
-	qemu = pgrep("qemu-system-x86_64");
-	if (!qemu) errx(1, "pgrep failed");
 
 	pin_process(0, SECONDARY_CORE, true);
 
@@ -93,7 +87,7 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &arg);
 	if (ret) err(1, "KVM_CPC_CALC_BASELINE");
 
-	arg = CPC_TRACK_STEPS;
+	arg = CPC_TRACK_STEPS_AND_FAULTS;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
 	if (ret) err(1, "KVM_CPC_RESET");
 

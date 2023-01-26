@@ -59,12 +59,12 @@ cachepc_send_event(struct cpc_event event)
 	cachepc_event_avail = true;
 	cachepc_event = event;
 
-	CPC_DBG("Sent Event: id %llu\n", event.id);
+	//CPC_DBG("Sent Event: id %llu\n", event.id);
 	write_unlock(&cachepc_event_lock);
 
 	/* wait for ack with timeout */
 	deadline = ktime_get_ns() + 10000000000ULL; /* 10s in ns */
-	while (!cachepc_event_is_done(cachepc_event.id)) {
+	while (!cachepc_event_is_done()) {
 		if (ktime_get_ns() > deadline) {
 			CPC_WARN("Timeout waiting for ack of event %llu\n",
 				cachepc_event.id);
@@ -155,14 +155,14 @@ cachepc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retins
 EXPORT_SYMBOL(cachepc_send_track_step_event_single);
 
 bool
-cachepc_event_is_done(uint64_t id)
+cachepc_event_is_done(void)
 {
 	bool done;
 
 	read_lock(&cachepc_event_lock);
-	CPC_DBG("Event Send: Event not done %llu %llu\n",
-		cachepc_last_event_acked, id);
-	done = cachepc_last_event_acked == id;
+	//CPC_DBG("Event Send: Event not done %llu %llu\n",
+	//	cachepc_last_event_acked, id);
+	done = cachepc_last_event_acked == cachepc_last_event_sent;
 	read_unlock(&cachepc_event_lock);
 
 	return done;
@@ -175,8 +175,8 @@ cachepc_poll_event_ioctl(void __user *arg_user)
 
 	read_lock(&cachepc_event_lock);
 	if (!cachepc_event_avail) {
-		CPC_DBG("Event Poll: No event avail %llu %llu\n",
-			cachepc_last_event_sent, cachepc_last_event_acked);
+		//CPC_DBG("Event Poll: No event avail %llu %llu\n",
+		//	cachepc_last_event_sent, cachepc_last_event_acked);
 		read_unlock(&cachepc_event_lock);
 		return -EAGAIN;
 	}
@@ -185,16 +185,13 @@ cachepc_poll_event_ioctl(void __user *arg_user)
 	err = 0;
 	write_lock(&cachepc_event_lock);
 	if (cachepc_event_avail) {
-		CPC_DBG("Event Poll: Event is avail %px %llu %llu\n", arg_user,
-			cachepc_last_event_sent, cachepc_last_event_acked);
-		err = copy_to_user(arg_user, &cachepc_event, sizeof(cachepc_event));
-		if (err != 0) {
-			CPC_ERR("copy_to_user %i %lu\n", err, sizeof(cachepc_event));
+		//CPC_DBG("Event Poll: Event is avail %px %llu %llu\n", arg_user,
+		//	cachepc_last_event_sent, cachepc_last_event_acked);
+		if (copy_to_user(arg_user, &cachepc_event, sizeof(cachepc_event)))
 			err = -EFAULT;
-		}
 	} else {
-		CPC_DBG("Event Poll: Event was avail %llu %llu\n",
-			cachepc_last_event_sent, cachepc_last_event_acked);
+		//CPC_DBG("Event Poll: Event was avail %llu %llu\n",
+		//	cachepc_last_event_sent, cachepc_last_event_acked);
 		err = -EAGAIN;
 	}
 	if (!err) cachepc_event_avail = false;

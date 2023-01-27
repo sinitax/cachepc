@@ -41,12 +41,6 @@ monitor(struct kvm *kvm, bool baseline)
 	return 1;
 }
 
-void
-kill_child(void)
-{
-	kill(child, SIGKILL);
-}
-
 int
 main(int argc, const char **argv)
 {
@@ -80,7 +74,6 @@ main(int argc, const char **argv)
 		vm_init(&kvm, &guest);
 		guest_deinit(&guest);
 
-		/* reset kernel module state */
 		ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
 		if (ret < 0) err(1, "KVM_CPC_RESET");
 
@@ -103,8 +96,6 @@ main(int argc, const char **argv)
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
 
-		atexit(kill_child);
-
 		ipc_wait_child(ipc);
 
 		printf("Monitor start\n");
@@ -124,6 +115,9 @@ main(int argc, const char **argv)
 	}
 
 	ipc_free(ipc);
+
+	ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
+	if (ret < 0) err(1, "KVM_CPC_RESET");
 
 	kvm_setup_deinit();
 }

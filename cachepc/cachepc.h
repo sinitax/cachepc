@@ -22,8 +22,8 @@ struct cpc_cl {
 	struct cpc_cl *prev;
 	uint64_t count;
 
-	uint32_t cache_set;
-	uint32_t cache_line;
+	uint32_t set;
+	uint32_t line;
 	bool first;
 
 	char padding[31];
@@ -40,7 +40,7 @@ struct cpc_track_pages {
 	bool cur_avail;
 	uint64_t cur_gfn;
 	uint64_t retinst;
-	bool step;
+	bool in_step;
 };
 
 struct cpc_track_steps {
@@ -87,6 +87,8 @@ extern uint8_t *cpc_msrmts;
 extern uint8_t *cpc_baseline;
 extern bool cpc_baseline_measure;
 extern bool cpc_baseline_active;
+
+extern uint32_t cpc_svm_exitcode;
 
 extern bool cpc_pause_vm;
 

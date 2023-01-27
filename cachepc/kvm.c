@@ -31,6 +31,9 @@ EXPORT_SYMBOL(cpc_baseline);
 EXPORT_SYMBOL(cpc_baseline_measure);
 EXPORT_SYMBOL(cpc_baseline_active);
 
+uint32_t cpc_svm_exitcode = false;
+EXPORT_SYMBOL(cpc_svm_exitcode);
+
 bool cpc_pause_vm = false;
 EXPORT_SYMBOL(cpc_pause_vm);
 
@@ -483,7 +486,6 @@ cpc_kvm_track_mode_ioctl(void __user *arg_user)
 		cpc_long_step = true;
 		break;
 	case CPC_TRACK_PAGES:
-	case CPC_TRACK_PAGES_RESOLVE:
 		memset(&cpc_track_pages, 0, sizeof(cpc_track_pages));
 		cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		break;

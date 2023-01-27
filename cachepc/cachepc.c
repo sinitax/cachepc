@@ -115,8 +115,8 @@ cpc_ds_alloc(struct cpc_cl **cl_arr_out)
 	for (i = 0; i < L1_LINES; i++) {
 		idx = (i % L1_SETS) * L1_ASSOC + i / L1_SETS;
 		cl_ptr_arr[idx] = cl_arr + i;
-		cl_ptr_arr[idx]->cache_set = i % L1_SETS;
-		cl_ptr_arr[idx]->cache_line = i / L1_SETS;
+		cl_ptr_arr[idx]->set = i % L1_SETS;
+		cl_ptr_arr[idx]->line = i / L1_SETS;
 		cl_ptr_arr[idx]->first = (i / L1_SETS) == 0;
 		cl_ptr_arr[idx]->count = 0;
 	}
@@ -160,12 +160,12 @@ cpc_save_msrmts(struct cpc_cl *head)
 	cl = head;
 	do {
 		if (cl->first) {
-			BUG_ON(cl->cache_set >= L1_SETS);
+			BUG_ON(cl->set >= L1_SETS);
 			if (cl->count > L1_ASSOC) {
 				CPC_ERR("Read count %llu for set %u line %u",
-					cl->count, cl->cache_set, cl->cache_line);
+					cl->count, cl->set, cl->line);
 			}
-			cpc_msrmts[cl->cache_set] = cl->count;
+			cpc_msrmts[cl->set] = cl->count;
 		} else {
 			BUG_ON(cl->count != 0);
 		}
@@ -187,7 +187,7 @@ cpc_save_msrmts(struct cpc_cl *head)
 				CPC_ERR("Count (%u) under baseline (%u) "
 					"for set %u line %u",
 					cpc_msrmts[i], cpc_baseline[i],
-					cl->cache_set, cl->cache_line);
+					cl->set, cl->line);
 			}
 			cpc_msrmts[i] -= cpc_baseline[i];
 		}
@@ -204,7 +204,7 @@ cpc_print_msrmts(struct cpc_cl *head)
 	do {
 		if (cl->first) {
 			CPC_INFO("Count for cache set %i: %llu\n",
-				cl->cache_set, cl->count);
+				cl->set, cl->count);
 		}
 
 		cl = cl->prev;

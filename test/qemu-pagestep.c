@@ -53,7 +53,7 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
 	if (ret) err(1, "KVM_CPC_RESET");
 
-	arg = CPC_TRACK_PAGES_RESOLVE;
+	arg = CPC_TRACK_PAGES;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
 	if (ret) err(1, "KVM_CPC_TRACK_MODE");
 

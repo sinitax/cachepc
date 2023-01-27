@@ -160,8 +160,6 @@ cpc_event_is_done(void)
 	bool done;
 
 	read_lock(&cpc_event_lock);
-	//CPC_DBG("Event Send: Event not done %llu %llu\n",
-	//	cpc_last_event_acked, id);
 	done = cpc_last_event_acked == cpc_last_event_sent;
 	read_unlock(&cpc_event_lock);
 
@@ -175,8 +173,6 @@ cpc_poll_event_ioctl(void __user *arg_user)
 
 	read_lock(&cpc_event_lock);
 	if (!cpc_event_avail) {
-		//CPC_DBG("Event Poll: No event avail %llu %llu\n",
-		//	cpc_last_event_sent, cpc_last_event_acked);
 		read_unlock(&cpc_event_lock);
 		return -EAGAIN;
 	}
@@ -185,16 +181,13 @@ cpc_poll_event_ioctl(void __user *arg_user)
 	err = 0;
 	write_lock(&cpc_event_lock);
 	if (cpc_event_avail) {
-		//CPC_DBG("Event Poll: Event is avail %px %llu %llu\n", arg_user,
-		//	cpc_last_event_sent, cpc_last_event_acked);
 		if (copy_to_user(arg_user, &cpc_event, sizeof(cpc_event)))
 			err = -EFAULT;
+		else
+			cpc_event_avail = false;
 	} else {
-		//CPC_DBG("Event Poll: Event was avail %llu %llu\n",
-		//	cpc_last_event_sent, cpc_last_event_acked);
 		err = -EAGAIN;
 	}
-	if (!err) cpc_event_avail = false;
 	write_unlock(&cpc_event_lock);
 
 	return err;

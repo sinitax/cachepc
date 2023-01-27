@@ -45,7 +45,7 @@ struct kvm* main_vm;
 EXPORT_SYMBOL(main_vm);
 
 bool
-cachepc_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
+cpc_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 	enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
@@ -66,10 +66,10 @@ cachepc_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	return slot != NULL;
 }
-EXPORT_SYMBOL(cachepc_track_single);
+EXPORT_SYMBOL(cpc_track_single);
 
 bool
-cachepc_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
+cpc_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 	enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
@@ -90,10 +90,10 @@ cachepc_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	return slot != NULL;
 }
-EXPORT_SYMBOL(cachepc_untrack_single);
+EXPORT_SYMBOL(cpc_untrack_single);
 
 long
-cachepc_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
+cpc_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
 	struct kvm_memslots *slots;
@@ -118,10 +118,10 @@ cachepc_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 
 	return count;
 }
-EXPORT_SYMBOL(cachepc_track_all);
+EXPORT_SYMBOL(cpc_track_all);
 
 long
-cachepc_untrack_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
+cpc_untrack_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
 	struct kvm_memslots *slots;
@@ -145,5 +145,5 @@ cachepc_untrack_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode)
 
 	return count;
 }
-EXPORT_SYMBOL(cachepc_untrack_all);
+EXPORT_SYMBOL(cpc_untrack_all);
 

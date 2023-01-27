@@ -13,10 +13,10 @@
 
 extern struct kvm* main_vm;
 
-bool cachepc_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
+bool cpc_track_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 	enum kvm_page_track_mode mode);
-bool cachepc_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
+bool cpc_untrack_single(struct kvm_vcpu *vcpu, gfn_t gfn,
 	enum kvm_page_track_mode mode);
 
-long cachepc_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode);
-long cachepc_untrack_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode);
+long cpc_track_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode);
+long cpc_untrack_all(struct kvm_vcpu *vcpu, enum kvm_page_track_mode mode);

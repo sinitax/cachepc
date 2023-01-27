@@ -11,10 +11,10 @@
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
-EXPORT_SYMBOL(cachepc_read_pmc);
+EXPORT_SYMBOL(cpc_read_pmc);
 
 bool
-cachepc_verify_topology(void)
+cpc_verify_topology(void)
 {
 	uint32_t assoc, linesize;
 	uint32_t size, sets;
@@ -47,10 +47,10 @@ cachepc_verify_topology(void)
 
 	return false;
 }
-EXPORT_SYMBOL(cachepc_verify_topology);
+EXPORT_SYMBOL(cpc_verify_topology);
 
 void
-cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
+cpc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
 {
 	uint64_t val, newval;
 
@@ -65,10 +65,10 @@ cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
 			addr, val, newval);
 	}
 }
-EXPORT_SYMBOL(cachepc_write_msr);
+EXPORT_SYMBOL(cpc_write_msr);
 
 void
-cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
+cpc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user)
 {
 	uint64_t event;
@@ -85,30 +85,30 @@ cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 
 	CPC_DBG("Initializing %i. PMC %02X:%02X (%016llx)\n",
 		index, event_no, event_mask, event);
-	cachepc_write_msr(0xc0010200 + index * 2, ~0ULL, event);
+	cpc_write_msr(0xc0010200 + index * 2, ~0ULL, event);
 }
-EXPORT_SYMBOL(cachepc_init_pmc);
+EXPORT_SYMBOL(cpc_init_pmc);
 
 void
-cachepc_reset_pmc(uint8_t index)
+cpc_reset_pmc(uint8_t index)
 {
 	WARN_ON(index >= 6);
 	if (index >= 6) return;
 
-	cachepc_write_msr(0xc0010201 + index * 2, ~0ULL, 0);
+	cpc_write_msr(0xc0010201 + index * 2, ~0ULL, 0);
 }
-EXPORT_SYMBOL(cachepc_reset_pmc);
+EXPORT_SYMBOL(cpc_reset_pmc);
 
-struct cacheline *
-cachepc_ds_alloc(struct cacheline **cl_arr_out)
+struct cpc_cl *
+cpc_ds_alloc(struct cpc_cl **cl_arr_out)
 {
-	struct cacheline **cl_ptr_arr;
-	struct cacheline *cl_arr, *ds;
+	struct cpc_cl **cl_ptr_arr;
+	struct cpc_cl *cl_arr, *ds;
 	size_t i, idx;
 
-	cl_arr = cachepc_aligned_alloc(PAGE_SIZE, L1_SIZE);
+	cl_arr = cpc_aligned_alloc(PAGE_SIZE, L1_SIZE);
 
-	cl_ptr_arr = kzalloc(L1_LINES * sizeof(struct cacheline *), GFP_KERNEL);
+	cl_ptr_arr = kzalloc(L1_LINES * sizeof(struct cpc_cl *), GFP_KERNEL);
 	BUG_ON(cl_ptr_arr == NULL);
 
 	/* order cachelines by set then line number */
@@ -135,10 +135,10 @@ cachepc_ds_alloc(struct cacheline **cl_arr_out)
 
 	return ds;
 }
-EXPORT_SYMBOL(cachepc_ds_alloc);
+EXPORT_SYMBOL(cpc_ds_alloc);
 
 void *
-cachepc_aligned_alloc(size_t alignment, size_t size)
+cpc_aligned_alloc(size_t alignment, size_t size)
 {
 	void *p;
 
@@ -149,12 +149,12 @@ cachepc_aligned_alloc(size_t alignment, size_t size)
 
 	return p;
 }
-EXPORT_SYMBOL(cachepc_aligned_alloc);
+EXPORT_SYMBOL(cpc_aligned_alloc);
 
 void
-cachepc_save_msrmts(struct cacheline *head)
+cpc_save_msrmts(struct cpc_cl *head)
 {
-	struct cacheline *cl;
+	struct cpc_cl *cl;
 	size_t i;
 
 	cl = head;
@@ -165,7 +165,7 @@ cachepc_save_msrmts(struct cacheline *head)
 				CPC_ERR("Read count %llu for set %u line %u",
 					cl->count, cl->cache_set, cl->cache_line);
 			}
-			cachepc_msrmts[cl->cache_set] = cl->count;
+			cpc_msrmts[cl->cache_set] = cl->count;
 		} else {
 			BUG_ON(cl->count != 0);
 		}
@@ -174,31 +174,31 @@ cachepc_save_msrmts(struct cacheline *head)
 		cl = cl->prev;
 	} while (cl != head);
 
-	if (cachepc_baseline_measure) {
+	if (cpc_baseline_measure) {
 		for (i = 0; i < L1_SETS; i++) {
-			cachepc_baseline[i] = MIN(cachepc_baseline[i],
-				cachepc_msrmts[i]);
+			cpc_baseline[i] = MIN(cpc_baseline[i],
+				cpc_msrmts[i]);
 		}
 	}
 
-	if (cachepc_baseline_active) {
+	if (cpc_baseline_active) {
 		for (i = 0; i < L1_SETS; i++) {
-			if (cachepc_msrmts[i] < cachepc_baseline[i]) {
+			if (cpc_msrmts[i] < cpc_baseline[i]) {
 				CPC_ERR("Count (%u) under baseline (%u) "
 					"for set %u line %u",
-					cachepc_msrmts[i], cachepc_baseline[i],
+					cpc_msrmts[i], cpc_baseline[i],
 					cl->cache_set, cl->cache_line);
 			}
-			cachepc_msrmts[i] -= cachepc_baseline[i];
+			cpc_msrmts[i] -= cpc_baseline[i];
 		}
 	}
 }
-EXPORT_SYMBOL(cachepc_save_msrmts);
+EXPORT_SYMBOL(cpc_save_msrmts);
 
 void
-cachepc_print_msrmts(struct cacheline *head)
+cpc_print_msrmts(struct cpc_cl *head)
 {
-	struct cacheline *cl;
+	struct cpc_cl *cl;
 
 	cl = head;
 	do {
@@ -210,13 +210,13 @@ cachepc_print_msrmts(struct cacheline *head)
 		cl = cl->prev;
 	} while (cl != head);
 }
-EXPORT_SYMBOL(cachepc_print_msrmts);
+EXPORT_SYMBOL(cpc_print_msrmts);
 
 void
-cachepc_apic_oneshot_run(uint32_t interval)
+cpc_apic_oneshot_run(uint32_t interval)
 {
 	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
 	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_1);
 	native_apic_mem_write(APIC_TMICT, interval);
 }
-EXPORT_SYMBOL(cachepc_apic_oneshot_run);
+EXPORT_SYMBOL(cpc_apic_oneshot_run);

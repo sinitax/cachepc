@@ -2,12 +2,12 @@
 
 #include <linux/linkage.h>
 
-.global cachepc_read_pmc
-.global cachepc_prime_probe_test_asm
-.global cachepc_stream_hwpf_test_asm
-.global cachepc_single_eviction_test_asm
+.global cpc_read_pmc
+.global cpc_prime_probe_test_asm
+.global cpc_stream_hwpf_test_asm
+.global cpc_single_eviction_test_asm
 
-SYM_FUNC_START(cachepc_read_pmc)
+SYM_FUNC_START(cpc_read_pmc)
     push %rbx
     push %rcx
     push %rdx
@@ -22,9 +22,9 @@ SYM_FUNC_START(cachepc_read_pmc)
     pop %rbx
 
     ret
-SYM_FUNC_END(cachepc_read_pmc)
+SYM_FUNC_END(cpc_read_pmc)
 
-SYM_FUNC_START(cachepc_prime_probe_test_asm)
+SYM_FUNC_START(cpc_prime_probe_test_asm)
     push %rbx
     push %rcx
     push %rdx
@@ -36,7 +36,7 @@ SYM_FUNC_START(cachepc_prime_probe_test_asm)
 
     wbinvd
 
-    mov cachepc_ds, %r9
+    mov cpc_ds, %r9
     prime prime_probe_test %r9 %r10 %r8
     prime prime_probe_test1 %r9 %r10 %r8
     prime prime_probe_test2 %r9 %r10 %r8
@@ -52,9 +52,9 @@ SYM_FUNC_START(cachepc_prime_probe_test_asm)
     pop %rbx
 
     ret
-SYM_FUNC_END(cachepc_prime_probe_test_asm)
+SYM_FUNC_END(cpc_prime_probe_test_asm)
 
-SYM_FUNC_START(cachepc_stream_hwpf_test_asm)
+SYM_FUNC_START(cpc_stream_hwpf_test_asm)
     push %rbx
     push %rcx
     push %rdx
@@ -88,9 +88,9 @@ SYM_FUNC_START(cachepc_stream_hwpf_test_asm)
     pop %rbx
 
     ret
-SYM_FUNC_END(cachepc_stream_hwpf_test_asm)
+SYM_FUNC_END(cpc_stream_hwpf_test_asm)
 
-SYM_FUNC_START(cachepc_single_eviction_test_asm)
+SYM_FUNC_START(cpc_single_eviction_test_asm)
     push %rbx
     push %rcx
     push %rdx
@@ -102,7 +102,7 @@ SYM_FUNC_START(cachepc_single_eviction_test_asm)
 
     wbinvd
 
-    mov cachepc_ds, %r9
+    mov cpc_ds, %r9
     prime single_eviction_test %r9 %r10 %r8
     prime single_eviction_test2 %r9 %r10 %r8
     prime single_eviction_test3 %r9 %r10 %r8
@@ -119,5 +119,5 @@ SYM_FUNC_START(cachepc_single_eviction_test_asm)
     pop %rbx
 
     ret
-SYM_FUNC_END(cachepc_single_eviction_test_asm)
+SYM_FUNC_END(cpc_single_eviction_test_asm)
 

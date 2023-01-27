@@ -13,61 +13,61 @@
 
 #define ARRLEN(x) (sizeof(x)/sizeof((x)[0]))
 
-uint64_t cachepc_last_event_sent;
-uint64_t cachepc_last_event_acked;
-rwlock_t cachepc_event_lock;
+uint64_t cpc_last_event_sent;
+uint64_t cpc_last_event_acked;
+rwlock_t cpc_event_lock;
 
-struct cpc_event cachepc_event;
-bool cachepc_event_avail;
+struct cpc_event cpc_event;
+bool cpc_event_avail;
 
-bool cachepc_events_init;
+bool cpc_events_init;
 
 void
-cachepc_events_reset(void)
+cpc_events_reset(void)
 {
-	write_lock(&cachepc_event_lock);
-	cachepc_events_init = true;
-	cachepc_last_event_sent = 1;
-	cachepc_last_event_acked = 1;
-	cachepc_event_avail = false;
-	write_unlock(&cachepc_event_lock);
+	write_lock(&cpc_event_lock);
+	cpc_events_init = true;
+	cpc_last_event_sent = 1;
+	cpc_last_event_acked = 1;
+	cpc_event_avail = false;
+	write_unlock(&cpc_event_lock);
 }
 
 int
-cachepc_send_event(struct cpc_event event)
+cpc_send_event(struct cpc_event event)
 {
 	ktime_t deadline;
 
-	read_lock(&cachepc_event_lock);
-	if (!cachepc_events_init) {
+	read_lock(&cpc_event_lock);
+	if (!cpc_events_init) {
 		CPC_WARN("events ctx not initialized!\n");
-		read_unlock(&cachepc_event_lock);
+		read_unlock(&cpc_event_lock);
 		return 1;
 	}
-	read_unlock(&cachepc_event_lock);
+	read_unlock(&cpc_event_lock);
 
-	write_lock(&cachepc_event_lock);
-	 if (cachepc_last_event_sent != cachepc_last_event_acked) {
+	write_lock(&cpc_event_lock);
+	 if (cpc_last_event_sent != cpc_last_event_acked) {
 		CPC_WARN("event IDs out of sync\n");
-		write_unlock(&cachepc_event_lock);
+		write_unlock(&cpc_event_lock);
 		return 1;
 	} else {
-		cachepc_last_event_sent++;
+		cpc_last_event_sent++;
 	}
 
-	event.id = cachepc_last_event_sent;
-	cachepc_event_avail = true;
-	cachepc_event = event;
+	event.id = cpc_last_event_sent;
+	cpc_event_avail = true;
+	cpc_event = event;
 
 	//CPC_DBG("Sent Event: id %llu\n", event.id);
-	write_unlock(&cachepc_event_lock);
+	write_unlock(&cpc_event_lock);
 
 	/* wait for ack with timeout */
 	deadline = ktime_get_ns() + 10000000000ULL; /* 10s in ns */
-	while (!cachepc_event_is_done()) {
+	while (!cpc_event_is_done()) {
 		if (ktime_get_ns() > deadline) {
 			CPC_WARN("Timeout waiting for ack of event %llu\n",
-				cachepc_event.id);
+				cpc_event.id);
 			return 1;
 		}
 	}
@@ -76,7 +76,7 @@ cachepc_send_event(struct cpc_event event)
 }
 
 int
-cachepc_send_guest_event(uint64_t type, uint64_t val)
+cpc_send_guest_event(uint64_t type, uint64_t val)
 {
 	struct cpc_event event;
 
@@ -84,23 +84,23 @@ cachepc_send_guest_event(uint64_t type, uint64_t val)
 	event.guest.type = type;
 	event.guest.val = val;
 
-	return cachepc_send_event(event);
+	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cachepc_send_guest_event);
+EXPORT_SYMBOL(cpc_send_guest_event);
 
 int
-cachepc_send_pause_event(void)
+cpc_send_pause_event(void)
 {
 	struct cpc_event event;
 
 	event.type = CPC_EVENT_PAUSE;
 
-	return cachepc_send_event(event);
+	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cachepc_send_pause_event);
+EXPORT_SYMBOL(cpc_send_pause_event);
 
 int
-cachepc_send_track_step_event(struct list_head *list)
+cpc_send_track_step_event(struct list_head *list)
 {
 	struct cpc_event event = { 0 };
 	struct cpc_fault *fault;
@@ -118,14 +118,14 @@ cachepc_send_track_step_event(struct list_head *list)
 		count += 1;
 	}
 	event.step.fault_count = count;
-	event.step.retinst = cachepc_retinst;
+	event.step.retinst = cpc_retinst;
 
-	return cachepc_send_event(event);
+	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cachepc_send_track_step_event);
+EXPORT_SYMBOL(cpc_send_track_step_event);
 
 int
-cachepc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
+cpc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
 {
 	struct cpc_event event = { 0 };
 
@@ -134,12 +134,12 @@ cachepc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
 	event.page.inst_gfn = gfn;
 	event.page.retinst = retinst;
 
-	return cachepc_send_event(event);
+	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cachepc_send_track_page_event);
+EXPORT_SYMBOL(cpc_send_track_page_event);
 
 int
-cachepc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
+cpc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
 {
 	struct cpc_event event = { 0 };
 
@@ -150,58 +150,58 @@ cachepc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retins
 	event.step.inst_gfn = gfn;
 	event.step.retinst = retinst;
 
-	return cachepc_send_event(event);
+	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cachepc_send_track_step_event_single);
+EXPORT_SYMBOL(cpc_send_track_step_event_single);
 
 bool
-cachepc_event_is_done(void)
+cpc_event_is_done(void)
 {
 	bool done;
 
-	read_lock(&cachepc_event_lock);
+	read_lock(&cpc_event_lock);
 	//CPC_DBG("Event Send: Event not done %llu %llu\n",
-	//	cachepc_last_event_acked, id);
-	done = cachepc_last_event_acked == cachepc_last_event_sent;
-	read_unlock(&cachepc_event_lock);
+	//	cpc_last_event_acked, id);
+	done = cpc_last_event_acked == cpc_last_event_sent;
+	read_unlock(&cpc_event_lock);
 
 	return done;
 }
 
 int
-cachepc_poll_event_ioctl(void __user *arg_user)
+cpc_poll_event_ioctl(void __user *arg_user)
 {
 	int err;
 
-	read_lock(&cachepc_event_lock);
-	if (!cachepc_event_avail) {
+	read_lock(&cpc_event_lock);
+	if (!cpc_event_avail) {
 		//CPC_DBG("Event Poll: No event avail %llu %llu\n",
-		//	cachepc_last_event_sent, cachepc_last_event_acked);
-		read_unlock(&cachepc_event_lock);
+		//	cpc_last_event_sent, cpc_last_event_acked);
+		read_unlock(&cpc_event_lock);
 		return -EAGAIN;
 	}
-	read_unlock(&cachepc_event_lock);
+	read_unlock(&cpc_event_lock);
 
 	err = 0;
-	write_lock(&cachepc_event_lock);
-	if (cachepc_event_avail) {
+	write_lock(&cpc_event_lock);
+	if (cpc_event_avail) {
 		//CPC_DBG("Event Poll: Event is avail %px %llu %llu\n", arg_user,
-		//	cachepc_last_event_sent, cachepc_last_event_acked);
-		if (copy_to_user(arg_user, &cachepc_event, sizeof(cachepc_event)))
+		//	cpc_last_event_sent, cpc_last_event_acked);
+		if (copy_to_user(arg_user, &cpc_event, sizeof(cpc_event)))
 			err = -EFAULT;
 	} else {
 		//CPC_DBG("Event Poll: Event was avail %llu %llu\n",
-		//	cachepc_last_event_sent, cachepc_last_event_acked);
+		//	cpc_last_event_sent, cpc_last_event_acked);
 		err = -EAGAIN;
 	}
-	if (!err) cachepc_event_avail = false;
-	write_unlock(&cachepc_event_lock);
+	if (!err) cpc_event_avail = false;
+	write_unlock(&cpc_event_lock);
 
 	return err;
 }
 
 int
-cachepc_ack_event_ioctl(void __user *arg_user)
+cpc_ack_event_ioctl(void __user *arg_user)
 {
 	uint64_t eventid;
 	int err;
@@ -212,17 +212,17 @@ cachepc_ack_event_ioctl(void __user *arg_user)
 		return -EFAULT;
 
 	err = 0;
-	write_lock(&cachepc_event_lock);
-	if (!eventid || eventid == cachepc_last_event_sent) {
-		if (cachepc_event.type == CPC_EVENT_PAUSE)
-			cachepc_pause_vm = false;
-		cachepc_last_event_acked = cachepc_last_event_sent;
+	write_lock(&cpc_event_lock);
+	if (!eventid || eventid == cpc_last_event_sent) {
+		if (cpc_event.type == CPC_EVENT_PAUSE)
+			cpc_pause_vm = false;
+		cpc_last_event_acked = cpc_last_event_sent;
 	} else {
 		err = -EFAULT;
 		CPC_WARN("Acked event (%llu) does not match sent (%llu)\n",
-			eventid, cachepc_last_event_sent);
+			eventid, cpc_last_event_sent);
 	}
-	write_unlock(&cachepc_event_lock);
+	write_unlock(&cpc_event_lock);
 
 	return err;
 }

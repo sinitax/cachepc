@@ -12,14 +12,14 @@
 #define PMC_GUEST (1 << 0)
 
 #define CPC_DBG(...) do { \
-	if (cachepc_debug) pr_info("CachePC: " __VA_ARGS__); } while (0)
+	if (cpc_debug) pr_info("CachePC: " __VA_ARGS__); } while (0)
 #define CPC_INFO(...) do { pr_info("CachePC: " __VA_ARGS__); } while (0)
 #define CPC_WARN(...) do { pr_warn("CachePC: " __VA_ARGS__); } while (0)
 #define CPC_ERR(...) do { pr_err("CachePC: " __VA_ARGS__); } while (0)
 
-struct cacheline {
-	struct cacheline *next;
-	struct cacheline *prev;
+struct cpc_cl {
+	struct cpc_cl *next;
+	struct cpc_cl *prev;
 	uint64_t count;
 
 	uint32_t cache_set;
@@ -54,69 +54,69 @@ struct cpc_track_steps_signalled {
 	uint64_t target_gfn;
 };
 
-static_assert(sizeof(struct cacheline) == L1_LINESIZE, "Bad cacheline struct");
-static_assert(CPC_CL_NEXT_OFFSET == offsetof(struct cacheline, next));
-static_assert(CPC_CL_PREV_OFFSET == offsetof(struct cacheline, prev));
-static_assert(CPC_CL_COUNT_OFFSET == offsetof(struct cacheline, count));
+static_assert(sizeof(struct cpc_cl) == L1_LINESIZE, "Bad cacheline struct");
+static_assert(CPC_CL_NEXT_OFFSET == offsetof(struct cpc_cl, next));
+static_assert(CPC_CL_PREV_OFFSET == offsetof(struct cpc_cl, prev));
+static_assert(CPC_CL_COUNT_OFFSET == offsetof(struct cpc_cl, count));
 
-bool cachepc_verify_topology(void);
+bool cpc_verify_topology(void);
 
-void cachepc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits);
+void cpc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits);
 
-void cachepc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
+void cpc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 	uint8_t host_guest, uint8_t kernel_user);
-void cachepc_reset_pmc(uint8_t index);
+void cpc_reset_pmc(uint8_t index);
 
-struct cacheline *cachepc_ds_alloc(struct cacheline **ds_ul);
+struct cpc_cl *cpc_ds_alloc(struct cpc_cl **ds_ul);
 
-void *cachepc_aligned_alloc(size_t alignment, size_t size);
+void *cpc_aligned_alloc(size_t alignment, size_t size);
 
-void cachepc_save_msrmts(struct cacheline *head);
-void cachepc_print_msrmts(struct cacheline *head);
+void cpc_save_msrmts(struct cpc_cl *head);
+void cpc_print_msrmts(struct cpc_cl *head);
 
-struct cacheline *cachepc_prime(struct cacheline *head);
-void cachepc_probe(struct cacheline *head);
+struct cpc_cl *cpc_prime(struct cpc_cl *head);
+void cpc_probe(struct cpc_cl *head);
 
-uint64_t cachepc_read_pmc(uint64_t event);
+uint64_t cpc_read_pmc(uint64_t event);
 
-void cachepc_apic_oneshot_run(uint32_t interval);
+void cpc_apic_oneshot_run(uint32_t interval);
 
-extern bool cachepc_debug;
+extern bool cpc_debug;
 
-extern uint8_t *cachepc_msrmts;
-extern uint8_t *cachepc_baseline;
-extern bool cachepc_baseline_measure;
-extern bool cachepc_baseline_active;
+extern uint8_t *cpc_msrmts;
+extern uint8_t *cpc_baseline;
+extern bool cpc_baseline_measure;
+extern bool cpc_baseline_active;
 
-extern bool cachepc_pause_vm;
+extern bool cpc_pause_vm;
 
-extern bool cachepc_prime_probe;
+extern bool cpc_prime_probe;
 
-extern bool cachepc_singlestep;
-extern bool cachepc_singlestep_reset;
-extern bool cachepc_long_step;
+extern bool cpc_singlestep;
+extern bool cpc_singlestep_reset;
+extern bool cpc_long_step;
 
-extern bool cachepc_apic_oneshot;
-extern uint32_t cachepc_apic_timer;
+extern bool cpc_apic_oneshot;
+extern uint32_t cpc_apic_timer;
 
-extern uint32_t cachepc_track_mode;
-extern uint64_t cachepc_track_start_gfn;
-extern uint64_t cachepc_track_end_gfn;
+extern uint32_t cpc_track_mode;
+extern uint64_t cpc_track_start_gfn;
+extern uint64_t cpc_track_end_gfn;
 
-extern uint64_t cachepc_retinst;
-extern uint64_t cachepc_retinst_prev;
+extern uint64_t cpc_retinst;
+extern uint64_t cpc_retinst_prev;
 
-extern uint64_t cachepc_rip;
-extern uint64_t cachepc_rip_prev;
-extern bool cachepc_rip_prev_set;
+extern uint64_t cpc_rip;
+extern uint64_t cpc_rip_prev;
+extern bool cpc_rip_prev_set;
 
 extern struct cpc_track_pages cpc_track_pages;
 extern struct cpc_track_steps cpc_track_steps;
 extern struct cpc_track_steps_signalled cpc_track_steps_signalled;
 
-extern struct list_head cachepc_faults;
+extern struct list_head cpc_faults;
 
-extern struct cacheline *cachepc_ds;
+extern struct cpc_cl *cpc_ds;
 
-extern uint64_t cachepc_regs_tmp[16];
-extern uint64_t cachepc_regs_vm[16];
+extern uint64_t cpc_regs_tmp[16];
+extern uint64_t cpc_regs_vm[16];

@@ -136,20 +136,16 @@ main(int argc, const char **argv)
 			eventcnt += monitor(&kvm, true);
 		}
 
-		printf("Monitor req pause\n");
 		ret = ioctl(kvm_dev, KVM_CPC_VM_REQ_PAUSE);
 		if (ret) err(1, "KVM_CPC_VM_REQ_PAUSE");
 
 		while (1) {
-			printf("Monitor Polling\n");
 			ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 			if (ret && errno == EAGAIN) continue;
 			if (ret) err(1, "KVM_CPC_POLL_EVENT");
-			printf("Monitor Event\n");
 
 			if (event.type == CPC_EVENT_PAUSE) break;
 
-			printf("Skipping non-pause event..\n");
 			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 			if (ret) err(1, "KVM_CPC_ACK_EVENT");
 		}

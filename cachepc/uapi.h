@@ -72,14 +72,13 @@ struct cpc_track_step_event {
 	__u64 fault_gfns[16];
 	__u32 fault_errs[16];
 	__u64 fault_count;
-	__u64 timestamp_ns;
+	__u64 inst_gfn;
 	__u64 retinst;
 };
 
 struct cpc_track_page_event {
 	__u64 inst_gfn_prev;
 	__u64 inst_gfn;
-	__u64 timestamp_ns;
 	__u64 retinst;
 };
 

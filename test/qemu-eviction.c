@@ -38,10 +38,9 @@ monitor(bool baseline)
 		if (ret) err(1, "KVM_CPC_READ_COUNTS");
 
 		printf("Event: rip:%016llx cnt:%llu "
-			"inst:%08llx data:%08llx ret:%llu\n",
+			"inst:%08llx ret:%llu\n",
 			vm_get_rip(), event.step.fault_count,
-			event.step.fault_gfns[0], event.step.fault_gfns[1],
-			event.step.retinst);
+			event.step.inst_gfn, event.step.retinst);
 		print_counts(counts);
 		printf("\n");
 		print_counts_raw(counts);

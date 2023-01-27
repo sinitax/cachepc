@@ -72,8 +72,10 @@ LIST_HEAD(cachepc_faults);
 EXPORT_SYMBOL(cachepc_faults);
 
 struct cpc_track_pages cpc_track_pages;
+struct cpc_track_steps cpc_track_steps;
 struct cpc_track_steps_signalled cpc_track_steps_signalled;
 EXPORT_SYMBOL(cpc_track_pages);
+EXPORT_SYMBOL(cpc_track_steps);
 EXPORT_SYMBOL(cpc_track_steps_signalled);
 
 struct cacheline *cachepc_ds_ul = NULL;
@@ -485,6 +487,9 @@ cachepc_kvm_track_mode_ioctl(void __user *arg_user)
 		memset(&cpc_track_pages, 0, sizeof(cpc_track_pages));
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		break;
+	case CPC_TRACK_STEPS:
+		memset(&cpc_track_steps, 0, sizeof(cpc_track_steps));
+		break;
 	case CPC_TRACK_STEPS_AND_FAULTS:
 		cachepc_prime_probe = true;
 		cachepc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
@@ -666,6 +671,7 @@ cachepc_kvm_init(void)
 	cachepc_long_step = false;
 	cachepc_singlestep = false;
 	cachepc_singlestep_reset = false;
+	cachepc_prime_probe = false;
 	cachepc_track_mode = CPC_TRACK_NONE;
 
 	cachepc_apic_oneshot = false;

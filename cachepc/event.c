@@ -113,10 +113,11 @@ cachepc_send_track_step_event(struct list_head *list)
 			break;
 		event.step.fault_gfns[count] = fault->gfn;
 		event.step.fault_errs[count] = fault->err;
+		if (fault->err & PFERR_FETCH_MASK)
+			event.step.inst_gfn = fault->gfn;
 		count += 1;
 	}
 	event.step.fault_count = count;
-	event.step.timestamp_ns = ktime_get_real_ns();
 	event.step.retinst = cachepc_retinst;
 
 	return cachepc_send_event(event);
@@ -131,7 +132,6 @@ cachepc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
 	event.type = CPC_EVENT_TRACK_PAGE;
 	event.page.inst_gfn_prev = gfn_prev;
 	event.page.inst_gfn = gfn;
-	event.page.timestamp_ns = ktime_get_real_ns();
 	event.page.retinst = retinst;
 
 	return cachepc_send_event(event);
@@ -147,7 +147,7 @@ cachepc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retins
 	event.step.fault_count = 1;
 	event.step.fault_gfns[0] = gfn;
 	event.step.fault_errs[0] = err;
-	event.step.timestamp_ns = ktime_get_real_ns();
+	event.step.inst_gfn = gfn;
 	event.step.retinst = retinst;
 
 	return cachepc_send_event(event);

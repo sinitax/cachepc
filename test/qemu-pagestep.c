@@ -25,13 +25,14 @@ monitor(void)
 	if (ret && errno == EAGAIN) return;
 	if (ret) err(1, "KVM_CPC_POLL_EVENT");
 
-	if (event.type != CPC_EVENT_TRACK_PAGE)
-		errx(1, "unexpected event type %i", event.type);
-
-	printf("Event: rip:%016llx prev:%08llx next:%08llx ret:%llu\n",
-		vm_get_rip(), event.page.inst_gfn_prev,
-		event.page.inst_gfn, event.page.retinst);
-	printf("\n");
+	if (event.type == CPC_EVENT_TRACK_PAGE) {
+		printf("Event: rip:%016llx prev:%08llx next:%08llx ret:%llu\n",
+			vm_get_rip(), event.page.inst_gfn_prev,
+			event.page.inst_gfn, event.page.retinst);
+		printf("\n");
+	} else {
+		printf("Unexpected event type %i\n", event.type);
+	}
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 	if (ret) err(1, "KVM_CPC_ACK_EVENT");

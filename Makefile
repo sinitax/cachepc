@@ -73,7 +73,7 @@ test/%.o: test/%.S
 test/%: test/%.c $(TEST_SRCS)
 	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
 
-test/kvm-%_guest: test/kvm-%_guest.o test/guest.lds
+test/kvm-%_guest: test/kvm-%_guest.o test/kvm-guest.lds
 	$(LD) -Ttest/kvm-guest.lds -o $@ $<
 
 test/kvm-%: test/kvm-%.c $(TEST_SRCS)

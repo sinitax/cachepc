@@ -43,6 +43,11 @@ struct cpc_track_pages {
 	bool step;
 };
 
+struct cpc_track_steps {
+	bool exec_avail;
+	bool exec_gfn;
+};
+
 struct cpc_track_steps_signalled {
 	bool enabled;
 	bool target_avail;
@@ -106,6 +111,7 @@ extern uint64_t cachepc_rip_prev;
 extern bool cachepc_rip_prev_set;
 
 extern struct cpc_track_pages cpc_track_pages;
+extern struct cpc_track_steps cpc_track_steps;
 extern struct cpc_track_steps_signalled cpc_track_steps_signalled;
 
 extern struct list_head cachepc_faults;

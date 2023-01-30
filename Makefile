@@ -12,7 +12,7 @@ BINS += test/kvm-pagestep test/kvm-pagestep_guest
 BINS += test/qemu-pagestep
 BINS += test/qemu-eviction test/qemu-eviction_guest
 # BINS += test/qemu-aes_guest test/qemu-aes
-BINS += util/debug util/reset
+BINS += util/debug util/reset util/mainpfn
 
 CFLAGS = -I . -I linux/usr/include
 CFLAGS += -g -Wunused-variable -Wunknown-pragmas -Wunused-function
@@ -22,8 +22,11 @@ GUEST_CFLAGS = $(CFLAGS) -static
 
 LDLIBS = -lpthread
 
-TEST_SRCS = test/util.c test/util.h test/kvm.c test/kvm.h
-TEST_SRCS += cachepc/uapi.h cachepc/const.h
+UTIL_HDRS = cachepc/uapi.h cachepc/const.h
+UTIL_SRCS =
+
+TEST_HDRS = cachepc/uapi.h cachepc/const.h test/util.h test/kvm.h
+TEST_SRCS = test/util.c test/kvm.c
 
 all: build $(BINS)
 
@@ -62,16 +65,20 @@ prep:
 	sudo cpupower frequency-set -d 3.7GHz -u 3.7GHz
 	sudo bash -c "for f in /proc/irq/*/smp_affinity; do echo 1 > \$$f 2>/dev/null; done"
 
-util/%: util/%.c $(CACHEPC_UAPI)
+util/%: util/%.c $(UTIL_SRCS)
+	$(CC) -o $@ $< $(HOST_CFLAGS)
 
-test/%.o: test/%.c
-	$(CC) -c -o $@ $^ $(CFLAGS)
+util/mainpfn: util/mainpfn.c $(UTIL_SRCS)
+	$(CC) -o $@ $< $(GUEST_CFLAGS)
 
-test/%.o: test/%.S
-	$(CC) -c -o $@ $^ $(CFLAGS)
+test/%.o: test/%.c $(TEST_HDRS)
+	$(CC) -c -o $@ $< $(HOST_CFLAGS)
+
+test/%.o: test/%.S $(TEST_HDRS)
+	$(CC) -c -o $@ $< $(HOST_CFLAGS)
 
 test/%: test/%.c $(TEST_SRCS)
-	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(CFLAGS) $(LDLIBS)
+	$(CC) -o $@ $(filter %.c,$^) $(HOST_CFLAGS) $(LDLIBS)
 
 test/kvm-%_guest: test/kvm-%_guest.o test/kvm-guest.lds
 	$(LD) -Ttest/kvm-guest.lds -o $@ $<

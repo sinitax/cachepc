@@ -9,6 +9,7 @@ kvm-pagestep
 kvm-pagestep_guest
 qemu-eviction
 qemu-eviction_guest
+qemu-pagestep
 qemu-aes
 qemu-aes_guest
 qemu-poc

@@ -25,11 +25,12 @@
 
 #define KVM_CPC_LONG_STEP _IO(KVMIO, 0x2A)
 
-#define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x40, __u32)
-#define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x44)
+#define KVM_CPC_TRACK_MODE _IOWR(KVMIO, 0x30, __u32)
+#define KVM_CPC_RESET_TRACKING _IO(KVMIO, 0x31)
 
-#define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x48, struct cpc_event)
-#define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x49, __u64)
+#define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x40, struct cpc_event)
+#define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x41, __u64)
+#define KVM_CPC_READ_EVENTS _IOWR(KVMIO, 0x42, struct cpc_event_batch)
 
 #define KVM_CPC_VM_REQ_PAUSE _IO(KVMIO, 0x50)
 
@@ -41,6 +42,7 @@ enum {
 	CPC_EVENT_TRACK_PAGE,
 	CPC_EVENT_PAUSE,
 	CPC_EVENT_GUEST,
+	CPC_EVENT_BATCH
 };
 
 enum {
@@ -94,6 +96,12 @@ struct cpc_event {
 		struct cpc_track_page_event page;
 		struct cpc_guest_event guest;
 	};
+};
+
+struct cpc_event_batch {
+	__u64 cnt;
+	__u64 maxcnt;
+	struct cpc_event *buf;
 };
 
 struct cpc_sev_cmd {

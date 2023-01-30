@@ -13,6 +13,10 @@
 
 #define ARRLEN(x) (sizeof(x)/sizeof((x)[0]))
 
+struct cpc_event *cpc_eventbuf;
+size_t cpc_eventbuf_len;
+bool cpc_event_batching;
+
 uint64_t cpc_last_event_sent;
 uint64_t cpc_last_event_acked;
 rwlock_t cpc_event_lock;
@@ -20,13 +24,32 @@ rwlock_t cpc_event_lock;
 struct cpc_event cpc_event;
 bool cpc_event_avail;
 
-bool cpc_events_init;
+EXPORT_SYMBOL(cpc_send_guest_event);
+EXPORT_SYMBOL(cpc_send_pause_event);
+EXPORT_SYMBOL(cpc_send_track_step_event);
+EXPORT_SYMBOL(cpc_send_track_step_event_single);
+EXPORT_SYMBOL(cpc_send_track_page_event);
+
+void
+cpc_events_init(void)
+{
+	cpc_eventbuf = NULL;
+	cpc_eventbuf_len = 0;
+	cpc_event_batching = false;
+	cpc_events_reset();
+}
+
+void
+cpc_events_deinit(void)
+{
+	kfree(cpc_eventbuf);
+	cpc_eventbuf = NULL;
+}
 
 void
 cpc_events_reset(void)
 {
 	write_lock(&cpc_event_lock);
-	cpc_events_init = true;
 	cpc_last_event_sent = 1;
 	cpc_last_event_acked = 1;
 	cpc_event_avail = false;
@@ -38,28 +61,31 @@ cpc_send_event(struct cpc_event event)
 {
 	ktime_t deadline;
 
-	read_lock(&cpc_event_lock);
-	if (!cpc_events_init) {
-		CPC_WARN("events ctx not initialized!\n");
-		read_unlock(&cpc_event_lock);
-		return 1;
-	}
-	read_unlock(&cpc_event_lock);
-
 	write_lock(&cpc_event_lock);
 	 if (cpc_last_event_sent != cpc_last_event_acked) {
 		CPC_WARN("event IDs out of sync\n");
 		write_unlock(&cpc_event_lock);
 		return 1;
-	} else {
-		cpc_last_event_sent++;
 	}
 
+	if (cpc_event_batching) {
+		if (cpc_eventbuf_len < CPC_EVENTBUF_CAP) {
+			memcpy(&cpc_eventbuf[cpc_eventbuf_len], &event,
+				sizeof(struct cpc_event));
+			cpc_eventbuf_len++;
+			write_unlock(&cpc_event_lock);
+			return 0;
+		} else {
+			cpc_event.type = CPC_EVENT_BATCH;
+		}
+	} else {
+		cpc_event = event;
+	}
+
+	cpc_last_event_sent++;
 	event.id = cpc_last_event_sent;
 	cpc_event_avail = true;
-	cpc_event = event;
 
-	//CPC_DBG("Sent Event: id %llu\n", event.id);
 	write_unlock(&cpc_event_lock);
 
 	/* wait for ack with timeout */
@@ -86,7 +112,6 @@ cpc_send_guest_event(uint64_t type, uint64_t val)
 
 	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cpc_send_guest_event);
 
 int
 cpc_send_pause_event(void)
@@ -97,7 +122,6 @@ cpc_send_pause_event(void)
 
 	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cpc_send_pause_event);
 
 int
 cpc_send_track_step_event(struct list_head *list)
@@ -122,7 +146,6 @@ cpc_send_track_step_event(struct list_head *list)
 
 	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cpc_send_track_step_event);
 
 int
 cpc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
@@ -136,7 +159,6 @@ cpc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
 
 	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cpc_send_track_page_event);
 
 int
 cpc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
@@ -152,7 +174,6 @@ cpc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
 
 	return cpc_send_event(event);
 }
-EXPORT_SYMBOL(cpc_send_track_step_event_single);
 
 bool
 cpc_event_is_done(void)
@@ -220,3 +241,34 @@ cpc_ack_event_ioctl(void __user *arg_user)
 	return err;
 }
 
+int
+cpc_read_events_ioctl(void __user *arg_user)
+{
+	struct cpc_event_batch batch;
+	size_t n;
+
+	if (!arg_user) return -EINVAL;
+
+	if (copy_from_user(&batch, arg_user, sizeof(batch)))
+		return -EFAULT;
+
+	if (!batch.buf || !batch.maxcnt) return -EINVAL;
+
+	write_lock(&cpc_event_lock);
+	if (!cpc_eventbuf_len) {
+		write_unlock(&cpc_event_lock);
+		return -EAGAIN;
+	}
+
+	n = cpc_eventbuf_len;
+	if (batch.maxcnt < n)
+		n = batch.maxcnt;
+
+	if (copy_to_user(batch.buf, cpc_eventbuf, sizeof(struct cpc_event) * n)) {
+		write_unlock(&cpc_event_lock);
+		return -EFAULT;
+	}
+	write_unlock(&cpc_event_lock);
+
+	return 0;
+}

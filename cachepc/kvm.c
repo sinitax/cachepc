@@ -99,31 +99,31 @@ static noinline void cpc_stream_hwpf_test(void);
 void cpc_single_eviction_test_asm(void *ptr);
 static noinline void cpc_single_eviction_test(void *p);
 
-static void cpc_kvm_pmc_setup(void *p);
-static void cpc_kvm_system_setup(void);
+static void cpc_pmc_setup(void *p);
+static void cpc_system_setup(void);
 
-static int cpc_kvm_reset_ioctl(void __user *arg_user);
-static int cpc_kvm_debug_ioctl(void __user *arg_user);
+static int cpc_reset_ioctl(void __user *arg_user);
+static int cpc_debug_ioctl(void __user *arg_user);
 
-static int cpc_kvm_memory_encrypt_op_ioctl(void __user *arg_user);
+static int cpc_memory_encrypt_op_ioctl(void __user *arg_user);
 
-static int cpc_kvm_test_eviction_ioctl(void __user *arg_user);
+static int cpc_test_eviction_ioctl(void __user *arg_user);
 
-static int cpc_kvm_read_counts_ioctl(void __user *arg_user);
+static int cpc_read_counts_ioctl(void __user *arg_user);
 
-static int cpc_kvm_reset_baseline_ioctl(void __user *arg_user);
-static int cpc_kvm_calc_baseline_ioctl(void __user *arg_user);
-static int cpc_kvm_read_baseline_ioctl(void __user *arg_user);
-static int cpc_kvm_apply_baseline_ioctl(void __user *arg_user);
+static int cpc_reset_baseline_ioctl(void __user *arg_user);
+static int cpc_calc_baseline_ioctl(void __user *arg_user);
+static int cpc_read_baseline_ioctl(void __user *arg_user);
+static int cpc_apply_baseline_ioctl(void __user *arg_user);
 
-static int cpc_kvm_reset_tracking_ioctl(void __user *arg_user);
-static int cpc_kvm_track_mode_ioctl(void __user *arg_user);
-// static int cpc_kvm_track_page_ioctl(void __user *arg_user);
-// static int cpc_kvm_track_range_start_ioctl(void __user *arg_user);
-// static int cpc_kvm_track_range_end_ioctl(void __user *arg_user);
-// static int cpc_kvm_track_exec_cur_ioctl(void __user *arg_user);
+static int cpc_reset_tracking_ioctl(void __user *arg_user);
+static int cpc_track_mode_ioctl(void __user *arg_user);
+// static int cpc_track_page_ioctl(void __user *arg_user);
+// static int cpc_track_range_start_ioctl(void __user *arg_user);
+// static int cpc_track_range_end_ioctl(void __user *arg_user);
+// static int cpc_track_exec_cur_ioctl(void __user *arg_user);
 
-static int cpc_kvm_req_pause_ioctl(void __user *arg_user);
+static int cpc_req_pause_ioctl(void __user *arg_user);
 
 void
 cpc_prime_probe_test(void)
@@ -228,7 +228,7 @@ cpc_single_eviction_test(void *p)
 }
 
 void
-cpc_kvm_pmc_setup(void *p)
+cpc_pmc_setup(void *p)
 {
 	/* L1 misses in host kernel */
 	cpc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8,
@@ -240,7 +240,7 @@ cpc_kvm_pmc_setup(void *p)
 }
 
 void
-cpc_kvm_system_setup(void)
+cpc_system_setup(void)
 {
 	/* NOTE: since most of these MSRs are poorly documented and some
 	 * guessing work was involved, it is likely that one or more of
@@ -270,18 +270,18 @@ cpc_kvm_system_setup(void)
 }
 
 int
-cpc_kvm_reset_ioctl(void __user *arg_user)
+cpc_reset_ioctl(void __user *arg_user)
 {
 	int ret;
 
 	ret = smp_call_function_single(CPC_ISOLCPU,
-		cpc_kvm_pmc_setup, NULL, true);
+		cpc_pmc_setup, NULL, true);
 	if (ret) return -EFAULT;
 
 	cpc_events_reset();
 
-	cpc_kvm_reset_tracking_ioctl(NULL);
-	cpc_kvm_reset_baseline_ioctl(NULL);
+	cpc_reset_tracking_ioctl(NULL);
+	cpc_reset_baseline_ioctl(NULL);
 
 	cpc_pause_vm = false;
 
@@ -300,7 +300,7 @@ cpc_kvm_reset_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_debug_ioctl(void __user *arg_user)
+cpc_debug_ioctl(void __user *arg_user)
 {
 	uint32_t debug;
 
@@ -315,7 +315,7 @@ cpc_kvm_debug_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_memory_encrypt_op_ioctl(void __user *arg_user)
+cpc_memory_encrypt_op_ioctl(void __user *arg_user)
 {
 	if (!arg_user || !main_vm) return -EFAULT;
 
@@ -323,7 +323,7 @@ cpc_kvm_memory_encrypt_op_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_test_eviction_ioctl(void __user *arg_user)
+cpc_test_eviction_ioctl(void __user *arg_user)
 {
 	uint32_t u32;
 	int ret;
@@ -344,7 +344,7 @@ cpc_kvm_test_eviction_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_read_counts_ioctl(void __user *arg_user)
+cpc_read_counts_ioctl(void __user *arg_user)
 {
 	if (!arg_user) return -EINVAL;
 
@@ -355,7 +355,7 @@ cpc_kvm_read_counts_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_reset_baseline_ioctl(void __user *arg_user)
+cpc_reset_baseline_ioctl(void __user *arg_user)
 {
 	if (arg_user) return -EINVAL;
 
@@ -367,7 +367,7 @@ cpc_kvm_reset_baseline_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_calc_baseline_ioctl(void __user *arg_user)
+cpc_calc_baseline_ioctl(void __user *arg_user)
 {
 	uint32_t state;
 
@@ -382,7 +382,7 @@ cpc_kvm_calc_baseline_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_read_baseline_ioctl(void __user *arg_user)
+cpc_read_baseline_ioctl(void __user *arg_user)
 {
 	if (!arg_user) return -EINVAL;
 
@@ -393,7 +393,7 @@ cpc_kvm_read_baseline_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_apply_baseline_ioctl(void __user *arg_user)
+cpc_apply_baseline_ioctl(void __user *arg_user)
 {
 	uint32_t state;
 
@@ -408,7 +408,7 @@ cpc_kvm_apply_baseline_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_long_step_ioctl(void __user *arg_user)
+cpc_long_step_ioctl(void __user *arg_user)
 {
 	if (arg_user) return -EINVAL;
 
@@ -418,7 +418,7 @@ cpc_kvm_long_step_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_reset_tracking_ioctl(void __user *arg_user)
+cpc_reset_tracking_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
 	struct cpc_fault *fault, *next;
@@ -450,7 +450,7 @@ cpc_kvm_reset_tracking_ioctl(void __user *arg_user)
 }
 
 int
-cpc_kvm_track_mode_ioctl(void __user *arg_user)
+cpc_track_mode_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
 	uint32_t mode;
@@ -513,7 +513,7 @@ cpc_kvm_track_mode_ioctl(void __user *arg_user)
 }
 
 // int
-// cpc_kvm_track_page_ioctl(void __user *arg_user)
+// cpc_track_page_ioctl(void __user *arg_user)
 // {
 // 	struct cpc_track_config cfg;
 // 	struct kvm_vcpu *vcpu;
@@ -535,7 +535,7 @@ cpc_kvm_track_mode_ioctl(void __user *arg_user)
 // }
 //
 // int
-// cpc_kvm_track_range_start_ioctl(void __user *arg_user)
+// cpc_track_range_start_ioctl(void __user *arg_user)
 // {
 // 	if (!arg_user) return -EINVAL;
 // 
@@ -546,7 +546,7 @@ cpc_kvm_track_mode_ioctl(void __user *arg_user)
 // }
 // 
 // int
-// cpc_kvm_track_range_end_ioctl(void __user *arg_user)
+// cpc_track_range_end_ioctl(void __user *arg_user)
 // {
 // 	if (!arg_user) return -EINVAL;
 // 
@@ -557,7 +557,7 @@ cpc_kvm_track_mode_ioctl(void __user *arg_user)
 // }
 // 
 // int
-// cpc_kvm_track_exec_cur_ioctl(void __user *arg_user)
+// cpc_track_exec_cur_ioctl(void __user *arg_user)
 // {
 // 	struct cpc_fault *fault;
 // 
@@ -573,7 +573,7 @@ cpc_kvm_track_mode_ioctl(void __user *arg_user)
 // }
 
 int
-cpc_kvm_req_pause_ioctl(void __user *arg_user)
+cpc_req_pause_ioctl(void __user *arg_user)
 {
 	if (arg_user) return -EINVAL;
 
@@ -583,57 +583,59 @@ cpc_kvm_req_pause_ioctl(void __user *arg_user)
 }
 
 long
-cpc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
+cpc_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 {
 	void __user *arg_user;
 
 	arg_user = (void __user *)arg;
 	switch (ioctl) {
 	case KVM_CPC_RESET:
-		return cpc_kvm_reset_ioctl(arg_user);
+		return cpc_reset_ioctl(arg_user);
 	case KVM_CPC_DEBUG:
-		return cpc_kvm_debug_ioctl(arg_user);
+		return cpc_debug_ioctl(arg_user);
 	case KVM_CPC_MEMORY_ENCRYPT_OP:
-		return cpc_kvm_memory_encrypt_op_ioctl(arg_user);
+		return cpc_memory_encrypt_op_ioctl(arg_user);
 	case KVM_CPC_TEST_EVICTION:
-		return cpc_kvm_test_eviction_ioctl(arg_user);
+		return cpc_test_eviction_ioctl(arg_user);
 	case KVM_CPC_READ_COUNTS:
-		return cpc_kvm_read_counts_ioctl(arg_user);
+		return cpc_read_counts_ioctl(arg_user);
 	case KVM_CPC_RESET_BASELINE:
-		return cpc_kvm_reset_baseline_ioctl(arg_user);
+		return cpc_reset_baseline_ioctl(arg_user);
 	case KVM_CPC_READ_BASELINE:
-		return cpc_kvm_read_baseline_ioctl(arg_user);
+		return cpc_read_baseline_ioctl(arg_user);
 	case KVM_CPC_CALC_BASELINE:
-		return cpc_kvm_calc_baseline_ioctl(arg_user);
+		return cpc_calc_baseline_ioctl(arg_user);
 	case KVM_CPC_APPLY_BASELINE:
-		return cpc_kvm_apply_baseline_ioctl(arg_user);
+		return cpc_apply_baseline_ioctl(arg_user);
 	case KVM_CPC_LONG_STEP:
-		return cpc_kvm_long_step_ioctl(arg_user);
+		return cpc_long_step_ioctl(arg_user);
 	case KVM_CPC_RESET_TRACKING:
-		return cpc_kvm_reset_tracking_ioctl(arg_user);
+		return cpc_reset_tracking_ioctl(arg_user);
 	case KVM_CPC_TRACK_MODE:
-		return cpc_kvm_track_mode_ioctl(arg_user);
+		return cpc_track_mode_ioctl(arg_user);
 	case KVM_CPC_POLL_EVENT:
 		return cpc_poll_event_ioctl(arg_user);
 	case KVM_CPC_ACK_EVENT:
 		return cpc_ack_event_ioctl(arg_user);
+	case KVM_CPC_READ_EVENTS:
+		return cpc_read_events_ioctl(arg_user);
 	// case KVM_CPC_TRACK_PAGE:
-	// 	return cpc_kvm_track_page_ioctl(arg_user);
+	// 	return cpc_track_page_ioctl(arg_user);
 	// case KVM_CPC_TRACK_RANGE_START:
-	// 	return cpc_kvm_track_range_start_ioctl(arg_user);
+	// 	return cpc_track_range_start_ioctl(arg_user);
 	// case KVM_CPC_TRACK_RANGE_END:
-	// 	return cpc_kvm_track_range_end_ioctl(arg_user);
+	// 	return cpc_track_range_end_ioctl(arg_user);
 	// case KVM_CPC_TRACK_EXEC_CUR:
-	// 	return cpc_kvm_track_exec_cur_ioctl(arg_user);
+	// 	return cpc_track_exec_cur_ioctl(arg_user);
 	case KVM_CPC_VM_REQ_PAUSE:
-		return cpc_kvm_req_pause_ioctl(arg_user);
+		return cpc_req_pause_ioctl(arg_user);
 	default:
 		return kvm_arch_dev_ioctl(file, ioctl, arg);
 	}
 }
 
 void
-cpc_kvm_setup_test(void *p)
+cpc_setup_test(void *p)
 {
 	spinlock_t lock;
 	int cpu;
@@ -647,7 +649,7 @@ cpc_kvm_setup_test(void *p)
 
 	cpc_ds = cpc_ds_alloc(&cpc_ds_ul);
 
-	cpc_kvm_system_setup();
+	cpc_system_setup();
 
 	spin_lock_irq(&lock);
 	cpc_prime_probe_test();
@@ -692,7 +694,7 @@ cpc_kvm_init(void)
 	cpc_events_reset();
 
 	ret = smp_call_function_single(CPC_ISOLCPU,
-		cpc_kvm_setup_test, NULL, true);
+		cpc_setup_test, NULL, true);
 	WARN_ON(ret != 0);
 }
 

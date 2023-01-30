@@ -7,6 +7,14 @@
 #include <linux/kvm_host.h>
 #include <linux/types.h>
 
+#define CPC_EVENTBUF_CAP 5000
+
+extern struct cpc_event *cpc_eventbuf;
+extern size_t cpc_eventbuf_len;
+extern bool cpc_event_batching;
+
+void cpc_event_init(void);
+void cpc_event_deinit(void);
 void cpc_events_reset(void);
 
 int cpc_send_guest_event(uint64_t type, uint64_t val);
@@ -19,3 +27,4 @@ bool cpc_event_is_done(void);
 
 int cpc_poll_event_ioctl(void __user *arg_user);
 int cpc_ack_event_ioctl(void __user *arg_user);
+int cpc_read_events_ioctl(void __user *arg_user);

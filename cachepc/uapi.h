@@ -56,22 +56,27 @@ enum {
 	CPC_TRACK_EXIT_EVICTIONS,
 	CPC_TRACK_PAGES,
 	CPC_TRACK_STEPS,
-	CPC_TRACK_STEPS_AND_FAULTS,
-	CPC_TRACK_STEPS_SIGNALLED,
 };
 
 enum {
 	SEV_CPC_GET_RIP
 };
 
-struct cpc_track_config {
-	__u64 gfn;
+struct cpc_track_cfg {
 	__s32 mode;
+	union {
+		struct {
+			__u64 target_gfn;
+			__u8 use_target;
+			__u8 use_filter;
+			__u8 with_data;
+		} steps;
+	};
 };
 
 struct cpc_track_step_event {
-	__u64 fault_gfns[16];
-	__u32 fault_errs[16];
+	__u64 fault_gfns[8];
+	__u32 fault_errs[8];
 	__u64 fault_count;
 	__u64 inst_gfn;
 	__u64 retinst;

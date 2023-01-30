@@ -69,6 +69,7 @@ int
 main(int argc, const char **argv)
 {
 	uint8_t baseline[L1_SETS];
+	struct cpc_track_cfg cfg;
 	uint32_t eventcnt;
 	uint32_t arg;
 	int ret;
@@ -86,8 +87,10 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &arg);
 	if (ret) err(1, "KVM_CPC_CALC_BASELINE");
 
-	arg = CPC_TRACK_STEPS_AND_FAULTS;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.mode = CPC_TRACK_STEPS;
+	cfg.steps.with_data = true;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 	if (ret) err(1, "KVM_CPC_RESET");
 
 	eventcnt = 0;
@@ -126,7 +129,10 @@ main(int argc, const char **argv)
 	print_counts_raw(baseline);
 	printf("\n\n");
 
-	arg = CPC_TRACK_STEPS_SIGNALLED;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.steps.target_gfn = 0; /* TODO */
+	cfg.steps.use_target = true;
+	cfg.mode = CPC_TRACK_STEPS;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
 	if (ret) err(1, "KVM_CPC_RESET");
 

@@ -133,7 +133,7 @@ cpc_send_track_step_event(struct list_head *list)
 	count = 0;
 	event.type = CPC_EVENT_TRACK_STEP;
 	list_for_each_entry(fault, list, list) {
-		if (count >= 16)
+		if (count >= 8)
 			break;
 		event.step.fault_gfns[count] = fault->gfn;
 		event.step.fault_errs[count] = fault->err;

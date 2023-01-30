@@ -63,6 +63,7 @@ main(int argc, const char **argv)
 	struct guest guest;
 	struct kvm kvm;
 	uint8_t baseline[L1_SETS];
+	struct cpc_track_cfg cfg;
 	uint64_t eventcnt;
 	uint32_t arg;
 	int ret;
@@ -119,9 +120,10 @@ main(int argc, const char **argv)
 
 		printf("Monitor start\n");
 
-		/* single step and log all accessed pages */
-		arg = CPC_TRACK_STEPS_AND_FAULTS;
-		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+		memset(&cfg, 0, sizeof(cfg));
+		cfg.mode = CPC_TRACK_STEPS;
+		cfg.steps.with_data = true;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 		if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
 		arg = true;

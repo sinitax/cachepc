@@ -47,8 +47,8 @@ main(int argc, const char **argv)
 	struct ipc *ipc;
 	struct guest guest;
 	struct kvm kvm;
+	struct cpc_track_cfg cfg;
 	uint64_t eventcnt;
-	uint32_t arg;
 	int ret;
 
 	vmtype = "kvm";
@@ -100,8 +100,9 @@ main(int argc, const char **argv)
 
 		printf("Monitor start\n");
 
-		arg = CPC_TRACK_PAGES;
-		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+		memset(&cfg, 0, sizeof(cfg));
+		cfg.mode = CPC_TRACK_PAGES;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 		if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
 		ipc_signal_child(ipc);

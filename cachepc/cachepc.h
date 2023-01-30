@@ -44,14 +44,11 @@ struct cpc_track_pages {
 };
 
 struct cpc_track_steps {
-	bool exec_avail;
-	bool exec_gfn;
-};
-
-struct cpc_track_steps_signalled {
-	bool enabled;
-	bool target_avail;
-	uint64_t target_gfn;
+	bool with_data;
+	bool use_target;
+	bool target_gfn;
+	bool stepping;
+	bool use_filter;
 };
 
 static_assert(sizeof(struct cpc_cl) == L1_LINESIZE, "Bad cacheline struct");

@@ -42,7 +42,7 @@ main(int argc, const char **argv)
 	struct guest guests[2];
 	uint8_t counts[2][SAMPLE_COUNT][L1_SETS];
 	uint8_t baseline[L1_SETS];
-	uint32_t arg;
+	struct cpc_track_cfg cfg;
 	int i, k, ret;
 
 	vmtype = "kvm";
@@ -70,8 +70,9 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
 	if (ret == -1) err(1, "KVM_CPC_RESET");
 
-	arg = CPC_TRACK_EXIT_EVICTIONS;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.mode = CPC_TRACK_EXIT_EVICTIONS;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 	if (ret == -1) err(1, "KVM_CPC_TRACK_MODE");
 
 	/* resolve page faults in advance (code only covers 1 page)..

@@ -74,12 +74,10 @@ EXPORT_SYMBOL(cpc_track_end_gfn);
 LIST_HEAD(cpc_faults);
 EXPORT_SYMBOL(cpc_faults);
 
-struct cpc_track_pages cpc_track_pages;
 struct cpc_track_steps cpc_track_steps;
-struct cpc_track_steps_signalled cpc_track_steps_signalled;
-EXPORT_SYMBOL(cpc_track_pages);
+struct cpc_track_pages cpc_track_pages;
 EXPORT_SYMBOL(cpc_track_steps);
-EXPORT_SYMBOL(cpc_track_steps_signalled);
+EXPORT_SYMBOL(cpc_track_pages);
 
 struct cpc_cl *cpc_ds_ul = NULL;
 struct cpc_cl *cpc_ds = NULL;
@@ -453,11 +451,11 @@ int
 cpc_track_mode_ioctl(void __user *arg_user)
 {
 	struct kvm_vcpu *vcpu;
-	uint32_t mode;
+	struct cpc_track_cfg cfg;
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&mode, arg_user, sizeof(mode)))
+	if (copy_from_user(&cfg, arg_user, sizeof(cfg)))
 		return -EFAULT;
 
 	if (!main_vm || xa_empty(&main_vm->vcpu_array))
@@ -476,7 +474,7 @@ cpc_track_mode_ioctl(void __user *arg_user)
 	cpc_singlestep_reset = false;
 	cpc_long_step = false;
 
-	switch (mode) {
+	switch (cfg.mode) {
 	case CPC_TRACK_FAULT_NO_RUN:
 		cpc_prime_probe = true;
 		cpc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
@@ -490,16 +488,25 @@ cpc_track_mode_ioctl(void __user *arg_user)
 		cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		break;
 	case CPC_TRACK_STEPS:
-		memset(&cpc_track_steps, 0, sizeof(cpc_track_steps));
-		break;
-	case CPC_TRACK_STEPS_AND_FAULTS:
-		cpc_prime_probe = true;
-		cpc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
-		cpc_singlestep_reset = true;
-		break;
-	case CPC_TRACK_STEPS_SIGNALLED:
-		memset(&cpc_track_steps_signalled, 0,
-			sizeof(cpc_track_steps_signalled));
+		cpc_track_steps.use_target = cfg.steps.use_target;
+		cpc_track_steps.target_gfn = cfg.steps.target_gfn;
+		cpc_track_steps.with_data = cfg.steps.with_data;
+		cpc_track_steps.use_filter = cfg.steps.use_filter;
+		if (!cpc_track_steps.use_target
+				&& cpc_track_steps.with_data) {
+			cpc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
+			cpc_prime_probe = true;
+			cpc_singlestep_reset = true;
+			cpc_track_steps.stepping = true;
+		} else if (!cpc_track_steps.use_target
+				&& !cpc_track_steps.with_data) {
+			cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
+			cpc_singlestep_reset = true;
+			cpc_track_steps.stepping = true;
+		} else {
+			cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
+			cpc_track_steps.stepping = false;
+		}
 		break;
 	case CPC_TRACK_NONE:
 		break;
@@ -507,7 +514,7 @@ cpc_track_mode_ioctl(void __user *arg_user)
 		return -EINVAL;
 	}
 
-	cpc_track_mode = mode;
+	cpc_track_mode = cfg.mode;
 
 	return 0;
 }

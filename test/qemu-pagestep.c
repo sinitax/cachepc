@@ -41,7 +41,7 @@ monitor(void)
 int
 main(int argc, const char **argv)
 {
-	uint32_t arg;
+	struct cpc_track_cfg cfg;
 	int ret;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -53,8 +53,9 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
 	if (ret) err(1, "KVM_CPC_RESET");
 
-	arg = CPC_TRACK_PAGES;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.mode = CPC_TRACK_PAGES;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 	if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
 	while (1) monitor();

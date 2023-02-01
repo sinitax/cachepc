@@ -590,7 +590,7 @@ cpc_req_pause_ioctl(void __user *arg_user)
 }
 
 long
-cpc_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
+cpc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 {
 	void __user *arg_user;
 

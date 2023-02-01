@@ -95,8 +95,8 @@ Testing was done on a Supermicro H12SSL-i V1.01 motherboard and AMD EPYC 72F3
 The following non-default BIOS settings were used:
 
 Advanced > CPU Configuration > Local APIC Mode = xAPIC
-Advanced > CPU Configuration > Core Performance Boost = Disabled
 Advanced > CPU Configuration > SMT Control = Disabled
+Advanced > CPU Configuration > Core Performance Boost = Disabled
 Advanced > CPU Configuration > Global C-state Control = Disabled
 Advanced > CPU Configuration > L1 Stream HW Prefetcher = Disabled
 Advanced > CPU Configuration > L2 Stream HW Prefetcher = Disabled
@@ -105,18 +105,25 @@ Advanced > CPU Configuration > SEV ASID Count = 509
 Advanced > CPU Configuration > SEV ASID Space Limit Control = Manual
 Advanced > CPU Configuration > SEV ASID Space Limit = 110
 Advanced > CPU Configuration > SNP Memory (RMP Table) Coverage = Enabled
+Advanced > CPU Configuration > SVM Mode = Enabled
 Advanced > North Bridge Configuration > SEV-SNP Support = Enabled
 Advanced > North Bridge Configuration > Memory Configuration > TSME = Disabled
 
+The host kernel is built using the AMDESE/AMDSEV repo on branch sev-snp-devel
+at commmit a480a51. Build and install the the host kernel and qemu by running:
+
+# ./bulid.sh --package
+# cd snp-release-`date "+%Y-%m-%d"`
+# ./install.sh
+
 The following kernel parameters were used:
 
-kvm_amd.sev=1 kvm_amd.sev_es=1 nokaslr debug systemd.log_level=info
+kvm_amd.sev=1 kvm_amd.sev_es=1 nokaslr nosplash debug systemd.log_level=debug
     isolcpus=2,10,3,11 nohz_full=2,10,3,11 rcu_nocbs=2,10,3,11 nmi_watchdog=0
-    transparent_hugepage=never apic lapic panic=-1 preempt=none quiet
+    transparent_hugepage=never apic lapic panic=-1 preempt=none
 
 To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
-that a host kernel debian package was built using `make host`.
-
+that the full kernel was build atleast once using `make linux`.
 
 Note, the checked out commit of the modified kernel (previously the kernel
 patch file) may be incorrect for revisions older than 864f5fa9d539.

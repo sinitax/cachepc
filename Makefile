@@ -1,5 +1,5 @@
 LINUX ?= linux
-CORES ?= $(shell ls /dev/cpu | wc -l)
+CORES ?= $(shell getconf _NPROCESSORS_ONLN)
 LOAD ?= $(CORES)
 JOBS ?= $(CORES)
 
@@ -39,16 +39,16 @@ clean:
 $(LINUX)/arch/x86/kvm/cachepc:
 	ln -sf $(PWD)/cachepc $@
 
-host:
+linux:
 	# build host kernel and Module.symvers for depmod
 	cp extra/.config linux/.config
 	git -C $(LINUX) add .
 	git -C $(LINUX) stash
-	git -C $(LINUX) checkout 0aaa1e5
+	git -C $(LINUX) checkout d9bd54fea4d2
 	rm -f $(LINUX)/arch/x86/kvm/cachepc
-	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) bindeb-pkg
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD)
 	git -C $(LINUX) checkout master
-	git -C $(LINUX) stash pop
+	git -C $(LINUX) stash pop || true
 
 build: $(LINUX)/arch/x86/kvm/cachepc
 	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=arch/x86/kvm modules
@@ -95,4 +95,4 @@ test/qemu-%: test/qemu-%.c $(TEST_SRCS)
 test/qemu-%_guest: test/qemu-%_guest.c
 	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(GUEST_CFLAGS) $(LDLIBS)
 
-.PHONY: all clean host build load prep
+.PHONY: all clean linux build load prep

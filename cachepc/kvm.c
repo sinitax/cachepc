@@ -647,6 +647,8 @@ cpc_setup_test(void *p)
 	spinlock_t lock;
 	int cpu;
 
+	spin_lock_init(&lock);
+
 	cpu = get_cpu();
 
 	CPC_INFO("Running on core %i\n", cpu);

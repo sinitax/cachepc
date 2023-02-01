@@ -36,6 +36,7 @@ cpc_events_init(void)
 	cpc_eventbuf = NULL;
 	cpc_eventbuf_len = 0;
 	cpc_event_batching = false;
+	rwlock_init(&cpc_event_lock);
 	cpc_events_reset();
 }
 

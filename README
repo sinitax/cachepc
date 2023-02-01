@@ -69,13 +69,13 @@ CPC_TRACK_EXIT_EVICTION:
 	measurements over a clean run to a guest-invoked exit such as KVM_EXIT_HLT.
 
 CPC_TRACK_PAGES:
-	Track execution of all guest pages. While the guest is running untrack
+	Track execution of all guest pages. While the guest is running, untrack
 	a single executable page at a time based on page-faults. Allows tracking
 	which guest pages are executed and how long using retired instructions.
 
 CPC_TRACK_STEPS:
 	Single-step guest exection. For each step, collect either only instruction
-	or instruction and page-faults. Allows tracking not only which sets were
+	or instruction and data page-faults. Allows tracking not only which sets were
 	evicted but what gfns were involved in the access. A target page can
 	be set, such that we will first page-step until the page is reached,
 	then single-step while running instructions on that page.

@@ -44,7 +44,7 @@ linux: # build host kernel for depmod
 	git -C $(LINUX) stash
 	git -C $(LINUX) checkout d9bd54fea4d2
 	rm -f $(LINUX)/arch/x86/kvm/cachepc
-	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD)
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) vmlinux headers
 	git -C $(LINUX) checkout master
 	git -C $(LINUX) stash pop || true
 

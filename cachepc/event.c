@@ -71,6 +71,7 @@ cpc_send_event(struct cpc_event event)
 
 	if (cpc_event_batching) {
 		if (cpc_eventbuf_len < CPC_EVENTBUF_CAP) {
+			event.id = 0;
 			memcpy(&cpc_eventbuf[cpc_eventbuf_len], &event,
 				sizeof(struct cpc_event));
 			cpc_eventbuf_len++;
@@ -84,7 +85,7 @@ cpc_send_event(struct cpc_event event)
 	}
 
 	cpc_last_event_sent++;
-	event.id = cpc_last_event_sent;
+	cpc_event.id = cpc_last_event_sent;
 	cpc_event_avail = true;
 
 	write_unlock(&cpc_event_lock);
@@ -193,23 +194,17 @@ cpc_poll_event_ioctl(void __user *arg_user)
 {
 	int err;
 
-	read_lock(&cpc_event_lock);
+	write_lock(&cpc_event_lock);
 	if (!cpc_event_avail) {
-		read_unlock(&cpc_event_lock);
+		write_unlock(&cpc_event_lock);
 		return -EAGAIN;
 	}
-	read_unlock(&cpc_event_lock);
 
 	err = 0;
-	write_lock(&cpc_event_lock);
-	if (cpc_event_avail) {
-		if (copy_to_user(arg_user, &cpc_event, sizeof(cpc_event)))
-			err = -EFAULT;
-		else
-			cpc_event_avail = false;
-	} else {
-		err = -EAGAIN;
-	}
+	if (copy_to_user(arg_user, &cpc_event, sizeof(cpc_event)))
+		err = -EFAULT;
+	else
+		cpc_event_avail = false;
 	write_unlock(&cpc_event_lock);
 
 	return err;
@@ -245,7 +240,7 @@ cpc_ack_event_ioctl(void __user *arg_user)
 int
 cpc_read_events_ioctl(void __user *arg_user)
 {
-	struct cpc_event_batch batch;
+	struct cpc_batch_event batch;
 	size_t n;
 
 	if (!arg_user) return -EINVAL;

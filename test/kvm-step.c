@@ -146,6 +146,7 @@ main(int argc, const char **argv)
 			if (ret && errno == EAGAIN) continue;
 			if (ret) err(1, "KVM_CPC_POLL_EVENT");
 
+			printf("%lu\n", event.id);
 			if (event.type == CPC_EVENT_PAUSE) break;
 
 			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);

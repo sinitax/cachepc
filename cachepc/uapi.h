@@ -30,7 +30,7 @@
 
 #define KVM_CPC_POLL_EVENT _IOWR(KVMIO, 0x40, struct cpc_event)
 #define KVM_CPC_ACK_EVENT _IOWR(KVMIO, 0x41, __u64)
-#define KVM_CPC_READ_EVENTS _IOWR(KVMIO, 0x42, struct cpc_event_batch)
+#define KVM_CPC_READ_EVENTS _IOWR(KVMIO, 0x42, struct cpc_batch_event)
 
 #define KVM_CPC_VM_REQ_PAUSE _IO(KVMIO, 0x50)
 
@@ -93,6 +93,12 @@ struct cpc_guest_event {
 	__u64 val;
 };
 
+struct cpc_batch_event {
+	__u64 cnt;
+	__u64 maxcnt;
+	struct cpc_event *buf;
+};
+
 struct cpc_event {
 	__u32 type;
 	__u64 id;
@@ -100,13 +106,8 @@ struct cpc_event {
 		struct cpc_track_step_event step;
 		struct cpc_track_page_event page;
 		struct cpc_guest_event guest;
+		struct cpc_batch_event batch;
 	};
-};
-
-struct cpc_event_batch {
-	__u64 cnt;
-	__u64 maxcnt;
-	struct cpc_event *buf;
 };
 
 struct cpc_sev_cmd {

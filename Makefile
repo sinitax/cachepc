@@ -39,9 +39,7 @@ clean:
 $(LINUX)/arch/x86/kvm/cachepc:
 	ln -sf $(PWD)/cachepc $@
 
-linux:
-	# build host kernel and Module.symvers for depmod
-	cp extra/.config linux/.config
+linux: # build host kernel for depmod
 	git -C $(LINUX) add .
 	git -C $(LINUX) stash
 	git -C $(LINUX) checkout d9bd54fea4d2

@@ -65,32 +65,27 @@ CPC_TRACK_FAULT_NO_RUN:
 CPC_TRACK_EXIT_EVICTION:
 	Set apic timer such that for any reasonably short KVM_RUN no local apic
 	interrupts will occur to cause exits. Good for collecting PRIME+COUNT
-	measurements over a clean run to a "natural" exit such as KVM_EXIT_HLT.
+	measurements over a clean run to a guest-invoked exit such as KVM_EXIT_HLT.
 
 CPC_TRACK_PAGES:
 	Track execution of all guest pages. While the guest is running untrack
 	a single executable page at a time based on page-faults. Allows tracking
 	which guest pages are executed and how long using retired instructions.
 
-CPC_TRACK_STEPS_AND_FAULTS:
-	Track access to all guest pages and single-step guest exection. For each
-	step, collect all page-faults that needed to be handled to enable that
-	step. Allows tracking not only which sets were evicted but what gfns
-	were involved in the access.
-
-CPC_TRACK_STEPS_SIGNALLED:
-	Track execution of a specific set of guest pages and single-step guest
-	execution for only this set. A guest program makes a specific vmmcall
-	to signal when to start and stop tracking. When a page-fault signals
-	that the target pages were reached, single-stepping begins and the
-	target pages are retracked to detect when the pages are left.
+CPC_TRACK_STEPS:
+	Single-step guest exection. For each step, collect either only instruction
+	or instruction and page-faults. Allows tracking not only which sets were
+	evicted but what gfns were involved in the access. A target page can
+	be set, such that we will first page-step until the page is reached,
+	then single-step while running instructions on that page.
 
 
 setup
 -----
 
 Testing was done on a Supermicro H12SSL-i V1.01 motherboard and AMD EPYC 72F3
-(Family 0x19, Model 0x01) cpu.
+(Family 0x19, Model 0x01) cpu. The motherboard bios version is 2.4 and was
+released 2022-04-14.
 
 The following non-default BIOS settings were used:
 
@@ -116,14 +111,24 @@ at commmit a480a51. Build and install the the host kernel and qemu by running:
 # cd snp-release-`date "+%Y-%m-%d"`
 # ./install.sh
 
-The following kernel parameters were used:
+The following host kernel parameters were used:
 
 kvm_amd.sev=1 kvm_amd.sev_es=1 nokaslr nosplash debug systemd.log_level=debug
     isolcpus=2,10,3,11 nohz_full=2,10,3,11 rcu_nocbs=2,10,3,11 nmi_watchdog=0
     transparent_hugepage=never apic lapic panic=-1 preempt=none
 
+In case SEV-SNP initialization fails due to a low firmware version, the
+firmware can be updated to v1.51 by running:
+
+# mv extra/amd_sev_fam19h_model0xh_1.51.03.sbin /lib/firmware/amd/amd_sev_fam19h_model0xh.sbin
+# rmmod ccp
+# sudo insmod /lib/modules/$(uname -r)/kernel/drivers/crypto/ccp/ccp.ko dyndbg="+p"
+
 To successfully build and load the kvm.ko and kvm-amd.ko modules, ensure
-that the full kernel was build atleast once using `make linux`.
+that the full kernel was built atleast once by running:
+
+$ cp $(AMDSEV_REPO)/linux/host/.config linux/.config 
+$ make linux
 
 Note, the checked out commit of the modified kernel (previously the kernel
 patch file) may be incorrect for revisions older than 864f5fa9d539.

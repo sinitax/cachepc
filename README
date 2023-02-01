@@ -14,75 +14,75 @@ tests
 Several test-cases were used to verify parts of the exploit chain separately:
 
 test/eviction:
-	Demonstrate that performance counters & our setup are accurate enough
-	to detect a single eviction in L1 cache and infer its cache set
-	through PRIME+COUNT
+    Demonstrate that performance counters & our setup are accurate enough
+    to detect a single eviction in L1 cache and infer its cache set
+    through PRIME+COUNT
 
 test/kvm-eviction:
-	Demonstrate that the cache set of a memory access instruction can be
-	inferred in non-SEV / SEV / SEV-ES / SEV-SNP -enabled vms respectively.
+    Demonstrate that the cache set of a memory access instruction can be
+    inferred in non-SEV / SEV / SEV-ES / SEV-SNP -enabled vms respectively.
 
 test/kvm-step:
-	Demonstrate that SEV-SNP enabled vms can be single-stepped using local
-	APIC timers to interrupt the guest and increment the interrupt interval
-	while observing the RIP+RFLAGS ciphertext in the VMSA for changes to
-	detect that a single instruction has been executed.
+    Demonstrate that SEV-SNP enabled vms can be single-stepped using local
+    APIC timers to interrupt the guest and increment the interrupt interval
+    while observing the RIP+RFLAGS ciphertext in the VMSA for changes to
+    detect that a single instruction has been executed.
 
 test/kvm-pagestep:
-	Demonstrate that a SEV-SNP enabled vm can be quickly single-stepped
-	and analyzed by tracking a single page at a time. This type
-	of tracking creates a page-wise profile of the guests execution,
-	which can be used to infer what the guest is doing and to begin
-	fine-grained single-stepping.
+    Demonstrate that a SEV-SNP enabled vm can be quickly single-stepped
+    and analyzed by tracking a single page at a time. This type
+    of tracking creates a page-wise profile of the guests execution,
+    which can be used to infer what the guest is doing and to begin
+    fine-grained single-stepping.
 
 test/qemu-pagestep:
-	Replicate result from kvm-pagestep on a qemu-based vm running debian.
+    Replicate result from kvm-pagestep on a qemu-based vm running debian.
 
 test/qemu-eviction:
-	Replicate result from kvm-eviction on a qemu-based vm running debian
-	using a specially crafted guest program to signal when measurement
-	should take place to infer the accessed set.
+    Replicate result from kvm-eviction on a qemu-based vm running debian
+    using a specially crafted guest program to signal when measurement
+    should take place to infer the accessed set.
 
 test/qemu-aes:
-	Demonstrate that AES encryption keys can be leaked from a
-	modified qemu-based linux guest.
+    Demonstrate that AES encryption keys can be leaked from a
+    modified qemu-based linux guest.
 
 test/qemu-poc:
-	Demonstrate that AES encryption keys can be leaked from an
-	unmodified qemu-based linux guest.
+    Demonstrate that AES encryption keys can be leaked from an
+    unmodified qemu-based linux guest.
 
 
-modes
------
+track modes
+-----------
 
 The kernel module employs a few different modes of tracking described
 in more detail below:
 
 CPC_TRACK_FAULT_NO_RUN:
-	Tracks access to all guest pages and lets the guest page fault over and over
-	without untracking / handling any page faults. This results in a decent
-	baseline measurement when we dont want to step the vm.
+    Tracks access to all guest pages and lets the guest page fault over and over
+    without untracking / handling any page faults. This results in a decent
+    baseline measurement when we dont want to step the vm.
 
 CPC_TRACK_EXIT_EVICTION:
-	Set apic timer such that for any reasonably short KVM_RUN no local apic
-	interrupts will occur to cause exits. Good for collecting PRIME+COUNT
-	measurements over a clean run to a guest-invoked exit such as KVM_EXIT_HLT.
+    Set apic timer such that for any reasonably short KVM_RUN no local apic
+    interrupts will occur to cause exits. Good for collecting PRIME+COUNT
+    measurements over a clean run to a guest-invoked exit such as KVM_EXIT_HLT.
 
 CPC_TRACK_PAGES:
-	Track execution of all guest pages. While the guest is running, untrack
-	a single executable page at a time based on page-faults. Allows tracking
-	which guest pages are executed and how long using retired instructions.
+    Track execution of all guest pages. While the guest is running, untrack
+    a single executable page at a time based on page-faults. Allows tracking
+    which guest pages are executed and how long using retired instructions.
 
 CPC_TRACK_STEPS:
-	Single-step guest exection. For each step, collect either only instruction
-	or instruction and data page-faults. Allows tracking not only which sets were
-	evicted but what gfns were involved in the access. A target page can
-	be set, such that we will first page-step until the page is reached,
-	then single-step while running instructions on that page.
+    Single-step guest exection. For each step, collect either only instruction
+    or instruction and data page-faults. Allows tracking not only which sets were
+    evicted but what gfns were involved in the access. A target page can
+    be set, such that we will first page-step until the page is reached,
+    then single-step while running instructions on that page.
 
 
-setup
------
+host setup
+----------
 
 Testing was done on a Supermicro H12SSL-i V1.01 motherboard and AMD EPYC 72F3
 (Family 0x19, Model 0x01) cpu. The motherboard bios version is 2.4 and was
@@ -97,8 +97,8 @@ sev-snp-devel at commmit a480a51. Install the host kernel by running:
 # ./install.sh
 
 
-For the build to complete the following packages needed to be installed
-following a clean install of debian linux-5.10.0-21:
+For the build to complete the following packages were needed following
+a clean install of debian linux-5.10.0-21:
 
 git build-essential flex dpkg bc rsync libelf-dev libssl-dev bison ninja-build
     pkg-config libglib2.0-dev libpixman-1-dev python3 coda nasm uuid-dev iasl
@@ -135,6 +135,27 @@ cachepc, ensure that the full kernel was built atleast once beforehand by runnin
 $ cp $(AMDSEV_REPO)/linux/host/.config linux/.config 
 $ make linux
 
+
+guest setup
+-----------
+
+Generate a guest image and install debian by running qemu/install.sh.
+The virtual machine can either be controlled via vnc, or once the guest os
+is installed via ssh, port forwarded to localhost:8000.
+
+Once debian is installed, launch the guest by running qemu/launch.sh and
+copy over the compiled guest kernel packages from AMDSEV/linux on the host
+and install them. Reboot the guest, make sure that `uname -r` matches
+the expected version and copy that versions initrd and vmlinuz out of
+/boot on the guest to qemu/ on the host. Also copy the guests /proc/cmdline
+contents to qemu/cmdline on the host.
+
+Finally, run qemu/launch-victim.sh to launch a qemu guest ready to
+be attacked.
+
+
+troubleshooting
+---------------
 
 In case SEV-SNP initialization fails due to a low firmware version, the
 firmware can be updated to v1.51 by running:

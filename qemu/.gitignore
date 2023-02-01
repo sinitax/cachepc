@@ -1,0 +1,7 @@
+monitor
+stdout.log
+*.fd
+*.qcow2
+*.iso
+initrd.img-*
+vmlinuz-*

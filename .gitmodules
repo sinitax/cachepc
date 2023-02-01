@@ -4,3 +4,6 @@
 [submodule "cachepc-linux"]
 	path = linux
 	url = git@github.com:Sinitax/cachepc-linux.git
+[submodule "cachepc-AMDSEV"]
+	path = AMDSEV
+	url = git@github.com:Sinitax/cachepc-AMDSEV.git

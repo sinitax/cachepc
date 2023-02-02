@@ -41,6 +41,13 @@ monitor(struct kvm *kvm, bool baseline)
 	return 1;
 }
 
+void
+kill_child(void)
+{
+	printf("Killing vm..\n");
+	kill(child, SIGKILL);
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -95,6 +102,8 @@ main(int argc, const char **argv)
 		vm_deinit(&kvm);
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
+
+		atexit(kill_child);
 
 		ipc_wait_child(ipc);
 

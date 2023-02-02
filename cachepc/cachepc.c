@@ -217,6 +217,6 @@ cpc_apic_oneshot_run(uint32_t interval)
 {
 	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
 	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_1);
-	native_apic_mem_write(APIC_TMICT, interval);
+	native_apic_mem_write(APIC_TMICT, interval / CPC_APIC_TIMER_SOFTDIV);
 }
 EXPORT_SYMBOL(cpc_apic_oneshot_run);

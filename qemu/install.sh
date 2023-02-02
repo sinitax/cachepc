@@ -5,7 +5,7 @@ set -ex
 gitroot=$(git rev-parse --show-toplevel)
 cd "$gitroot/qemu"
 
-DISK="debian11.qcow2"
+DISK="guest.qcow2"
 DEBIANISO="debian-11.4.0-amd64-DVD-1.iso"
 
 if [ ! -e "$DISK" ]; then

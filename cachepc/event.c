@@ -33,7 +33,9 @@ EXPORT_SYMBOL(cpc_send_track_page_event);
 void
 cpc_events_init(void)
 {
-	cpc_eventbuf = NULL;
+	cpc_eventbuf = kzalloc(sizeof(struct cpc_event)
+		* CPC_EVENT_BATCH_MAX, GFP_KERNEL);
+	BUG_ON(!cpc_eventbuf);
 	cpc_eventbuf_len = 0;
 	cpc_event_batching = false;
 	rwlock_init(&cpc_event_lock);
@@ -70,7 +72,7 @@ cpc_send_event(struct cpc_event event)
 	}
 
 	if (cpc_event_batching) {
-		if (cpc_eventbuf_len < CPC_EVENTBUF_CAP) {
+		if (cpc_eventbuf_len < CPC_EVENT_BATCH_MAX) {
 			event.id = 0;
 			memcpy(&cpc_eventbuf[cpc_eventbuf_len], &event,
 				sizeof(struct cpc_event));
@@ -238,10 +240,22 @@ cpc_ack_event_ioctl(void __user *arg_user)
 }
 
 int
-cpc_read_events_ioctl(void __user *arg_user)
+cpc_batch_events_ioctl(void __user *arg_user)
 {
-	struct cpc_batch_event batch;
-	size_t n;
+	uint32_t enable;
+
+	if (copy_from_user(&enable, arg_user, sizeof(enable)))
+		return -EFAULT;
+
+	cpc_event_batching = enable;
+
+	return 0;
+}
+
+int
+cpc_read_batch_ioctl(void __user *arg_user)
+{
+	struct cpc_event_batch batch;
 
 	if (!arg_user) return -EINVAL;
 
@@ -256,11 +270,12 @@ cpc_read_events_ioctl(void __user *arg_user)
 		return -EAGAIN;
 	}
 
-	n = cpc_eventbuf_len;
-	if (batch.maxcnt < n)
-		n = batch.maxcnt;
+	batch.cnt = cpc_eventbuf_len;
+	if (batch.maxcnt < batch.cnt)
+		batch.cnt = batch.maxcnt;
 
-	if (copy_to_user(batch.buf, cpc_eventbuf, sizeof(struct cpc_event) * n)) {
+	if (copy_to_user(batch.buf, cpc_eventbuf,
+			sizeof(struct cpc_event) * batch.cnt)) {
 		write_unlock(&cpc_event_lock);
 		return -EFAULT;
 	}

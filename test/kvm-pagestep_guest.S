@@ -11,6 +11,17 @@ guest:
     nop
 .endr
 
+# instruction on page boundary test
+    nop
+.rept 2
+.rept L1_LINESIZE * L1_SETS - 2
+    nop
+.endr
+    cpuid # two byte instruction
+.endr
+# ---------------------------------
+
+# speculation on conditional jump test
     mov $0x01, %bx
     cmp $0x00, %bx
 
@@ -19,6 +30,7 @@ guest:
     nop
 .endr
 skip:
+# -----------------------------------
 
     jmp guest
 

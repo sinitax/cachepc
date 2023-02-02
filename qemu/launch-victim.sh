@@ -10,15 +10,15 @@ if [ ! -e cmdline ]; then
 	exit 1
 fi
 
-if [ ! -e debian11_encrypted.qcow2 ]; then
+if [ ! -e guest_encrypted.qcow2 ]; then
 	echo "Copying disk.."
-	rsync -a --info=progress2 debian11.qcow2 debian11_encrypted.qcow2
+	rsync -a --info=progress2 guest.qcow2 guest_encrypted.qcow2
 fi
 
 sudo LIBVIRT_DEBUG=1 virsh net-start default 2>&1 | grep -i warning || true
 
 sudo PREFIX=$gitroot/AMDSEV $gitroot/AMDSEV/launch-qemu.sh \
-	-hda debian11_encrypted.qcow2 \
+	-hda guest_encrypted.qcow2 \
 	-console serial \
 	-vnc 1 \
 	-mem 2024 \

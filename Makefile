@@ -60,7 +60,7 @@ load:
 
 prep:
 	sudo sh -c "echo 0 > /proc/sys/kernel/watchdog"
-	sudo cpupower frequency-set -d 3.7GHz -u 3.7GHz
+	sudo cpupower frequency-set -g powersave
 	sudo bash -c "for f in /proc/irq/*/smp_affinity; do echo 1 > \$$f 2>/dev/null; done"
 
 util/%: util/%.c $(UTIL_SRCS)

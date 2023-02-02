@@ -59,7 +59,7 @@ EXPORT_SYMBOL(cpc_singlestep);
 EXPORT_SYMBOL(cpc_singlestep_reset);
 EXPORT_SYMBOL(cpc_long_step);
 
-bool cpc_apic_oneshot = false;
+volatile bool cpc_apic_oneshot = false;
 uint32_t cpc_apic_timer = 0;
 EXPORT_SYMBOL(cpc_apic_oneshot);
 EXPORT_SYMBOL(cpc_apic_timer);
@@ -624,8 +624,10 @@ cpc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cpc_poll_event_ioctl(arg_user);
 	case KVM_CPC_ACK_EVENT:
 		return cpc_ack_event_ioctl(arg_user);
-	case KVM_CPC_READ_EVENTS:
-		return cpc_read_events_ioctl(arg_user);
+	case KVM_CPC_BATCH_EVENTS:
+		return cpc_batch_events_ioctl(arg_user);
+	case KVM_CPC_READ_BATCH:
+		return cpc_read_batch_ioctl(arg_user);
 	// case KVM_CPC_TRACK_PAGE:
 	// 	return cpc_track_page_ioctl(arg_user);
 	// case KVM_CPC_TRACK_RANGE_START:
@@ -700,7 +702,7 @@ cpc_kvm_init(void)
 	cpc_baseline = kzalloc(L1_SETS, GFP_KERNEL);
 	BUG_ON(!cpc_baseline);
 
-	cpc_events_reset();
+	cpc_events_init();
 
 	ret = smp_call_function_single(CPC_ISOLCPU,
 		cpc_setup_test, NULL, true);
@@ -710,6 +712,8 @@ cpc_kvm_init(void)
 void
 cpc_kvm_exit(void)
 {
+	cpc_events_deinit();
+
 	kfree(cpc_msrmts);
 
 	kfree(cpc_baseline);

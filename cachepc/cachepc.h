@@ -37,8 +37,12 @@ struct cpc_fault {
 };
 
 struct cpc_track_pages {
+	bool prev_avail;
 	bool cur_avail;
+	bool next_avail;
+	uint64_t prev_gfn;
 	uint64_t cur_gfn;
+	uint64_t next_gfn;
 	uint64_t retinst;
 	bool in_step;
 };
@@ -95,7 +99,7 @@ extern bool cpc_singlestep;
 extern bool cpc_singlestep_reset;
 extern bool cpc_long_step;
 
-extern bool cpc_apic_oneshot;
+extern volatile bool cpc_apic_oneshot;
 extern uint32_t cpc_apic_timer;
 
 extern uint32_t cpc_track_mode;

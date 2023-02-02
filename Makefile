@@ -60,7 +60,9 @@ load:
 
 prep:
 	sudo sh -c "echo 0 > /proc/sys/kernel/watchdog"
-	sudo cpupower frequency-set -g powersave
+	sudo sh -c "echo 1500000 > /sys/devices/system/cpu/cpu2/cpufreq/scaling_min_freq"
+	sudo sh -c "echo 1500000 > /sys/devices/system/cpu/cpu2/cpufreq/scaling_max_freq"
+	sudo sh -c "echo 1500000 > /sys/devices/system/cpu/cpu2/cpufreq/scaling_min_freq"
 	sudo bash -c "for f in /proc/irq/*/smp_affinity; do echo 1 > \$$f 2>/dev/null; done"
 
 util/%: util/%.c $(UTIL_SRCS)

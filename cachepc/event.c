@@ -72,7 +72,8 @@ cpc_send_event(struct cpc_event event)
 	}
 
 	if (cpc_event_batching) {
-		if (cpc_eventbuf_len < CPC_EVENT_BATCH_MAX) {
+		if (event.type != CPC_EVENT_GUEST
+				&& cpc_eventbuf_len < CPC_EVENT_BATCH_MAX) {
 			event.id = 0;
 			memcpy(&cpc_eventbuf[cpc_eventbuf_len], &event,
 				sizeof(struct cpc_event));

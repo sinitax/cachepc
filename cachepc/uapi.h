@@ -72,6 +72,9 @@ struct cpc_track_cfg {
 			__u8 use_filter;
 			__u8 with_data;
 		} steps;
+		struct {
+			__u8 singlestep_resolve;
+		} pages;
 	};
 };
 

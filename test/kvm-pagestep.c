@@ -111,6 +111,7 @@ main(int argc, const char **argv)
 
 		memset(&cfg, 0, sizeof(cfg));
 		cfg.mode = CPC_TRACK_PAGES;
+		cfg.pages.singlestep_resolve = true;
 		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 		if (ret) err(1, "KVM_CPC_TRACK_MODE");
 

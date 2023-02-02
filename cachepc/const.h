@@ -20,8 +20,11 @@
 #define CPC_CL_PREV_OFFSET 8
 #define CPC_CL_COUNT_OFFSET 16
 
-#define CPC_APIC_TIMER_TDCR APIC_TDR_DIV_2 // APIC_TDR_DIV_1
+/* APIC divisor determines how much time is added per increment.
+ * A large divisor decreases the counter slower, which means more time
+ * is added for each increment, possiblpy skipping whole instructions */
+#define CPC_APIC_TIMER_TDCR APIC_TDR_DIV_1
 #define CPC_APIC_TIMER_SOFTDIV 1
-#define CPC_APIC_TIMER_MIN (100 * CPC_APIC_TIMER_SOFTDIV)
+#define CPC_APIC_TIMER_MIN (20 * CPC_APIC_TIMER_SOFTDIV)
 
 #define CPC_EVENT_BATCH_MAX 1000

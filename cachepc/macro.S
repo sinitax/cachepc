@@ -2,10 +2,8 @@
 
 # clobbers rax, rbx, rcx, rdx
 .macro barrier
-    mfence # memory barrier
-    rdtsc # serializing
-    # mov $0x80000005, %rax
-    # cpuid # serializing (cpuid alone does not work)
+    mfence # finish load and stores
+    lfence # prevent reordering
 .endm
 
 # clobbers rax, rbx, rcx, rdx, (out)

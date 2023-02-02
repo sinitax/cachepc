@@ -59,8 +59,8 @@ EXPORT_SYMBOL(cpc_singlestep);
 EXPORT_SYMBOL(cpc_singlestep_reset);
 EXPORT_SYMBOL(cpc_long_step);
 
-volatile bool cpc_apic_oneshot = false;
-uint32_t cpc_apic_timer = 0;
+bool cpc_apic_oneshot = false;
+int32_t cpc_apic_timer = 0;
 EXPORT_SYMBOL(cpc_apic_oneshot);
 EXPORT_SYMBOL(cpc_apic_timer);
 
@@ -485,6 +485,7 @@ cpc_track_mode_ioctl(void __user *arg_user)
 		break;
 	case CPC_TRACK_PAGES:
 		memset(&cpc_track_pages, 0, sizeof(cpc_track_pages));
+		cpc_track_pages.singlestep_resolve = cfg.pages.singlestep_resolve;
 		cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		break;
 	case CPC_TRACK_STEPS:

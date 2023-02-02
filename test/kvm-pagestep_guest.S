@@ -17,7 +17,7 @@ guest:
 .rept L1_LINESIZE * L1_SETS - 2
     nop
 .endr
-    cpuid # two byte instruction
+    rdtsc # two byte instruction
 .endr
 # ---------------------------------
 

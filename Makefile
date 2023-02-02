@@ -60,6 +60,7 @@ load:
 
 prep:
 	sudo sh -c "echo 0 > /proc/sys/kernel/watchdog"
+	sudo sh -c "echo performance > /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor"
 	sudo sh -c "echo 1500000 > /sys/devices/system/cpu/cpu2/cpufreq/scaling_min_freq"
 	sudo sh -c "echo 1500000 > /sys/devices/system/cpu/cpu2/cpufreq/scaling_max_freq"
 	sudo sh -c "echo 1500000 > /sys/devices/system/cpu/cpu2/cpufreq/scaling_min_freq"

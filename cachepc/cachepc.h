@@ -60,16 +60,6 @@ struct cpc_track_steps {
 	uint64_t target_gfn;
 	bool stepping;
 	bool use_filter;
-
-	/* simplified page tracking without singlestep resolve, since we
-	 * only care about when we reach the target page, not accuracy..
-	 * in contrast to page_track, we keep two pages tracked at all times
-	 * this helps prevent it looking like a A is tracked after B
-	 * when in reality we just untracked A too early on a A -> B boundary */
-	bool prev_avail;
-	uint64_t prev_gfn;
-	bool cur_avail;
-	uint64_t cur_gfn;
 };
 
 static_assert(sizeof(struct cpc_cl) == L1_LINESIZE, "Bad cacheline struct");

@@ -525,7 +525,8 @@ cpc_track_mode_ioctl(void __user *arg_user)
 			cpc_singlestep_reset = true;
 			cpc_track_steps.stepping = true;
 		} else {
-			cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
+			cpc_track_single(vcpu, cpc_track_steps.target_gfn,
+				KVM_PAGE_TRACK_EXEC);
 			cpc_track_steps.stepping = false;
 		}
 		break;

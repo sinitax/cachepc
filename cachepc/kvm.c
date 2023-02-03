@@ -18,8 +18,8 @@
 
 #define TEST_REPEAT_MAX 1000
 
-bool cpc_debug = false;
-EXPORT_SYMBOL(cpc_debug);
+uint32_t cpc_loglevel = 0;
+EXPORT_SYMBOL(cpc_loglevel);
 
 uint8_t *cpc_msrmts = NULL;
 EXPORT_SYMBOL(cpc_msrmts);
@@ -64,6 +64,13 @@ int32_t cpc_apic_timer = 0;
 EXPORT_SYMBOL(cpc_apic_oneshot);
 EXPORT_SYMBOL(cpc_apic_timer);
 
+uint32_t cpc_apic_timer_min = 0;
+uint32_t cpc_apic_timer_dec_npf = 0;
+uint32_t cpc_apic_timer_dec_intr = 0;
+EXPORT_SYMBOL(cpc_apic_timer_min);
+EXPORT_SYMBOL(cpc_apic_timer_dec_npf);
+EXPORT_SYMBOL(cpc_apic_timer_dec_intr);
+
 uint32_t cpc_track_mode = false;
 uint64_t cpc_track_start_gfn = 0;
 uint64_t cpc_track_end_gfn = 0;
@@ -101,7 +108,7 @@ static void cpc_pmc_setup(void *p);
 static void cpc_system_setup(void);
 
 static int cpc_reset_ioctl(void __user *arg_user);
-static int cpc_debug_ioctl(void __user *arg_user);
+static int cpc_loglevel_ioctl(void __user *arg_user);
 
 static int cpc_memory_encrypt_op_ioctl(void __user *arg_user);
 
@@ -298,16 +305,16 @@ cpc_reset_ioctl(void __user *arg_user)
 }
 
 int
-cpc_debug_ioctl(void __user *arg_user)
+cpc_loglevel_ioctl(void __user *arg_user)
 {
-	uint32_t debug;
+	uint32_t level;
 
 	if (!arg_user) return -EINVAL;
 
-	if (copy_from_user(&debug, arg_user, sizeof(uint32_t)))
+	if (copy_from_user(&level, arg_user, sizeof(uint32_t)))
 		return -EFAULT;
 
-	cpc_debug = debug;
+	cpc_loglevel = level;
 
 	return 0;
 }
@@ -474,6 +481,16 @@ cpc_track_mode_ioctl(void __user *arg_user)
 	cpc_singlestep_reset = false;
 	cpc_long_step = false;
 
+	if (sev_es_guest(vcpu->kvm)) {
+		cpc_apic_timer_min = 200;
+		cpc_apic_timer_dec_npf = 25;
+		cpc_apic_timer_dec_intr = 50;
+	} else {
+		cpc_apic_timer_min = 15;
+		cpc_apic_timer_dec_npf = 5;
+		cpc_apic_timer_dec_intr = 10;
+	}
+
 	switch (cfg.mode) {
 	case CPC_TRACK_FAULT_NO_RUN:
 		cpc_prime_probe = true;
@@ -489,6 +506,9 @@ cpc_track_mode_ioctl(void __user *arg_user)
 		cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		break;
 	case CPC_TRACK_STEPS:
+		cpc_apic_timer_min = 7000;
+		cpc_apic_timer_dec_npf = 25;
+		cpc_apic_timer_dec_intr = 50;
 		cpc_track_steps.use_target = cfg.steps.use_target;
 		cpc_track_steps.target_gfn = cfg.steps.target_gfn;
 		cpc_track_steps.with_data = cfg.steps.with_data;
@@ -599,8 +619,8 @@ cpc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 	switch (ioctl) {
 	case KVM_CPC_RESET:
 		return cpc_reset_ioctl(arg_user);
-	case KVM_CPC_DEBUG:
-		return cpc_debug_ioctl(arg_user);
+	case KVM_CPC_LOGLEVEL:
+		return cpc_loglevel_ioctl(arg_user);
 	case KVM_CPC_MEMORY_ENCRYPT_OP:
 		return cpc_memory_encrypt_op_ioctl(arg_user);
 	case KVM_CPC_TEST_EVICTION:
@@ -678,7 +698,7 @@ cpc_kvm_init(void)
 {
 	int ret;
 
-	cpc_debug = false;
+	cpc_loglevel = 1;
 
 	cpc_ds = NULL;
 	cpc_ds_ul = NULL;
@@ -692,6 +712,10 @@ cpc_kvm_init(void)
 
 	cpc_apic_oneshot = false;
 	cpc_apic_timer = 0;
+
+	cpc_apic_timer_min = 0;
+	cpc_apic_timer_dec_npf = 0;
+	cpc_apic_timer_dec_intr = 0;
 
 	INIT_LIST_HEAD(&cpc_faults);
 

@@ -12,8 +12,13 @@
 #define PMC_GUEST (1 << 0)
 
 #define CPC_DBG(...) do { \
-	if (cpc_debug) pr_info("CachePC: " __VA_ARGS__); } while (0)
-#define CPC_INFO(...) do { pr_info("CachePC: " __VA_ARGS__); } while (0)
+		if (cpc_loglevel >= CPC_LOGLVL_DBG) \
+			pr_info("CachePC: " __VA_ARGS__); \
+	} while (0)
+#define CPC_INFO(...) do { \
+		if (cpc_loglevel >= CPC_LOGLVL_INFO) \
+			pr_info("CachePC: " __VA_ARGS__); \
+	} while (0)
 #define CPC_WARN(...) do { pr_warn("CachePC: " __VA_ARGS__); } while (0)
 #define CPC_ERR(...) do { pr_err("CachePC: " __VA_ARGS__); } while (0)
 
@@ -83,7 +88,7 @@ uint64_t cpc_read_pmc(uint64_t event);
 
 void cpc_apic_oneshot_run(uint32_t interval);
 
-extern bool cpc_debug;
+extern uint32_t cpc_loglevel;
 
 extern uint8_t *cpc_msrmts;
 extern uint8_t *cpc_baseline;
@@ -102,6 +107,9 @@ extern bool cpc_long_step;
 
 extern bool cpc_apic_oneshot;
 extern int32_t cpc_apic_timer;
+extern uint32_t cpc_apic_timer_min;
+extern uint32_t cpc_apic_timer_dec_npf;
+extern uint32_t cpc_apic_timer_dec_intr;
 
 extern uint32_t cpc_track_mode;
 extern uint64_t cpc_track_start_gfn;

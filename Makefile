@@ -12,7 +12,7 @@ BINS += test/kvm-pagestep test/kvm-pagestep_guest
 BINS += test/qemu-pagestep
 BINS += test/qemu-eviction test/qemu-eviction_guest
 # BINS += test/qemu-aes_guest test/qemu-aes
-BINS += util/debug util/reset util/mainpfn
+BINS += util/loglevel util/reset util/mainpfn
 
 CFLAGS = -I . -I linux/usr/include
 CFLAGS += -g -Wunused-variable -Wunknown-pragmas -Wunused-function

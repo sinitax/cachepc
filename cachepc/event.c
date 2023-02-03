@@ -14,7 +14,7 @@
 #define ARRLEN(x) (sizeof(x)/sizeof((x)[0]))
 
 struct cpc_event *cpc_eventbuf;
-size_t cpc_eventbuf_len;
+uint32_t cpc_eventbuf_len;
 bool cpc_event_batching;
 
 uint64_t cpc_last_event_sent;
@@ -36,8 +36,6 @@ cpc_events_init(void)
 	cpc_eventbuf = kzalloc(sizeof(struct cpc_event)
 		* CPC_EVENT_BATCH_MAX, GFP_KERNEL);
 	BUG_ON(!cpc_eventbuf);
-	cpc_eventbuf_len = 0;
-	cpc_event_batching = false;
 	rwlock_init(&cpc_event_lock);
 	cpc_events_reset();
 }
@@ -53,6 +51,8 @@ void
 cpc_events_reset(void)
 {
 	write_lock(&cpc_event_lock);
+	cpc_eventbuf_len = 0;
+	cpc_event_batching = false;
 	cpc_last_event_sent = 1;
 	cpc_last_event_acked = 1;
 	cpc_event_avail = false;
@@ -66,22 +66,27 @@ cpc_send_event(struct cpc_event event)
 
 	write_lock(&cpc_event_lock);
 	 if (cpc_last_event_sent != cpc_last_event_acked) {
-		CPC_WARN("event IDs out of sync\n");
+		CPC_WARN("Event IDs out of sync\n");
 		write_unlock(&cpc_event_lock);
 		return 1;
 	}
 
-	if (cpc_event_batching) {
-		if (event.type != CPC_EVENT_GUEST
-				&& cpc_eventbuf_len < CPC_EVENT_BATCH_MAX) {
-			event.id = 0;
-			memcpy(&cpc_eventbuf[cpc_eventbuf_len], &event,
-				sizeof(struct cpc_event));
-			cpc_eventbuf_len++;
+	if (cpc_event_batching && event.type != CPC_EVENT_GUEST) {
+		if (cpc_eventbuf_len >= CPC_EVENT_BATCH_MAX) {
+			CPC_WARN("Event batch not retrieved, clearing..\n");
+			cpc_eventbuf_len = 0;
+		}
+
+		event.id = 0;
+		memcpy(&cpc_eventbuf[cpc_eventbuf_len], &event, sizeof(event));
+		cpc_eventbuf_len++;
+
+		if (cpc_eventbuf_len == CPC_EVENT_BATCH_MAX) {
+			memset(&cpc_event, 0, sizeof(cpc_event));
+			cpc_event.type = CPC_EVENT_BATCH;
+		} else {
 			write_unlock(&cpc_event_lock);
 			return 0;
-		} else {
-			cpc_event.type = CPC_EVENT_BATCH;
 		}
 	} else {
 		cpc_event = event;
@@ -280,7 +285,12 @@ cpc_read_batch_ioctl(void __user *arg_user)
 		write_unlock(&cpc_event_lock);
 		return -EFAULT;
 	}
+
+	cpc_eventbuf_len = 0;
 	write_unlock(&cpc_event_lock);
+
+	if (copy_to_user(arg_user, &batch, sizeof(batch)))
+		return -EFAULT;
 
 	return 0;
 }

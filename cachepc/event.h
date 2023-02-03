@@ -8,7 +8,7 @@
 #include <linux/types.h>
 
 extern struct cpc_event *cpc_eventbuf;
-extern size_t cpc_eventbuf_len;
+extern uint32_t cpc_eventbuf_len;
 extern bool cpc_event_batching;
 
 void cpc_events_init(void);

@@ -16,6 +16,7 @@
 #include <stdlib.h>
 
 static struct cpc_event event;
+static struct cpc_event_batch batch;
 
 int
 monitor(bool baseline)
@@ -57,12 +58,32 @@ monitor(bool baseline)
 }
 
 void
+read_batch(void)
+{
+	uint32_t i;
+	int ret;
+
+	ret = ioctl(kvm_dev, KVM_CPC_READ_BATCH, &batch);
+	if (ret && errno == EAGAIN) return;
+	if (ret && errno != EAGAIN) err(1, "KVM_CPC_READ_BATCH");
+
+	for (i = 0; i < batch.cnt; i++) {
+		if (batch.buf[i].type != CPC_EVENT_TRACK_PAGE)
+			continue;
+
+		printf("GFN %08llx\n", batch.buf[i].page.inst_gfn);
+	}
+}
+
+void
 reset(int sig)
 {
 	int ret;
 
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
 	if (ret) err(1, "KVM_CPC_RESET");
+
+	exit(1);
 }
 
 int
@@ -70,6 +91,7 @@ main(int argc, const char **argv)
 {
 	uint8_t baseline[L1_SETS];
 	struct cpc_track_cfg cfg;
+	bool first_guest_event;
 	uint32_t eventcnt;
 	uint32_t arg;
 	int ret;
@@ -83,6 +105,8 @@ main(int argc, const char **argv)
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
 	if (ret) err(1, "KVM_CPC_RESET");
 
+	signal(SIGINT, reset);
+
 	arg = true;
 	ret = ioctl(kvm_dev, KVM_CPC_CALC_BASELINE, &arg);
 	if (ret) err(1, "KVM_CPC_CALC_BASELINE");
@@ -90,6 +114,7 @@ main(int argc, const char **argv)
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.mode = CPC_TRACK_STEPS;
 	cfg.steps.with_data = true;
+	cfg.steps.use_filter = true;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 	if (ret) err(1, "KVM_CPC_RESET");
 
@@ -129,22 +154,77 @@ main(int argc, const char **argv)
 	print_counts_raw(baseline);
 	printf("\n\n");
 
-	memset(&cfg, 0, sizeof(cfg));
-	cfg.steps.target_gfn = 0; /* TODO */
-	cfg.steps.use_target = true;
-	cfg.mode = CPC_TRACK_STEPS;
-	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &arg);
-	if (ret) err(1, "KVM_CPC_RESET");
+	memset(&cfg, 0, sizeof(&cfg));
+	cfg.mode = CPC_TRACK_NONE;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
+	if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 	if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
-	signal(SIGINT, reset);
+	/* wait until guest program is run */
+	printf("Press enter to continue..\n");
+	getchar();
+
+	arg = true;
+	ret = ioctl(kvm_dev, KVM_CPC_BATCH_EVENTS, &arg);
+	if (ret) err(1, "KVM_CPC_BATCH_EVENTS");
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.mode = CPC_TRACK_PAGES;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
+	if (ret) err(1, "KVM_CPC_TRACK_MODE");
+
+	batch.cnt = 0;
+	batch.maxcnt = CPC_EVENT_BATCH_MAX;
+	batch.buf = malloc(sizeof(struct cpc_event) * batch.maxcnt);
+	if (!batch.buf) err(1, "malloc");
+
+	first_guest_event = true;
+	while (1) {
+		ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
+		if (ret && errno == EAGAIN) continue;
+		if (ret) err(1, "KVM_CPC_POLL_EVENT");
+		
+		printf("EVENT %i\n", event.type);
+
+		if (event.type == CPC_EVENT_GUEST
+				&& event.guest.type == CPC_GUEST_START_TRACK) {
+			if (!first_guest_event)
+				break;
+			first_guest_event = false;
+		}
+
+		if (event.type == CPC_EVENT_BATCH)
+			read_batch();
+
+		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
+		if (ret) err(1, "KVM_CPC_ACK_EVENT");
+	}
+
+	read_batch();
+
+	if (!batch.cnt) errx(1, "empty batch buffer");
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.mode = CPC_TRACK_STEPS;
+	cfg.steps.target_gfn = batch.buf[batch.cnt - 3].page.inst_gfn;
+	cfg.steps.use_target = true;
+	cfg.steps.use_filter = true;
+	cfg.steps.with_data = true;
+	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
+	if (ret) err(1, "KVM_CPC_TRACK_MODE");
+
+	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
+	if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
 	while (monitor(false) != 2);
 
+	signal(SIGINT, NULL);
+
 	ret = ioctl(kvm_dev, KVM_CPC_RESET);
 	if (ret) err(1, "KVM_CPC_RESET");
+
+	free(batch.buf);
 
 	kvm_setup_deinit();
 }

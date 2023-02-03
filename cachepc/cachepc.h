@@ -43,22 +43,33 @@ struct cpc_fault {
 
 struct cpc_track_pages {
 	bool singlestep_resolve;
-	bool prev_avail;
-	bool cur_avail;
-	bool next_avail;
-	uint64_t prev_gfn;
-	uint64_t cur_gfn;
-	uint64_t next_gfn;
 	uint64_t retinst;
 	bool in_step;
+
+	bool prev_avail;
+	uint64_t prev_gfn;
+	bool cur_avail;
+	uint64_t cur_gfn;
+	bool next_avail;
+	uint64_t next_gfn;
 };
 
 struct cpc_track_steps {
 	bool with_data;
 	bool use_target;
-	bool target_gfn;
+	uint64_t target_gfn;
 	bool stepping;
 	bool use_filter;
+
+	/* simplified page tracking without singlestep resolve, since we
+	 * only care about when we reach the target page, not accuracy..
+	 * in contrast to page_track, we keep two pages tracked at all times
+	 * this helps prevent it looking like a A is tracked after B
+	 * when in reality we just untracked A too early on a A -> B boundary */
+	bool prev_avail;
+	uint64_t prev_gfn;
+	bool cur_avail;
+	uint64_t cur_gfn;
 };
 
 static_assert(sizeof(struct cpc_cl) == L1_LINESIZE, "Bad cacheline struct");
@@ -124,7 +135,6 @@ extern bool cpc_rip_prev_set;
 
 extern struct cpc_track_pages cpc_track_pages;
 extern struct cpc_track_steps cpc_track_steps;
-extern struct cpc_track_steps_signalled cpc_track_steps_signalled;
 
 extern struct list_head cpc_faults;
 

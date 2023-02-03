@@ -507,8 +507,8 @@ cpc_track_mode_ioctl(void __user *arg_user)
 		break;
 	case CPC_TRACK_STEPS:
 		cpc_apic_timer_min = 7000;
-		cpc_apic_timer_dec_npf = 25;
-		cpc_apic_timer_dec_intr = 50;
+		cpc_apic_timer_dec_npf = 50;
+		cpc_apic_timer_dec_intr = 100;
 		cpc_track_steps.use_target = cfg.steps.use_target;
 		cpc_track_steps.target_gfn = cfg.steps.target_gfn;
 		cpc_track_steps.with_data = cfg.steps.with_data;

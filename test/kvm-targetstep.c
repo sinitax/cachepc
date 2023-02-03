@@ -28,20 +28,23 @@ monitor(struct kvm *kvm, bool baseline)
 	if (ret && errno == EAGAIN) return 0;
 	if (ret) err(1, "KVM_CPC_POLL_EVENT");
 
-	if (event.type != CPC_EVENT_TRACK_STEP)
-		errx(1, "unexpected event type %i", event.type);
+	if (!baseline && event.type == CPC_EVENT_GUEST
+			&& event.guest.type == CPC_GUEST_STOP_TRACK)
+		return 2;
 
-	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
-	if (ret) err(1, "KVM_CPC_READ_COUNTS");
+	if (event.type == CPC_EVENT_TRACK_STEP) {
+		ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
+		if (ret) err(1, "KVM_CPC_READ_COUNTS");
 
-	printf("Event: rip:%08llx cnt:%llu inst:%08llx data:%08llx ret:%llu\n",
-		vm_get_rip(), event.step.fault_count,
-		event.step.fault_gfns[0], event.step.fault_gfns[1],
-		event.step.retinst);
-	print_counts(counts);
-	printf("\n");
-	print_counts_raw(counts);
-	printf("\n");
+		printf("Event: rip:%08llx cnt:%llu inst:%08llx data:%08llx ret:%llu\n",
+			vm_get_rip(), event.step.fault_count,
+			event.step.fault_gfns[0], event.step.fault_gfns[1],
+			event.step.retinst);
+		print_counts(counts);
+		printf("\n");
+		print_counts_raw(counts);
+		printf("\n");
+	}
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 	if (ret) err(1, "KVM_CPC_ACK_EVENT");
@@ -64,6 +67,8 @@ main(int argc, const char **argv)
 	struct kvm kvm;
 	uint8_t baseline[L1_SETS];
 	struct cpc_track_cfg cfg;
+	bool inst_gfn_avail;
+	uint64_t inst_gfn;
 	uint64_t eventcnt;
 	uint32_t arg;
 	int ret;
@@ -87,7 +92,7 @@ main(int argc, const char **argv)
 	if (child == 0) {
 		pin_process(0, TARGET_CORE, true);
 
-		guest_init(&guest, "test/kvm-step_guest");
+		guest_init(&guest, "test/kvm-targetstep_guest");
 		vm_init(&kvm, &guest);
 		guest_deinit(&guest);
 
@@ -103,9 +108,6 @@ main(int argc, const char **argv)
 		do {
 			ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
 			if (ret < 0) err(1, "KVM_RUN");
-
-			if (kvm.run->exit_reason == KVM_EXIT_HLT)
-				printf("VM halt\n");
 		} while (kvm.run->exit_reason == KVM_EXIT_HLT);
 
 		printf("VM exit\n");
@@ -169,13 +171,51 @@ main(int argc, const char **argv)
 		ret = ioctl(kvm_dev, KVM_CPC_APPLY_BASELINE, &arg);
 		if (ret) err(1, "KMV_CPC_APPLY_BASELINE");
 
+		memset(&cfg, 0, sizeof(cfg));
+		cfg.mode = CPC_TRACK_PAGES;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
+		if (ret) err(1, "KVM_CPC_TRACK_MODE");
+
 		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 		if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
-		eventcnt = 0;
-		while (eventcnt < 50) {
-			eventcnt += monitor(&kvm, false);
+		/* wait for CPC_GUEST_START_TRACK */
+
+		inst_gfn_avail = false;
+		while (1) {
+			ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
+			if (ret && errno == EAGAIN) continue;
+			if (ret) err(1, "KVM_CPC_POLL_EVENT");
+
+			if (inst_gfn_avail && event.type == CPC_EVENT_GUEST
+					&& event.guest.type == CPC_GUEST_START_TRACK)
+				break;
+
+			if (event.type == CPC_EVENT_TRACK_PAGE) {
+				inst_gfn = event.page.inst_gfn;
+				inst_gfn_avail = true;
+			}
+
+			ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
+			if (ret) err(1, "KVM_CPC_ACK_EVENT");
 		}
+
+		/* start step tracking for target gfn */
+
+		printf("Target GFN: %08llx\n", inst_gfn);
+
+		memset(&cfg, 0, sizeof(cfg));
+		cfg.mode = CPC_TRACK_STEPS;
+		cfg.steps.target_gfn = inst_gfn;
+		cfg.steps.use_target = true;
+		cfg.steps.with_data = true;
+		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
+		if (ret) err(1, "KVM_CPC_TRACK_MODE");
+
+		ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
+		if (ret) err(1, "KVM_CPC_ACK_EVENT");
+
+		while (monitor(&kvm, false) != 2);
 
 		printf("Monitor exit\n");
 	}

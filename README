@@ -22,24 +22,31 @@ test/kvm-eviction:
     Demonstrate that the cache set of a memory access instruction can be
     inferred in non-SEV / SEV / SEV-ES / SEV-SNP -enabled vms respectively.
 
+test/kvm-pagestep:
+    Demonstrate that a SEV-SNP enabled vm can be quickly single-stepped
+    and analyzed by tracking a single page at a time. This type
+    of tracking creates a page-wise profile of the guests execution,
+    which can be used to infer what the guest is doing and when to begin
+    fine-grained single-stepping.
+
 test/kvm-step:
     Demonstrate that SEV-SNP enabled vms can be single-stepped using local
     APIC timers to interrupt the guest and increment the interrupt interval
     while observing the RIP+RFLAGS ciphertext in the VMSA for changes to
     detect that a single instruction has been executed.
 
-test/kvm-pagestep:
-    Demonstrate that a SEV-SNP enabled vm can be quickly single-stepped
-    and analyzed by tracking a single page at a time. This type
-    of tracking creates a page-wise profile of the guests execution,
-    which can be used to infer what the guest is doing and to begin
-    fine-grained single-stepping.
+test/kvm-targetstep:
+    Demonstrate that a combination of page- and singlestepping allows
+    for fine-grained control of when to single-step. In this case a vmmcall
+    by the guest alerts the host to when the guest is on a critical page.
+    The host sets the currently executed gfn as the target and begins
+    single-stepping only on that page.
 
 test/qemu-pagestep:
     Replicate result from kvm-pagestep on a qemu-based vm running debian.
 
-test/qemu-eviction:
-    Replicate result from kvm-eviction on a qemu-based vm running debian
+test/qemu-targetstep:
+    Replicate result from kvm-targetstep on a qemu-based vm running debian
     using a specially crafted guest program to signal when measurement
     should take place to infer the accessed set.
 

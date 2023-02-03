@@ -16,6 +16,9 @@
 #define KVM_HC_CPC_VMMCALL_SIGNAL 0xEE01
 #define KVM_HC_CPC_VMMCALL_EXIT 0xEE02
 
+#define CPC_GUEST_START_TRACK 0
+#define CPC_GUEST_STOP_TRACK 1
+
 #define CPC_CL_NEXT_OFFSET 0
 #define CPC_CL_PREV_OFFSET 8
 #define CPC_CL_COUNT_OFFSET 16
@@ -25,9 +28,8 @@
  * is added for each increment, possiblpy skipping whole instructions */
 #define CPC_APIC_TIMER_TDCR APIC_TDR_DIV_1
 #define CPC_APIC_TIMER_SOFTDIV 1
-#define CPC_APIC_TIMER_MIN (20 * CPC_APIC_TIMER_SOFTDIV)
 
-#define CPC_EVENT_BATCH_MAX 1000
+#define CPC_EVENT_BATCH_MAX 10000
 
 #define CPC_LOGLVL_INFO 1
 #define CPC_LOGLVL_DBG 2

@@ -9,9 +9,16 @@
 #include <linux/delay.h>
 #include <linux/ioctl.h>
 
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-
 EXPORT_SYMBOL(cpc_read_pmc);
+EXPORT_SYMBOL(cpc_verify_topology);
+EXPORT_SYMBOL(cpc_write_msr);
+EXPORT_SYMBOL(cpc_init_pmc);
+EXPORT_SYMBOL(cpc_reset_pmc);
+EXPORT_SYMBOL(cpc_ds_alloc);
+EXPORT_SYMBOL(cpc_aligned_alloc);
+EXPORT_SYMBOL(cpc_save_msrmts);
+EXPORT_SYMBOL(cpc_print_msrmts);
+EXPORT_SYMBOL(cpc_apic_oneshot_run);
 
 bool
 cpc_verify_topology(void)
@@ -47,7 +54,6 @@ cpc_verify_topology(void)
 
 	return false;
 }
-EXPORT_SYMBOL(cpc_verify_topology);
 
 void
 cpc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
@@ -65,7 +71,6 @@ cpc_write_msr(uint64_t addr, uint64_t clear_bits, uint64_t set_bits)
 			addr, val, newval);
 	}
 }
-EXPORT_SYMBOL(cpc_write_msr);
 
 void
 cpc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
@@ -87,7 +92,6 @@ cpc_init_pmc(uint8_t index, uint8_t event_no, uint8_t event_mask,
 		index, event_no, event_mask, event);
 	cpc_write_msr(0xc0010200 + index * 2, ~0ULL, event);
 }
-EXPORT_SYMBOL(cpc_init_pmc);
 
 void
 cpc_reset_pmc(uint8_t index)
@@ -97,7 +101,6 @@ cpc_reset_pmc(uint8_t index)
 
 	cpc_write_msr(0xc0010201 + index * 2, ~0ULL, 0);
 }
-EXPORT_SYMBOL(cpc_reset_pmc);
 
 struct cpc_cl *
 cpc_ds_alloc(struct cpc_cl **cl_arr_out)
@@ -135,7 +138,6 @@ cpc_ds_alloc(struct cpc_cl **cl_arr_out)
 
 	return ds;
 }
-EXPORT_SYMBOL(cpc_ds_alloc);
 
 void *
 cpc_aligned_alloc(size_t alignment, size_t size)
@@ -149,7 +151,6 @@ cpc_aligned_alloc(size_t alignment, size_t size)
 
 	return p;
 }
-EXPORT_SYMBOL(cpc_aligned_alloc);
 
 void
 cpc_save_msrmts(struct cpc_cl *head)
@@ -176,8 +177,8 @@ cpc_save_msrmts(struct cpc_cl *head)
 
 	if (cpc_baseline_measure) {
 		for (i = 0; i < L1_SETS; i++) {
-			cpc_baseline[i] = MIN(cpc_baseline[i],
-				cpc_msrmts[i]);
+			if (cpc_msrmts[i] < cpc_baseline[i])
+				cpc_baseline[i] = cpc_msrmts[i];
 		}
 	}
 
@@ -193,7 +194,6 @@ cpc_save_msrmts(struct cpc_cl *head)
 		}
 	}
 }
-EXPORT_SYMBOL(cpc_save_msrmts);
 
 void
 cpc_print_msrmts(struct cpc_cl *head)
@@ -210,7 +210,6 @@ cpc_print_msrmts(struct cpc_cl *head)
 		cl = cl->prev;
 	} while (cl != head);
 }
-EXPORT_SYMBOL(cpc_print_msrmts);
 
 void
 cpc_apic_oneshot_run(uint32_t interval)
@@ -219,4 +218,3 @@ cpc_apic_oneshot_run(uint32_t interval)
 	native_apic_mem_write(APIC_TDCR, CPC_APIC_TIMER_TDCR);
 	native_apic_mem_write(APIC_TMICT, interval / CPC_APIC_TIMER_SOFTDIV);
 }
-EXPORT_SYMBOL(cpc_apic_oneshot_run);

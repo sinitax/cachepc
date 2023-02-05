@@ -108,9 +108,10 @@ extern bool cpc_long_step;
 
 extern bool cpc_apic_oneshot;
 extern int32_t cpc_apic_timer;
-extern uint32_t cpc_apic_timer_min;
-extern uint32_t cpc_apic_timer_dec_npf;
-extern uint32_t cpc_apic_timer_dec_intr;
+extern int32_t cpc_apic_timer_softdiv;
+extern int32_t cpc_apic_timer_min;
+extern int32_t cpc_apic_timer_dec_npf;
+extern int32_t cpc_apic_timer_dec_intr;
 
 extern uint32_t cpc_track_mode;
 extern uint64_t cpc_track_start_gfn;

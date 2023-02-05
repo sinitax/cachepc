@@ -66,14 +66,17 @@ main(int argc, const char **argv)
 	struct cpc_track_cfg cfg;
 	uint64_t eventcnt;
 	uint32_t arg;
+	bool with_data;
 	int ret;
 
-	vmtype = "kvm";
-	if (argc > 1) vmtype = argv[1];
-	if (strcmp(vmtype, "kvm") && strcmp(vmtype, "sev")
-			&& strcmp(vmtype, "sev-es")
-			&& strcmp(vmtype, "sev-snp"))
-		errx(1, "invalid vm mode: %s", vmtype);
+	with_data = true;
+	if (argc > 1 && !strcmp(argv[1], "--exec-only")) {
+		with_data = false;
+		argc--;
+		argv++;
+	}
+
+	parse_vmtype(argc, argv);
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -122,7 +125,7 @@ main(int argc, const char **argv)
 
 		memset(&cfg, 0, sizeof(cfg));
 		cfg.mode = CPC_TRACK_STEPS;
-		cfg.steps.with_data = true;
+		cfg.steps.with_data = with_data;
 		ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 		if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
@@ -173,7 +176,7 @@ main(int argc, const char **argv)
 		if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
 		eventcnt = 0;
-		while (eventcnt < 50) {
+		while (eventcnt < 110) {
 			eventcnt += monitor(&kvm, false);
 		}
 

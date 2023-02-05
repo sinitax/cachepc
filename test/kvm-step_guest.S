@@ -7,6 +7,10 @@
 .code16gcc
 
 guest:
+.rept 100
+    nop
+.endr
+
     mov $(L1_LINESIZE * (L1_SETS + 11)), %bx
     movb (%bx), %bl
     hlt

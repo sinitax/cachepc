@@ -214,7 +214,10 @@ cpc_print_msrmts(struct cpc_cl *head)
 void
 cpc_apic_oneshot_run(uint32_t interval)
 {
+	/* APIC divisor determines how much time is added per increment.
+	 * A large divisor decreases the counter slower, which means more time
+	 * is added for each increment, possiblpy skipping whole instructions */
 	native_apic_mem_write(APIC_LVTT, LOCAL_TIMER_VECTOR | APIC_LVT_TIMER_ONESHOT);
-	native_apic_mem_write(APIC_TDCR, CPC_APIC_TIMER_TDCR);
-	native_apic_mem_write(APIC_TMICT, interval / CPC_APIC_TIMER_SOFTDIV);
+	native_apic_mem_write(APIC_TDCR, APIC_TDR_DIV_1);
+	native_apic_mem_write(APIC_TMICT, interval / cpc_apic_timer_softdiv);
 }

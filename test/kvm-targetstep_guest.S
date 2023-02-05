@@ -25,8 +25,14 @@ guest:
     mov $(L1_LINESIZE * (L1_SETS + 15)), %bx
     movb (%bx), %bl
 
-    # this should only be partially single-stepped if
-    # single-stepping is limited to the first page
+    jmp skip
+.rept L1_LINESIZE * L1_SETS
+    nop
+.endr
+skip:
+
+    # these nops should not be single-stepped
+    # since they are outside the target gfn
 .rept L1_LINESIZE * L1_SETS * 2
     nop
 .endr

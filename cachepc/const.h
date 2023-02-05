@@ -23,12 +23,6 @@
 #define CPC_CL_PREV_OFFSET 8
 #define CPC_CL_COUNT_OFFSET 16
 
-/* APIC divisor determines how much time is added per increment.
- * A large divisor decreases the counter slower, which means more time
- * is added for each increment, possiblpy skipping whole instructions */
-#define CPC_APIC_TIMER_TDCR APIC_TDR_DIV_1
-#define CPC_APIC_TIMER_SOFTDIV 1
-
 #define CPC_EVENT_BATCH_MAX 10000
 
 #define CPC_LOGLVL_INFO 1

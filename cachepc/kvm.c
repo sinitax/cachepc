@@ -64,9 +64,11 @@ int32_t cpc_apic_timer = 0;
 EXPORT_SYMBOL(cpc_apic_oneshot);
 EXPORT_SYMBOL(cpc_apic_timer);
 
-uint32_t cpc_apic_timer_min = 0;
-uint32_t cpc_apic_timer_dec_npf = 0;
-uint32_t cpc_apic_timer_dec_intr = 0;
+int32_t cpc_apic_timer_softdiv = 1;
+int32_t cpc_apic_timer_min = 0;
+int32_t cpc_apic_timer_dec_npf = 0;
+int32_t cpc_apic_timer_dec_intr = 0;
+EXPORT_SYMBOL(cpc_apic_timer_softdiv);
 EXPORT_SYMBOL(cpc_apic_timer_min);
 EXPORT_SYMBOL(cpc_apic_timer_dec_npf);
 EXPORT_SYMBOL(cpc_apic_timer_dec_intr);
@@ -481,6 +483,7 @@ cpc_track_mode_ioctl(void __user *arg_user)
 	cpc_singlestep_reset = false;
 	cpc_long_step = false;
 
+	cpc_apic_timer_softdiv = 3;
 	if (sev_es_guest(vcpu->kvm)) {
 		cpc_apic_timer_min = 200;
 		cpc_apic_timer_dec_npf = 25;
@@ -506,9 +509,6 @@ cpc_track_mode_ioctl(void __user *arg_user)
 		cpc_track_all(vcpu, KVM_PAGE_TRACK_EXEC);
 		break;
 	case CPC_TRACK_STEPS:
-		cpc_apic_timer_min = 7000;
-		cpc_apic_timer_dec_npf = 50;
-		cpc_apic_timer_dec_intr = 100;
 		cpc_track_steps.use_target = cfg.steps.use_target;
 		cpc_track_steps.target_gfn = cfg.steps.target_gfn;
 		cpc_track_steps.with_data = cfg.steps.with_data;
@@ -714,6 +714,7 @@ cpc_kvm_init(void)
 	cpc_apic_oneshot = false;
 	cpc_apic_timer = 0;
 
+	cpc_apic_timer_softdiv = 1;
 	cpc_apic_timer_min = 0;
 	cpc_apic_timer_dec_npf = 0;
 	cpc_apic_timer_dec_intr = 0;

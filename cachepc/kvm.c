@@ -94,11 +94,6 @@ struct cpc_cl *cpc_ds_ul = NULL;
 struct cpc_cl *cpc_ds = NULL;
 EXPORT_SYMBOL(cpc_ds);
 
-uint64_t cpc_regs_tmp[16];
-uint64_t cpc_regs_vm[16];
-EXPORT_SYMBOL(cpc_regs_tmp);
-EXPORT_SYMBOL(cpc_regs_vm);
-
 void cpc_prime_probe_test_asm(void);
 static noinline void cpc_prime_probe_test(void);
 

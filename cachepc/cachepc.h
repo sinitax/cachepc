@@ -139,6 +139,3 @@ extern struct cpc_track_steps cpc_track_steps;
 extern struct list_head cpc_faults;
 
 extern struct cpc_cl *cpc_ds;
-
-extern uint64_t cpc_regs_tmp[16];
-extern uint64_t cpc_regs_vm[16];

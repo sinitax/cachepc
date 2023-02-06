@@ -4,6 +4,7 @@
 .macro barrier
     mfence # finish load and stores
     lfence # prevent reordering
+    rdtsc # prevent reordering
 .endm
 
 # clobbers rax, rbx, rcx, rdx, (out)

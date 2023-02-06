@@ -11,7 +11,7 @@ BINS += test/kvm-step test/kvm-step_guest
 BINS += test/kvm-targetstep test/kvm-targetstep_guest
 BINS += test/kvm-pagestep test/kvm-pagestep_guest
 BINS += test/qemu-pagestep
-BINS += test/qemu-eviction test/qemu-eviction_guest
+BINS += test/qemu-targetstep test/qemu-targetstep_guest
 # BINS += test/qemu-aes_guest test/qemu-aes
 BINS += util/loglevel util/reset util/mainpfn
 

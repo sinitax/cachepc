@@ -17,6 +17,7 @@
 
 static struct cpc_event event;
 static struct cpc_event_batch batch;
+static uint64_t last_user_inst_gfn;
 
 int
 monitor(bool baseline)
@@ -30,7 +31,7 @@ monitor(bool baseline)
 
 	switch (event.type) {
 	case CPC_EVENT_GUEST:
-		printf("Guest event: %i\n", event.guest.type);
+		printf("Guest %s\n", !event.guest.type ? "start" : "stop");
 		if (event.guest.type == CPC_GUEST_STOP_TRACK)
 			return 2;
 		break;
@@ -71,7 +72,14 @@ read_batch(void)
 		if (batch.buf[i].type != CPC_EVENT_TRACK_PAGE)
 			continue;
 
-		printf("GFN %08llx\n", batch.buf[i].page.inst_gfn);
+		if (batch.buf[i].page.retinst_user > 0) {
+			printf("GFN %08llx %04x %4llu %4llu\n",
+				batch.buf[i].page.inst_gfn,
+				batch.buf[i].page.fault_err,
+				batch.buf[i].page.retinst,
+				batch.buf[i].page.retinst_user);
+			last_user_inst_gfn = batch.buf[i].page.inst_gfn;
+		}
 	}
 }
 
@@ -185,8 +193,12 @@ main(int argc, const char **argv)
 		ret = ioctl(kvm_dev, KVM_CPC_POLL_EVENT, &event);
 		if (ret && errno == EAGAIN) continue;
 		if (ret) err(1, "KVM_CPC_POLL_EVENT");
-		
-		printf("EVENT %i\n", event.type);
+
+		if (event.type == CPC_EVENT_GUEST) {
+			read_batch();
+			printf("Guest %s\n",
+				!event.guest.type ? "start" : "stop");
+		}
 
 		if (event.type == CPC_EVENT_GUEST
 				&& event.guest.type == CPC_GUEST_START_TRACK) {
@@ -207,17 +219,21 @@ main(int argc, const char **argv)
 	if (!batch.cnt) errx(1, "empty batch buffer");
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.mode = CPC_TRACK_STEPS;
-	cfg.steps.target_gfn = batch.buf[batch.cnt - 3].page.inst_gfn;
+	cfg.steps.target_gfn = last_user_inst_gfn;
+	cfg.steps.target_user = true;
 	cfg.steps.use_target = true;
 	cfg.steps.use_filter = true;
-	cfg.steps.with_data = true;
+	//cfg.steps.with_data = true;
 	ret = ioctl(kvm_dev, KVM_CPC_TRACK_MODE, &cfg);
 	if (ret) err(1, "KVM_CPC_TRACK_MODE");
 
 	ret = ioctl(kvm_dev, KVM_CPC_ACK_EVENT, &event.id);
 	if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
+	printf("Target GFN: %08llx\n", cfg.steps.target_gfn);
+
 	while (monitor(false) != 2);
+	read_batch();
 
 	signal(SIGINT, NULL);
 

@@ -7,10 +7,10 @@ kvm-step
 kvm-step_guest
 kvm-pagestep
 kvm-pagestep_guest
-qemu-eviction
-qemu-eviction_guest
 qemu-pagestep
 qemu-aes
 qemu-aes_guest
 qemu-poc
 qemu-poc_guest
+qemu-targetstep
+qemu-targetstep_guest

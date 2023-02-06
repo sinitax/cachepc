@@ -2,6 +2,7 @@
 
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <errno.h>
 #include <err.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -13,13 +14,17 @@ int
 main(int argc, const char **argv)
 {
 	void *buf;
+	int ret;
 
 	buf = NULL;
 	if (posix_memalign(&buf, L1_LINESIZE * L1_SETS, L1_LINESIZE * L1_SETS))
 		err(1, "memalign");
 	memset(buf, 0, L1_LINESIZE * L1_SETS);
 
-	setpriority(PRIO_PROCESS, 0, -20);
+	errno = 0;
+	ret = setpriority(PRIO_PROCESS, 0, -20);
+	if (errno) err(1, "setpriority");
+	printf("NICE %i\n", ret);
 
 	while (1) {
 		printf("LOOP\n");

@@ -158,14 +158,17 @@ cpc_send_track_step_event(struct list_head *list)
 }
 
 int
-cpc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint64_t retinst)
+cpc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint16_t err,
+	uint64_t retinst, uint64_t retinst_user)
 {
 	struct cpc_event event = { 0 };
 
 	event.type = CPC_EVENT_TRACK_PAGE;
 	event.page.inst_gfn_prev = gfn_prev;
 	event.page.inst_gfn = gfn;
+	event.page.fault_err = err;
 	event.page.retinst = retinst;
+	event.page.retinst_user = retinst_user;
 
 	return cpc_send_event(event);
 }

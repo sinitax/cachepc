@@ -44,21 +44,29 @@ struct cpc_fault {
 struct cpc_track_pages {
 	bool singlestep_resolve;
 	uint64_t retinst;
+	uint64_t retinst_user;
 	bool in_step;
 
 	bool prev_avail;
 	uint64_t prev_gfn;
+	uint16_t prev_err;
+
 	bool cur_avail;
 	uint64_t cur_gfn;
+	uint16_t cur_err;
+
 	bool next_avail;
 	uint64_t next_gfn;
+	uint16_t next_err;
 };
 
 struct cpc_track_steps {
 	bool with_data;
 	bool use_target;
+	bool target_user;
 	uint64_t target_gfn;
 	bool stepping;
+	bool in_target;
 	bool use_filter;
 };
 
@@ -118,6 +126,7 @@ extern uint64_t cpc_track_start_gfn;
 extern uint64_t cpc_track_end_gfn;
 
 extern uint64_t cpc_retinst;
+extern uint64_t cpc_retinst_user;
 extern uint64_t cpc_retinst_prev;
 
 extern uint64_t cpc_rip;

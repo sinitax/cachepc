@@ -63,6 +63,7 @@ struct cpc_track_cfg {
 	union {
 		struct {
 			__u64 target_gfn;
+			__u8 target_user;
 			__u8 use_target;
 			__u8 use_filter;
 			__u8 with_data;
@@ -84,7 +85,9 @@ struct cpc_track_step_event {
 struct cpc_track_page_event {
 	__u64 inst_gfn_prev;
 	__u64 inst_gfn;
+	__u16 fault_err;
 	__u64 retinst;
+	__u64 retinst_user;
 };
 
 struct cpc_guest_event {

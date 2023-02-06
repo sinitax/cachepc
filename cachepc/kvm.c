@@ -41,8 +41,10 @@ bool cpc_prime_probe = false;
 EXPORT_SYMBOL(cpc_prime_probe);
 
 uint64_t cpc_retinst = 0;
+uint64_t cpc_retinst_user = 0;
 uint64_t cpc_retinst_prev = 0;
 EXPORT_SYMBOL(cpc_retinst);
+EXPORT_SYMBOL(cpc_retinst_user);
 EXPORT_SYMBOL(cpc_retinst_prev);
 
 uint64_t cpc_rip = 0;
@@ -244,6 +246,10 @@ cpc_pmc_setup(void *p)
 	/* retired instructions in guest */
 	cpc_init_pmc(CPC_RETINST_PMC, 0xC0, 0x00,
 		PMC_GUEST, PMC_KERNEL | PMC_USER);
+
+	/* retired instructions in guest userspace */
+	cpc_init_pmc(CPC_RETINST_USER_PMC, 0xC0, 0x00,
+		PMC_GUEST, PMC_USER);
 }
 
 void
@@ -510,9 +516,11 @@ cpc_track_mode_ioctl(void __user *arg_user)
 		break;
 	case CPC_TRACK_STEPS:
 		cpc_track_steps.use_target = cfg.steps.use_target;
+		cpc_track_steps.target_user = cfg.steps.target_user;
 		cpc_track_steps.target_gfn = cfg.steps.target_gfn;
 		cpc_track_steps.with_data = cfg.steps.with_data;
 		cpc_track_steps.use_filter = cfg.steps.use_filter;
+		cpc_track_steps.in_target = false;
 		if (!cpc_track_steps.use_target
 				&& cpc_track_steps.with_data) {
 			cpc_track_all(vcpu, KVM_PAGE_TRACK_ACCESS);
@@ -705,6 +713,7 @@ cpc_kvm_init(void)
 	cpc_ds_ul = NULL;
 
 	cpc_retinst = 0;
+	cpc_retinst_user = 0;
 	cpc_long_step = false;
 	cpc_singlestep = false;
 	cpc_singlestep_reset = false;

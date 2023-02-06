@@ -7,6 +7,8 @@ kvm-step
 kvm-step_guest
 kvm-pagestep
 kvm-pagestep_guest
+kvm-targetstep
+kvm-targetstep_guest
 qemu-pagestep
 qemu-aes
 qemu-aes_guest

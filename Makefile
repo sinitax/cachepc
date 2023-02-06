@@ -12,7 +12,8 @@ BINS += test/kvm-targetstep test/kvm-targetstep_guest
 BINS += test/kvm-pagestep test/kvm-pagestep_guest
 BINS += test/qemu-pagestep
 BINS += test/qemu-targetstep test/qemu-targetstep_guest
-# BINS += test/qemu-aes_guest test/qemu-aes
+BINS += test/qemu-aes_guest test/qemu-aes
+#BINS += test/qemu-poc
 BINS += util/loglevel util/reset util/mainpfn
 
 CFLAGS = -I . -I linux/usr/include
@@ -51,7 +52,7 @@ linux: # build host kernel for depmod
 
 build: $(LINUX)/arch/x86/kvm/cachepc
 	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=arch/x86/kvm modules
-	#$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=crypto modules
+	$(MAKE) -C $(LINUX) -j $(JOBS) -l $(LOAD) M=crypto modules
 
 load:
 	sudo rmmod kvm_amd || true
@@ -94,7 +95,10 @@ test/kvm-eviction: test/kvm-eviction.c test/kvm-eviction.h $(TEST_SRCS)
 test/qemu-%: test/qemu-%.c $(TEST_SRCS)
 	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(HOST_CFLAGS) $(LDLIBS)
 
+test/qemu-aes_guest: test/qemu-aes_guest.c test/libkcapi/.libs/libkcapi.a
+	$(CC) -o $@ $^ $(GUEST_CFLAGS) -I test/libkcapi/lib
+
 test/qemu-%_guest: test/qemu-%_guest.c
-	$(CC) -o $@ $(filter %.c,$^) $(filter %.S,$^) $(GUEST_CFLAGS) $(LDLIBS)
+	$(CC) -o $@ $^ $(GUEST_CFLAGS)
 
 .PHONY: all clean linux build load prep

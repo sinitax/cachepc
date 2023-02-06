@@ -36,14 +36,6 @@ main(int argc, const char **argv)
 		err(1, "memalign");
 	memset(buf, 0, L1_LINESIZE * L1_SETS);
 
-	while (1) {
-		CPC_DO_VMMCALL(CPC_GUEST_START_TRACK, 0);
-		buf[L1_LINESIZE * 5] += 1;
-		CPC_DO_VMMCALL(CPC_GUEST_STOP_TRACK, 0);
-	}
-
-	return 0;
-
 	kcapi = NULL;
 	if (kcapi_cipher_init(&kcapi, "ecb(aes)", 0))
 		err(1, "kcapi init");

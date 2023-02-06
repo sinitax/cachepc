@@ -106,9 +106,6 @@ main(int argc, const char **argv)
 		do {
 			ret = ioctl(kvm.vcpufd, KVM_RUN, NULL);
 			if (ret < 0) err(1, "KVM_RUN");
-
-			if (kvm.run->exit_reason == KVM_EXIT_HLT)
-				printf("VM halt\n");
 		} while (kvm.run->exit_reason == KVM_EXIT_HLT);
 
 		printf("VM exit\n");
@@ -176,7 +173,7 @@ main(int argc, const char **argv)
 		if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
 		eventcnt = 0;
-		while (eventcnt < 110) {
+		while (eventcnt < 61) {
 			eventcnt += monitor(&kvm, false);
 		}
 

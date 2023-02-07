@@ -163,8 +163,10 @@ cpc_save_msrmts(struct cpc_cl *head)
 		if (cl->first) {
 			BUG_ON(cl->set >= L1_SETS);
 			if (cl->count > L1_ASSOC) {
-				CPC_ERR("Read count %llu for set %u line %u",
-					cl->count, cl->set, cl->line);
+				CPC_ERR("OOB count %llu for set %u\n",
+					cl->count, cl->set);
+			} else if (cl->count == L1_ASSOC) {
+				CPC_ERR("Set %u saturated\n", cl->set);
 			}
 			cpc_msrmts[cl->set] = cl->count;
 		} else {

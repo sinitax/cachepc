@@ -173,7 +173,7 @@ main(int argc, const char **argv)
 		if (ret) err(1, "KVM_CPC_ACK_EVENT");
 
 		eventcnt = 0;
-		while (eventcnt < 61) {
+		while (eventcnt < 57) {
 			eventcnt += monitor(&kvm, false);
 		}
 

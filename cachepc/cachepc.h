@@ -139,3 +139,4 @@ extern struct cpc_track_steps cpc_track_steps;
 extern struct list_head cpc_faults;
 
 extern struct cpc_cl *cpc_ds;
+extern struct cpc_cl *cpc_ds_probe;

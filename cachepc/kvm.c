@@ -92,7 +92,9 @@ EXPORT_SYMBOL(cpc_track_pages);
 
 struct cpc_cl *cpc_ds_ul = NULL;
 struct cpc_cl *cpc_ds = NULL;
+struct cpc_cl *cpc_ds_probe = NULL;
 EXPORT_SYMBOL(cpc_ds);
+EXPORT_SYMBOL(cpc_ds_probe);
 
 void cpc_prime_probe_test_asm(void);
 static noinline void cpc_prime_probe_test(void);
@@ -683,8 +685,6 @@ cpc_setup_test(void *p)
 	if (cpc_verify_topology())
 		goto exit;
 
-	cpc_ds = cpc_ds_alloc(&cpc_ds_ul);
-
 	cpc_system_setup();
 
 	spin_lock_irq(&lock);
@@ -704,8 +704,8 @@ cpc_kvm_init(void)
 
 	cpc_loglevel = 1;
 
-	cpc_ds = NULL;
-	cpc_ds_ul = NULL;
+	cpc_ds = cpc_ds_alloc(&cpc_ds_ul);
+	cpc_ds_probe = cpc_ds->prev;
 
 	cpc_retinst = 0;
 	cpc_retinst_user = 0;

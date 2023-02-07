@@ -22,14 +22,18 @@ uint32_t cpc_loglevel = 0;
 EXPORT_SYMBOL(cpc_loglevel);
 
 uint8_t *cpc_msrmts = NULL;
-EXPORT_SYMBOL(cpc_msrmts);
-
 uint8_t *cpc_baseline = NULL;
 bool cpc_baseline_measure = false;
 bool cpc_baseline_active = false;
+EXPORT_SYMBOL(cpc_msrmts);
 EXPORT_SYMBOL(cpc_baseline);
 EXPORT_SYMBOL(cpc_baseline_measure);
 EXPORT_SYMBOL(cpc_baseline_active);
+
+uint32_t cpc_guest_misses = 0;
+uint32_t cpc_baseline_guest_misses = 0;
+EXPORT_SYMBOL(cpc_guest_misses);
+EXPORT_SYMBOL(cpc_baseline_guest_misses);
 
 uint32_t cpc_svm_exitcode = false;
 EXPORT_SYMBOL(cpc_svm_exitcode);
@@ -240,11 +244,16 @@ cpc_pmc_setup(void *p)
 
 	/* retired instructions in guest */
 	cpc_init_pmc(CPC_RETINST_PMC, 0xC0, 0x00,
-		PMC_GUEST, PMC_KERNEL | PMC_USER);
+		PMC_GUEST, PMC_USER | PMC_KERNEL);
 
 	/* retired instructions in guest userspace */
 	cpc_init_pmc(CPC_RETINST_USER_PMC, 0xC0, 0x00,
 		PMC_GUEST, PMC_USER);
+
+	/* L1 misses in guest */
+	cpc_init_pmc(CPC_L1MISS_GUEST_PMC, 0x64, 0xD8,
+		PMC_GUEST, PMC_USER | PMC_KERNEL);
+
 }
 
 void
@@ -377,6 +386,7 @@ cpc_reset_baseline_ioctl(void __user *arg_user)
 	cpc_baseline_active = false;
 	cpc_baseline_measure = false;
 	memset(cpc_baseline, 0xff, L1_SETS);
+	cpc_baseline_guest_misses = 0xffffffff;
 
 	return 0;
 }

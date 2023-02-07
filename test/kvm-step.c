@@ -34,10 +34,10 @@ monitor(struct kvm *kvm, bool baseline)
 	ret = ioctl(kvm_dev, KVM_CPC_READ_COUNTS, counts);
 	if (ret) err(1, "KVM_CPC_READ_COUNTS");
 
-	printf("Event: rip:%08llx cnt:%llu inst:%08llx data:%08llx ret:%llu\n",
+	printf("Event: rip:%08llx cnt:%llu inst:%08llx data:%08llx ret:%llu misses:%u\n",
 		vm_get_rip(), event.step.fault_count,
 		event.step.fault_gfns[0], event.step.fault_gfns[1],
-		event.step.retinst);
+		event.step.retinst, event.step.misses);
 	print_counts(counts);
 	printf("\n");
 	print_counts_raw(counts);

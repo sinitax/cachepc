@@ -104,6 +104,9 @@ extern uint8_t *cpc_baseline;
 extern bool cpc_baseline_measure;
 extern bool cpc_baseline_active;
 
+extern uint32_t cpc_guest_misses;
+extern uint32_t cpc_baseline_guest_misses;
+
 extern uint32_t cpc_svm_exitcode;
 
 extern bool cpc_pause_vm;

@@ -5,9 +5,10 @@ if [ $# -lt 2 ]; then
 	exit 1
 fi
 
-ARCH="i386"
 if [ "$2" = "guest" ]; then
-	ARCH="i8086"
+	objdump -D -b binary -m i8086 $1
+else
+	objdump -b binary -m i8086 --disassemble="$2" $1
 fi
 
-gdb --batch -ex "set architecture $ARCH" -ex "disassemble $2" $1
+

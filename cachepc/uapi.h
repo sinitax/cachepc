@@ -82,6 +82,7 @@ struct cpc_track_step_event {
 	__u64 fault_count;
 	__u64 inst_gfn;
 	__u64 retinst;
+	__u32 misses;
 };
 
 struct cpc_track_page_event {

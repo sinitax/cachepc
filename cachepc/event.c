@@ -155,7 +155,7 @@ cpc_send_pause_event(void)
 }
 
 int
-cpc_send_track_step_event(struct list_head *list)
+cpc_send_track_step_event(struct list_head *list, uint32_t guest_misses)
 {
 	struct cpc_event event = { 0 };
 	struct cpc_fault *fault;
@@ -174,6 +174,7 @@ cpc_send_track_step_event(struct list_head *list)
 	}
 	event.step.fault_count = count;
 	event.step.retinst = cpc_retinst;
+	event.step.misses = guest_misses;
 
 	return cpc_send_event(event);
 }
@@ -195,7 +196,8 @@ cpc_send_track_page_event(uint64_t gfn_prev, uint64_t gfn, uint16_t err,
 }
 
 int
-cpc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
+cpc_send_track_step_event_single(uint64_t gfn, uint32_t err,
+	uint64_t retinst, uint32_t guest_misses)
 {
 	struct cpc_event event = { 0 };
 
@@ -205,6 +207,7 @@ cpc_send_track_step_event_single(uint64_t gfn, uint32_t err, uint64_t retinst)
 	event.step.fault_errs[0] = err;
 	event.step.inst_gfn = gfn;
 	event.step.retinst = retinst;
+	event.step.misses = guest_misses;
 
 	return cpc_send_event(event);
 }

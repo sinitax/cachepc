@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# no strong correlation between irqs serviced and extra evictions in basic test
+
+sudo ./linux/tools/perf/perf stat -C2 -A -e "irq_vectors:*" ./test/eviction

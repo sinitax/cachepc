@@ -43,7 +43,7 @@ main(int argc, const char **argv)
 	uint8_t counts[2][SAMPLE_COUNT][L1_SETS];
 	uint8_t baseline[L1_SETS];
 	struct cpc_track_cfg cfg;
-	int i, k, ret;
+	int i, k, ret, exitcode;
 
 	vmtype = "kvm";
 	if (argc > 1) vmtype = argv[1];
@@ -126,26 +126,35 @@ main(int argc, const char **argv)
 	}
 
 	/* check for measurment errors */
+	exitcode = 0;
 	for (i = 0; i < SAMPLE_COUNT; i++) {
 		for (k = 0; k < L1_SETS; k++) {
-			if (counts[WITH][i][k] + baseline[k] > L1_ASSOC)
+			if (counts[WITH][i][k] + baseline[k] > L1_ASSOC) {
 				warnx("sample %i: With count OOB for set %i (=%i)",
 					i, k, counts[WITH][i][k] + baseline[k]);
+				exitcode = 1;
+			}
 
-			if (counts[WITHOUT][i][k] + baseline[k] > L1_ASSOC)
+			if (counts[WITHOUT][i][k] + baseline[k] > L1_ASSOC) {
 				warnx("sample %i: Without count OOB for set %i (=%i)",
 					i, k, counts[WITHOUT][i][k] + baseline[k]);
+				exitcode = 1;
+			}
 		}
 
-		if (!counts[WITH][i][TARGET_SET])
+		if (!counts[WITH][i][TARGET_SET]) {
 			warnx("sample %i: Missing eviction in target set %i (=%i,%i)",
 				i, TARGET_SET, counts[WITH][i][TARGET_SET],
 				counts[WITH][i][TARGET_SET] + baseline[TARGET_SET]);
+			exitcode = 1;
+		}
 	}
 
 	vm_deinit(&vms[WITH]);
 	vm_deinit(&vms[WITHOUT]);
 
 	kvm_setup_deinit();
+
+	return exitcode;
 }
 

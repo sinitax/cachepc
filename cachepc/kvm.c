@@ -124,10 +124,6 @@ static int cpc_apply_baseline_ioctl(void __user *arg_user);
 
 static int cpc_reset_tracking_ioctl(void __user *arg_user);
 static int cpc_track_mode_ioctl(void __user *arg_user);
-// static int cpc_track_page_ioctl(void __user *arg_user);
-// static int cpc_track_range_start_ioctl(void __user *arg_user);
-// static int cpc_track_range_end_ioctl(void __user *arg_user);
-// static int cpc_track_exec_cur_ioctl(void __user *arg_user);
 
 static int cpc_req_pause_ioctl(void __user *arg_user);
 
@@ -220,14 +216,14 @@ cpc_single_eviction_test(void *p)
 		if (count != 1 || cpc_msrmts[target] != 1) {
 			CPC_ERR("Single eviction %i. test failed (%u vs %u)\n",
 				n, count, 1);
-			if (arg) *arg = count;
+			if (arg) *arg = 1;
 			break;
 		}
 	}
 
 	if (n == TEST_REPEAT_MAX) {
 		CPC_INFO("Single eviction test ok (%u vs %u)\n", count, 1);
-		if (arg) *arg = count;
+		if (arg) *arg = 0;
 	}
 
 	kfree(victim_ul);
@@ -546,66 +542,6 @@ cpc_track_mode_ioctl(void __user *arg_user)
 	return 0;
 }
 
-// int
-// cpc_track_page_ioctl(void __user *arg_user)
-// {
-// 	struct cpc_track_config cfg;
-// 	struct kvm_vcpu *vcpu;
-// 
-// 	if (!main_vm || !arg_user) return -EINVAL;
-// 
-// 	if (copy_from_user(&cfg, arg_user, sizeof(cfg)))
-// 		return -EFAULT;
-// 
-// 	if (cfg.mode < 0 || cfg.mode >= KVM_PAGE_TRACK_MAX)
-// 		return -EINVAL;
-// 
-// 	BUG_ON(xa_empty(&main_vm->vcpu_array));
-// 	vcpu = xa_load(&main_vm->vcpu_array, 0);
-// 	if (!cpc_track_single(vcpu, cfg.gfn, cfg.mode))
-// 		return -EFAULT;
-// 
-// 	return 0;
-// }
-//
-// int
-// cpc_track_range_start_ioctl(void __user *arg_user)
-// {
-// 	if (!arg_user) return -EINVAL;
-// 
-// 	if (copy_from_user(&cpc_track_start_gfn, arg_user, sizeof(uint64_t)))
-// 		return -EFAULT;
-// 
-// 	return 0;
-// }
-// 
-// int
-// cpc_track_range_end_ioctl(void __user *arg_user)
-// {
-// 	if (!arg_user) return -EINVAL;
-// 
-// 	if (copy_from_user(&cpc_track_end_gfn, arg_user, sizeof(uint64_t)))
-// 		return -EFAULT;
-// 
-// 	return 0;
-// }
-// 
-// int
-// cpc_track_exec_cur_ioctl(void __user *arg_user)
-// {
-// 	struct cpc_fault *fault;
-// 
-// 	if (!arg_user) return -EINVAL;
-// 
-// 	fault = list_first_entry(&cpc_faults, struct cpc_fault, list);
-// 	if (!fault) return -EFAULT;
-// 
-// 	if (copy_to_user(arg_user, &fault->gfn, sizeof(uint64_t)))
-// 		return -EFAULT;
-// 
-// 	return 0;
-// }
-
 int
 cpc_req_pause_ioctl(void __user *arg_user)
 {
@@ -655,14 +591,6 @@ cpc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 		return cpc_batch_events_ioctl(arg_user);
 	case KVM_CPC_READ_BATCH:
 		return cpc_read_batch_ioctl(arg_user);
-	// case KVM_CPC_TRACK_PAGE:
-	// 	return cpc_track_page_ioctl(arg_user);
-	// case KVM_CPC_TRACK_RANGE_START:
-	// 	return cpc_track_range_start_ioctl(arg_user);
-	// case KVM_CPC_TRACK_RANGE_END:
-	// 	return cpc_track_range_end_ioctl(arg_user);
-	// case KVM_CPC_TRACK_EXEC_CUR:
-	// 	return cpc_track_exec_cur_ioctl(arg_user);
 	case KVM_CPC_VM_REQ_PAUSE:
 		return cpc_req_pause_ioctl(arg_user);
 	default:

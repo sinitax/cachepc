@@ -4,3 +4,4 @@ push.sh
 .cache
 linux-*
 compile_commands.json
+logs

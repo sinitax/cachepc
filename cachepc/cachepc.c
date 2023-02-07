@@ -162,6 +162,7 @@ cpc_save_msrmts(struct cpc_cl *head)
 	do {
 		if (cl->first) {
 			BUG_ON(cl->set >= L1_SETS);
+			BUG_ON(cl->line != 0);
 			if (cl->count > L1_ASSOC) {
 				CPC_ERR("OOB count %llu for set %u\n",
 					cl->count, cl->set);

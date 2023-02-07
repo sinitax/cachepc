@@ -14,7 +14,7 @@ int
 main(int argc, const char **argv)
 {
 	uint8_t counts[L1_SETS];
-	uint32_t set;
+	uint32_t arg, set;
 	int fd, ret;
 
 	fd = open("/dev/kvm", O_RDONLY);
@@ -22,18 +22,23 @@ main(int argc, const char **argv)
 
 	set = 48;
 	if (argc > 1) set = atoi(argv[1]);
-	if (set >= L1_SETS)
-		errx(1, "set out-of-bounds");
+	if (set >= L1_SETS) errx(1, "set out-of-bounds");
 
-	ret = ioctl(fd, KVM_CPC_TEST_EVICTION, &set);
-	if (ret == -1) err(1, "ioctl KVM_CPC_TEST_EVICTION");
+	ret = ioctl(fd, KVM_CPC_RESET, &arg);
+	if (ret == -1) err(1, "KVM_CPC_RESET");
+
+	arg = set;
+	ret = ioctl(fd, KVM_CPC_TEST_EVICTION, &arg);
+	if (ret == -1) err(1, "KVM_CPC_TEST_EVICTION");
 
 	ret = ioctl(fd, KVM_CPC_READ_COUNTS, counts);
-	if (ret == -1) err(1, "ioctl KVM_CPC_READ_COUNTS");
+	if (ret == -1) err(1, "KVM_CPC_READ_COUNTS");
 
 	print_counts(counts);
 	printf("\n");
 	print_counts_raw(counts);
 
 	close(fd);
+
+	return arg;
 }

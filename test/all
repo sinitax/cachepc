@@ -1,0 +1,11 @@
+#!/bin/bash
+
+mkdir -p logs
+
+set -ex
+
+./test/eviction &> logs/eviction
+./test/kvm-eviction &> logs/kvm-eviction
+./test/kvm-pagestep &> logs/kvm-pagestep
+./test/kvm-step &> logs/kvm-step
+./test/kvm-targetstep &> logs/kvm-targetstep

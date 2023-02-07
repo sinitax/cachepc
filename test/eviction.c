@@ -38,10 +38,10 @@ main(int argc, const char **argv)
 	printf("\n");
 	print_counts_raw(counts);
 
-	close(fd);
-
 	ret = ioctl(fd, KVM_CPC_DEINIT, &arg);
 	if (ret == -1) err(1, "KVM_CPC_DEINIT");
+
+	close(fd);
 
 	return arg;
 }

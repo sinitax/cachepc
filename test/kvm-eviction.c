@@ -45,14 +45,9 @@ main(int argc, const char **argv)
 	struct cpc_track_cfg cfg;
 	int i, k, ret, exitcode;
 
-	vmtype = "kvm";
-	if (argc > 1) vmtype = argv[1];
-	if (strcmp(vmtype, "kvm") && strcmp(vmtype, "sev")
-			&& strcmp(vmtype, "sev-es")
-			&& strcmp(vmtype, "sev-snp"))
-		errx(1, "invalid vm mode: %s", vmtype);
-
 	setvbuf(stdout, NULL, _IONBF, 0);
+
+	parse_vmtype(argc, argv);
 
 	pin_process(0, TARGET_CORE, true);
 
@@ -152,6 +147,9 @@ main(int argc, const char **argv)
 
 	vm_deinit(&vms[WITH]);
 	vm_deinit(&vms[WITHOUT]);
+
+	ret = ioctl(kvm_dev, KVM_CPC_DEINIT);
+	if (ret == -1) err(1, "KVM_CPC_DEINIT");
 
 	kvm_setup_deinit();
 

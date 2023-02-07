@@ -28,8 +28,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int kvm_dev, sev_dev;
-const char *vmtype;
+int kvm_dev = -1;
+int sev_dev = -1;
+const char *vmtype = NULL;
 
 const char *sev_fwerr_strs[] = {
 	[0x00] = "Success",
@@ -504,5 +505,8 @@ void
 kvm_setup_deinit(void)
 {
 	close(kvm_dev);
+	kvm_dev = -1;
+
 	close(sev_dev);
+	sev_dev = -1;
 }

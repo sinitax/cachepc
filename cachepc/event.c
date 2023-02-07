@@ -24,6 +24,8 @@ rwlock_t cpc_event_lock;
 struct cpc_event cpc_event;
 bool cpc_event_avail;
 
+bool cpc_skip_events;
+
 EXPORT_SYMBOL(cpc_send_guest_event);
 EXPORT_SYMBOL(cpc_send_pause_event);
 EXPORT_SYMBOL(cpc_send_track_step_event);
@@ -51,8 +53,20 @@ void
 cpc_events_reset(void)
 {
 	write_lock(&cpc_event_lock);
+	cpc_skip_events = false;
 	cpc_eventbuf_len = 0;
 	cpc_event_batching = false;
+	cpc_last_event_sent = 1;
+	cpc_last_event_acked = 1;
+	cpc_event_avail = false;
+	write_unlock(&cpc_event_lock);
+}
+
+void
+cpc_events_skip(void)
+{
+	write_lock(&cpc_event_lock);
+	cpc_skip_events = true;
 	cpc_last_event_sent = 1;
 	cpc_last_event_acked = 1;
 	cpc_event_avail = false;
@@ -63,6 +77,13 @@ int
 cpc_send_event(struct cpc_event event)
 {
 	ktime_t deadline;
+
+	read_lock(&cpc_event_lock);
+	if (cpc_skip_events) {
+		read_unlock(&cpc_event_lock);
+		return 1;
+	}
+	read_unlock(&cpc_event_lock);
 
 	write_lock(&cpc_event_lock);
 	 if (cpc_last_event_sent != cpc_last_event_acked) {

@@ -109,6 +109,8 @@ static void cpc_pmc_setup(void *p);
 static void cpc_system_setup(void);
 
 static int cpc_reset_ioctl(void __user *arg_user);
+static int cpc_deinit_ioctl(void __user *arg_user);
+
 static int cpc_loglevel_ioctl(void __user *arg_user);
 
 static int cpc_memory_encrypt_op_ioctl(void __user *arg_user);
@@ -302,6 +304,13 @@ cpc_reset_ioctl(void __user *arg_user)
 	cpc_retinst = 0;
 	cpc_rip_prev_set = false;
 
+	return 0;
+}
+
+int
+cpc_deinit_ioctl(void __user *arg_user)
+{
+	cpc_events_skip();
 	return 0;
 }
 
@@ -561,6 +570,8 @@ cpc_kvm_ioctl(struct file *file, unsigned int ioctl, unsigned long arg)
 	switch (ioctl) {
 	case KVM_CPC_RESET:
 		return cpc_reset_ioctl(arg_user);
+	case KVM_CPC_DEINIT:
+		return cpc_deinit_ioctl(arg_user);
 	case KVM_CPC_LOGLEVEL:
 		return cpc_loglevel_ioctl(arg_user);
 	case KVM_CPC_MEMORY_ENCRYPT_OP:

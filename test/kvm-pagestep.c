@@ -42,10 +42,13 @@ monitor(struct kvm *kvm, bool baseline)
 }
 
 void
-kill_child(void)
+deinit(void)
 {
-	printf("Killing vm..\n");
+	ioctl(kvm_dev, KVM_CPC_DEINIT);
+
 	kill(child, SIGKILL);
+
+	kvm_setup_deinit();
 }
 
 int
@@ -58,14 +61,9 @@ main(int argc, const char **argv)
 	uint64_t eventcnt;
 	int ret;
 
-	vmtype = "kvm";
-	if (argc > 1) vmtype = argv[1];
-	if (strcmp(vmtype, "kvm") && strcmp(vmtype, "sev")
-			&& strcmp(vmtype, "sev-es")
-			&& strcmp(vmtype, "sev-snp"))
-		errx(1, "invalid vm mode: %s", vmtype);
-
 	setvbuf(stdout, NULL, _IONBF, 0);
+
+	parse_vmtype(argc, argv);
 
 	kvm_setup_init();
 
@@ -100,10 +98,14 @@ main(int argc, const char **argv)
 		printf("VM exit\n");
 
 		vm_deinit(&kvm);
+
+		ipc_free(ipc);
+
+		kvm_setup_deinit();
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
 
-		atexit(kill_child);
+		atexit(deinit);
 
 		ipc_wait_child(ipc);
 
@@ -123,13 +125,8 @@ main(int argc, const char **argv)
 		}
 
 		printf("Monitor exit\n");
+
+		ipc_free(ipc);
 	}
-
-	ipc_free(ipc);
-
-	ret = ioctl(kvm_dev, KVM_CPC_RESET, NULL);
-	if (ret < 0) err(1, "KVM_CPC_RESET");
-
-	kvm_setup_deinit();
 }
 

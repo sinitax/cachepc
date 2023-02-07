@@ -9,10 +9,12 @@
 #define CPC_DO_VMMCALL(action, type, val) \
 	asm volatile("vmmcall" : : "a" (action), "b"(type), "c" (val) : "rdx")
 
-#define KVM_CPC_RESET _IOWR(KVMIO, 0x20, __u32)
-#define KVM_CPC_LOGLEVEL _IOW(KVMIO, 0x21, __u32)
+#define KVM_CPC_RESET _IO(KVMIO, 0x20)
+#define KVM_CPC_DEINIT _IO(KVMIO, 0x21)
 
-#define KVM_CPC_MEMORY_ENCRYPT_OP _IOWR(KVMIO, 0x22, struct kvm_sev_cmd)
+#define KVM_CPC_LOGLEVEL _IOW(KVMIO, 0x22, __u32)
+
+#define KVM_CPC_MEMORY_ENCRYPT_OP _IOWR(KVMIO, 0x23, struct kvm_sev_cmd)
 
 #define KVM_CPC_TEST_EVICTION _IOWR(KVMIO, 0x24, __u32)
 

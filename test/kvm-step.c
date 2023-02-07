@@ -50,10 +50,13 @@ monitor(struct kvm *kvm, bool baseline)
 }
 
 void
-kill_child(void)
+deinit(void)
 {
-	printf("Killing vm..\n");
+	ioctl(kvm_dev, KVM_CPC_DEINIT);
+
 	kill(child, SIGKILL);
+
+	kvm_setup_deinit();
 }
 
 int
@@ -69,6 +72,8 @@ main(int argc, const char **argv)
 	bool with_data;
 	int ret;
 
+	setvbuf(stdout, NULL, _IONBF, 0);
+
 	with_data = true;
 	if (argc > 1 && !strcmp(argv[1], "--exec-only")) {
 		with_data = false;
@@ -77,8 +82,6 @@ main(int argc, const char **argv)
 	}
 
 	parse_vmtype(argc, argv);
-
-	setvbuf(stdout, NULL, _IONBF, 0);
 
 	kvm_setup_init();
 
@@ -111,10 +114,13 @@ main(int argc, const char **argv)
 		printf("VM exit\n");
 
 		vm_deinit(&kvm);
+
+		ipc_free(ipc);
+		kvm_setup_deinit();
 	} else {
 		pin_process(0, SECONDARY_CORE, true);
 
-		atexit(kill_child);
+		atexit(deinit);
 
 		ipc_wait_child(ipc);
 
@@ -178,10 +184,8 @@ main(int argc, const char **argv)
 		}
 
 		printf("Monitor exit\n");
+
+		ipc_free(ipc);
 	}
-
-	ipc_free(ipc);
-
-	kvm_setup_deinit();
 }
 

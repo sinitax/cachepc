@@ -14,6 +14,7 @@ extern bool cpc_event_batching;
 void cpc_events_init(void);
 void cpc_events_deinit(void);
 void cpc_events_reset(void);
+void cpc_events_skip(void);
 
 int cpc_send_guest_event(uint64_t type, uint64_t val);
 int cpc_send_pause_event(void);

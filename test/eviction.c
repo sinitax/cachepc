@@ -40,5 +40,8 @@ main(int argc, const char **argv)
 
 	close(fd);
 
+	ret = ioctl(fd, KVM_CPC_DEINIT, &arg);
+	if (ret == -1) err(1, "KVM_CPC_DEINIT");
+
 	return arg;
 }

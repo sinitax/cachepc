@@ -2,10 +2,10 @@ CachePC
 =======
 
 This repository contains proof-of-concept code for a cache side-channel
-attack on AMD SEV-SNP dubbed PRIME+COUNT. It extends the traditional PRIME+PROBE
-by using performance counters for accurate cache line eviction detection.
-We demonstrate that it can be used observe what addresses are accessed by a
-guest and use that information to infer what cryptographic secrets are used.
+attack on AMD SEV-SNP dubbed Prime+Count. It extends the traditional Prime+Probe
+implementation of CacheSC through the use of performance counters for
+accurately detecting cache line evictions and provides and attack framework
+for single- and page-stepping SEV-SNP guests.
 
 
 tests
@@ -45,6 +45,10 @@ test/kvm-targetstep:
 test/qemu-pagestep:
     Replicate result from kvm-pagestep on a qemu-based vm running debian.
 
+
+incomplete
+----------
+
 test/qemu-targetstep:
     Replicate result from kvm-targetstep on a qemu-based vm running debian
     using a specially crafted guest program to signal when measurement
@@ -72,7 +76,7 @@ CPC_TRACK_FAULT_NO_RUN:
 
 CPC_TRACK_EXIT_EVICTION:
     Set apic timer such that for any reasonably short KVM_RUN no local apic
-    interrupts will occur to cause exits. Good for collecting PRIME+COUNT
+    interrupts will occur to cause exits. Good for collecting Prime+Count
     measurements over a clean run to a guest-invoked exit such as KVM_EXIT_HLT.
 
 CPC_TRACK_PAGES:

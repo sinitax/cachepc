@@ -42,9 +42,13 @@
 
 # clobbers rax, rbx, rcx, rdx, cl_tmp, (cl_out)
 .macro prime name cl_in cl_tmp cl_out
+    mfence
+    wbinvd
+
     prime_pass pass1_\name \cl_in \cl_tmp \cl_out
     prime_pass pass2_\name \cl_in \cl_tmp \cl_out
     prime_pass pass3_\name \cl_in \cl_tmp \cl_out
+    prime_pass pass4_\name \cl_in \cl_tmp \cl_out
 .endm
 
 # clobbers rax, rbx, rcx, rdx, cl_tmp1, cl_tmp2, pmc_tmp, pmc_tmp2

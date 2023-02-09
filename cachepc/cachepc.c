@@ -161,8 +161,8 @@ cpc_save_msrmts(struct cpc_cl *head)
 	cl = head;
 	do {
 		if (cl->first) {
-			BUG_ON(cl->set >= L1_SETS);
-			BUG_ON(cl->line != 0);
+			WARN_ON(cl->set >= L1_SETS);
+			WARN_ON(cl->line != 0);
 			if (cl->count > L1_ASSOC) {
 				CPC_ERR("OOB count %llu for set %u\n",
 					cl->count, cl->set);
@@ -171,7 +171,7 @@ cpc_save_msrmts(struct cpc_cl *head)
 			}
 			cpc_msrmts[cl->set] = cl->count;
 		} else {
-			BUG_ON(cl->count != 0);
+			WARN_ON(cl->count != 0);
 		}
 		cl->count = 0;
 

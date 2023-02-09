@@ -28,6 +28,7 @@ SYM_FUNC_END(cpc_read_pmc)
 SYM_FUNC_START(cpc_stream_hwpf_test_asm)
     push %rbx
 
+    mfence
     wbinvd
 
     readpmc $0 %r8
@@ -55,10 +56,11 @@ SYM_FUNC_START(cpc_prime_test1_asm)
 
     mov cpc_ds, %r10
 
+    mfence
     wbinvd
 
     readpmc $0 %r8
-    prime_pass prime_test1_2 %r10 %r11 %r12
+    prime_pass prime_test1 %r10 %r11 %r12
     readpmc $0 %r9
 
     mov %r9, %rax
@@ -80,10 +82,10 @@ SYM_FUNC_START(cpc_prime_test2_asm)
 
     mov cpc_ds, %r10
 
+    mfence
     wbinvd
 
-    # try to convince replacement policy to
-    # keep this line in
+    # try to convince replacement policy to keep this line in
     mov (%rdi), %rax
     mov (%rdi), %rax
     mov (%rdi), %rax
@@ -92,10 +94,14 @@ SYM_FUNC_START(cpc_prime_test2_asm)
     mov (%rdi), %rax
     mov (%rdi), %rax
 
+    # need 4 passes to evict all lines (reset cache line scores)
     prime_pass prime_test2_1 %r10 %r11 %r12
+    prime_pass prime_test2_2 %r10 %r11 %r12
+    prime_pass prime_test2_3 %r10 %r11 %r12
+    prime_pass prime_test2_4 %r10 %r11 %r12
 
     readpmc $0 %r8
-    prime_pass prime_test2_2 %r12 %r11 %r10
+    prime_pass prime_test2 %r12 %r11 %r10
     readpmc $0 %r9
 
     mov %r9, %rax
@@ -117,9 +123,10 @@ SYM_FUNC_START(cpc_prime_test3_asm)
 
     mov cpc_ds, %r10
 
+    mfence
     wbinvd
-    barrier
 
+    # try to convince replacement policy to keep this line in
     mov (%rsi), %rax
     mov (%rsi), %rax
     mov (%rsi), %rax
@@ -129,7 +136,11 @@ SYM_FUNC_START(cpc_prime_test3_asm)
     mov (%rsi), %rax
     mov (%rsi), %rax
 
-    prime_pass prime_test3 %r10 %r11 %r12
+    # need 4 passes to evict all lines (reset cache line scores)
+    prime_pass prime_test3_1 %r10 %r11 %r12
+    prime_pass prime_test3_2 %r10 %r11 %r12
+    prime_pass prime_test3_3 %r10 %r11 %r12
+    prime_pass prime_test3_4 %r10 %r11 %r12
 
     readpmc $0 %r8
 .rept L1_ASSOC
@@ -152,6 +163,7 @@ SYM_FUNC_START(cpc_eviction_prio_test_asm)
 
     mov cpc_ds, %r10
 
+    mfence
     wbinvd
 
     prime eviction_prio_test %r10 %r11 %r12

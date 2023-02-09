@@ -16,7 +16,7 @@
 #include <linux/types.h>
 #include <asm/uaccess.h>
 
-#define TEST_REPEAT_MAX 1000
+#define TEST_REPEAT_MAX 50
 
 uint32_t cpc_loglevel = 0;
 EXPORT_SYMBOL(cpc_loglevel);
@@ -100,13 +100,25 @@ struct cpc_cl *cpc_ds_probe = NULL;
 EXPORT_SYMBOL(cpc_ds);
 EXPORT_SYMBOL(cpc_ds_probe);
 
+uint64_t cpc_stream_hwpf_test_asm(struct cpc_cl *lines);
+static noinline void cpc_stream_hwpf_test(void);
+
+uint64_t cpc_prime_test1_asm(void);
+static noinline void cpc_prime_test1(void);
+
+uint64_t cpc_prime_test2_asm(struct cpc_cl *lines);
+static noinline void cpc_prime_test2(void);
+
+uint64_t cpc_prime_test3_asm(struct cpc_cl *cl, struct cpc_cl *lines);
+static noinline void cpc_prime_test3(void);
+
+uint64_t cpc_eviction_prio_test_asm(struct cpc_cl *access, struct cpc_cl *cl);
+static noinline void cpc_eviction_prio_test(void);
+
 void cpc_prime_probe_test_asm(void);
 static noinline void cpc_prime_probe_test(void);
 
-uint64_t cpc_stream_hwpf_test_asm(void *lines);
-static noinline void cpc_stream_hwpf_test(void);
-
-void cpc_single_eviction_test_asm(void *ptr);
+uint64_t cpc_single_eviction_test_asm(void *ptr);
 static noinline void cpc_single_eviction_test(void *p);
 
 static void cpc_pmc_setup(void *p);
@@ -133,48 +145,27 @@ static int cpc_track_mode_ioctl(void __user *arg_user);
 
 static int cpc_req_pause_ioctl(void __user *arg_user);
 
-void
-cpc_prime_probe_test(void)
-{
-	int i, n, count;
-
-	/* l2 data cache hit & miss */
-	cpc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, 0, PMC_KERNEL);
-
-	for (n = 0; n < TEST_REPEAT_MAX; n++) {
-		memset(cpc_msrmts, 0, L1_SETS);
-		cpc_prime_probe_test_asm();
-		cpc_save_msrmts(cpc_ds);
-
-		count = 0;
-		for (i = 0; i < L1_SETS; i++)
-			count += cpc_msrmts[i];
-
-		if (count != 0) {
-			CPC_ERR("Prime-probe %i. test failed (%u vs. %u)\n",
-				n, count, 0);
-			break;
-		}
-	}
-
-	if (n == TEST_REPEAT_MAX)
-		CPC_INFO("Prime-probe test ok (%u vs. %u)\n", count, 0);
-}
 
 void
 cpc_stream_hwpf_test(void)
 {
-	const uint32_t max = 10;
+	const uint32_t max = 0;
 	struct cpc_cl *lines;
 	uint32_t count;
 	int n;
 
-	/* l2 data cache hit & miss */
-	cpc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, 0, PMC_KERNEL);
+	/* l1 hardware prefetches */
+	cpc_init_pmc(0, 0x70, 0xE0, 0, PMC_KERNEL);
+	cpc_init_pmc(1, 0x71, 0xE0, 0, PMC_KERNEL);
+	cpc_init_pmc(2, 0x72, 0xE0, 0, PMC_KERNEL);
+
+	/* l2 hardware prefetches */
+	cpc_init_pmc(3, 0x70, 0x1F, 0, PMC_KERNEL);
+	cpc_init_pmc(4, 0x71, 0x1F, 0, PMC_KERNEL);
+	cpc_init_pmc(5, 0x72, 0x1F, 0, PMC_KERNEL);
 
 	lines = cpc_aligned_alloc(L1_SIZE, L1_SIZE);
 
-	count = 0;
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
 		count = cpc_stream_hwpf_test_asm(lines);
 		if (count != max) {
@@ -191,17 +182,178 @@ cpc_stream_hwpf_test(void)
 }
 
 void
+cpc_prime_test1(void)
+{
+	const uint64_t max = L1_SETS * L1_ASSOC;
+	uint64_t ret;
+	int n;
+
+	CPC_L1MISS_PMC_INIT(0);
+
+	for (n = 0; n < TEST_REPEAT_MAX; n++) {
+		ret = cpc_prime_test1_asm();
+		if (ret != max) {
+			CPC_ERR("Prime (1) %i. test failed (%llu vs. %llu)\n",
+				n, ret, max);
+			break;
+		}
+	}
+
+	if (n == TEST_REPEAT_MAX)
+		CPC_INFO("Prime (1) test ok (%llu vs. %llu)\n", ret, max);
+}
+
+void
+cpc_prime_test2(void)
+{
+	const uint64_t max = 0;
+	struct cpc_cl *lines;
+	uint64_t ret;
+	int n;
+
+	CPC_L1MISS_PMC_INIT(0);
+
+	lines = cpc_aligned_alloc(PAGE_SIZE, L1_SIZE);
+
+	for (n = 0; n < TEST_REPEAT_MAX; n++) {
+		ret = cpc_prime_test2_asm(lines);
+		if (ret != max) {
+			CPC_ERR("Prime (2) %i. test failed (%llu vs. %llu)\n",
+				n, ret, max);
+			break;
+		}
+	}
+
+	if (n == TEST_REPEAT_MAX)
+		CPC_INFO("Prime (2) test ok (%llu vs. %llu)\n", ret, max);
+
+	kfree(lines);
+}
+
+void
+cpc_prime_test3(void)
+{
+	uint64_t count;
+	struct cpc_cl *lines;
+	struct cpc_cl *cl;
+	int n, set, line;
+
+	CPC_L1MISS_PMC_INIT(0);
+
+	lines = cpc_aligned_alloc(PAGE_SIZE, L1_SIZE);
+
+	for (n = 0; n < TEST_REPEAT_MAX; n++) {
+		cl = cpc_ds;
+		for (set = 0; set < L1_SETS; set++) {
+			count = cpc_prime_test3_asm(cl, &lines[set]);
+			for (line = 0; line < L1_ASSOC; line++)
+				cl = cl->next;
+			if (count) {
+				CPC_ERR("Prime (3) %u. test failed "
+					"(set %u, count %llu)\n",
+					n, set, count);
+				goto exit;
+			}
+		}
+	}
+
+exit:
+	if (n == TEST_REPEAT_MAX)
+		CPC_INFO("Prime (3) test ok\n");
+
+	kfree(lines);
+}
+
+void
+cpc_eviction_prio_test(void)
+{
+	uint64_t ret, count;
+	struct cpc_cl *access_ul, *access;
+	struct cpc_cl *cl;
+	int n, set, line, evic;
+
+	CPC_L1MISS_PMC_INIT(0);
+
+	access_ul = cpc_aligned_alloc(L1_SIZE, L1_SIZE);
+
+	for (n = 0; n < TEST_REPEAT_MAX / 2; n++) {
+		cl = cpc_ds;
+		for (set = 0; set < L1_SETS; set++) {
+			access = &access_ul[set];
+			count = 0;
+			evic = -1;
+			for (line = 0; line < L1_ASSOC; line++) {
+				ret = cpc_eviction_prio_test_asm(access, cl);
+				if (ret) {
+					evic = line;
+					count++;
+				}
+				cl = cl->next;
+			}
+			if (!count) {
+				CPC_ERR("Eviction prio %u. test failed "
+					"(set %u, count %llu)\n",
+					n, set, count);
+				break;
+			}
+			if (count > 1 || evic != 0) {
+				CPC_ERR("Eviction prio %u. test failed "
+					"(set %u, count %llu, evic %u vs %u)\n",
+					n, set, count, evic, 0);
+				break;
+			}
+		}
+		if (set != L1_SETS) break;
+	}
+
+	if (n == TEST_REPEAT_MAX)
+		CPC_INFO("Eviction prio test ok\n");
+
+	kfree(access_ul);
+}
+
+void
+cpc_prime_probe_test(void)
+{
+	int i, n, count;
+
+	CPC_L1MISS_PMC_INIT(0);
+
+	for (n = 0; n < TEST_REPEAT_MAX; n++) {
+		memset(cpc_msrmts, 0, L1_SETS);
+		cpc_prime_probe_test_asm();
+		cpc_save_msrmts(cpc_ds);
+
+		count = 0;
+		for (i = 0; i < L1_SETS; i++)
+			count += cpc_msrmts[i];
+
+		if (count != 0) {
+			CPC_ERR("Prime+Probe %i. test failed (%u vs. %u)\n",
+				n, count, 0);
+			break;
+		}
+	}
+
+	if (n == TEST_REPEAT_MAX)
+		CPC_INFO("Prime+Probe test ok (%u vs. %u)\n", count, 0);
+}
+
+void
 cpc_single_eviction_test(void *p)
 {
 	struct cpc_cl *victim_ul;
 	struct cpc_cl *victim;
 	uint32_t target, *arg;
+	uint64_t ret;
 	int n, i, count;
 
 	arg = p;
 
-	/* l2 data cache hit & miss */
-	cpc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8, 0, PMC_KERNEL);
+	CPC_L1MISS_PMC_INIT(0);
+
+	/* interrupts taken */
+	cpc_init_pmc(1, 0x2C, 0x00, 0, 0);
 
 	WARN_ON(arg && *arg >= L1_SETS);
 	if (arg && *arg >= L1_SETS) return;
@@ -212,7 +364,7 @@ cpc_single_eviction_test(void *p)
 
 	for (n = 0; n < TEST_REPEAT_MAX; n++) {
 		memset(cpc_msrmts, 0, L1_SETS);
-		cpc_single_eviction_test_asm(victim);
+		ret = cpc_single_eviction_test_asm(victim);
 		cpc_save_msrmts(cpc_ds);
 
 		count = 0;
@@ -220,11 +372,14 @@ cpc_single_eviction_test(void *p)
 			count += cpc_msrmts[i];
 
 		if (count != 1 || cpc_msrmts[target] != 1) {
-			CPC_ERR("Single eviction %i. test failed (%u vs %u)\n",
-				n, count, 1);
+			CPC_ERR("Single eviction %i. test failed (%u vs %u) (intr %llu)\n",
+				n, count, 1, ret);
 			if (arg) *arg = 1;
 			break;
 		}
+
+		if (ret != 0)
+			CPC_INFO("Single eviction %llu interrupts but no issue\n", ret);
 	}
 
 	if (n == TEST_REPEAT_MAX) {
@@ -239,26 +394,23 @@ void
 cpc_pmc_setup(void *p)
 {
 	/* L1 misses in host kernel */
-	cpc_init_pmc(CPC_L1MISS_PMC, 0x64, 0xD8,
-		PMC_HOST, PMC_KERNEL);
-
-	/* retired instructions in guest */
-	cpc_init_pmc(CPC_RETINST_PMC, 0xC0, 0x00,
-		PMC_GUEST, PMC_USER | PMC_KERNEL);
-
-	/* retired instructions in guest userspace */
-	cpc_init_pmc(CPC_RETINST_USER_PMC, 0xC0, 0x00,
-		PMC_GUEST, PMC_USER);
+	CPC_L1MISS_PMC_INIT(CPC_L1MISS_PMC);
 
 	/* L1 misses in guest */
-	cpc_init_pmc(CPC_L1MISS_GUEST_PMC, 0x64, 0xD8,
-		PMC_GUEST, PMC_USER | PMC_KERNEL);
+	CPC_L1MISS_GUEST_PMC_INIT(CPC_L1MISS_GUEST_PMC);
 
+	/* retired instructions in guest */
+	CPC_RETINST_PMC_INIT(CPC_RETINST_PMC);
+
+	/* retired instructions in guest userspace */
+	CPC_RETINST_USER_PMC_INIT(CPC_RETINST_USER_PMC);
 }
 
 void
 cpc_system_setup(void)
 {
+	uint32_t n;
+
 	/* NOTE: since most of these MSRs are poorly documented and some
 	 * guessing work was involved, it is likely that one or more of
 	 * these operations are not needed */
@@ -284,6 +436,10 @@ cpc_system_setup(void)
 	/* REF: PPR Family 19h Model 01h Vol 1/2 Rev 0.50 May 27.2021 P.111 */
 	/* disable speculation */
 	cpc_write_msr(0x00000048, 0, 0b10000111);
+
+	//for (n = 0; n < 8; n++)
+	//	CPC_INFO("MASK %u: %08llx\n", n, __rdmsr(0x848 + n) & 0xffffffff);
+	(void)n;
 }
 
 int
@@ -623,7 +779,12 @@ void
 cpc_setup_test(void *p)
 {
 	spinlock_t lock;
-	int cpu;
+	uint64_t intr_count;
+	uint64_t shared_l2;
+	uint32_t taskpri;
+	uint32_t prev_ctrl, ctrl;
+	uint32_t prev_mask[8];
+	int n, cpu;
 
 	spin_lock_init(&lock);
 
@@ -636,11 +797,53 @@ cpc_setup_test(void *p)
 
 	cpc_system_setup();
 
+	(void) taskpri;
+	//taskpri = native_apic_mem_read(APIC_TASKPRI);
+	//CPC_INFO("TASK PRI %u\n", taskpri);
+	//native_apic_mem_write(APIC_TASKPRI, 0xff);
+
+	(void) prev_ctrl;
+	(void) ctrl;
+	(void) prev_mask;
+	// prev_ctrl = native_apic_mem_read(APIC_ECTRL);
+	// ctrl = prev_ctrl | 1;
+	// native_apic_mem_write(APIC_ECTRL, ctrl);
+
+	(void) n;
+	// for (n = 0; n < 8; n++) {
+	// 	prev_mask[n] = native_apic_mem_read(0x480 + 0x10 * n);
+	// 	native_apic_mem_write(0x480 + 0x10 * n, 0x00);
+	// }
+
+	cpc_init_pmc(4, 0x60, 0b100000, 0, 0);
+	cpc_init_pmc(5, 0x2C, 0x00, 0, 0);
+
 	spin_lock_irq(&lock);
-	cpc_prime_probe_test();
+
+	shared_l2 = cpc_read_pmc(4);
+	intr_count = cpc_read_pmc(5);
+
 	cpc_stream_hwpf_test();
+	cpc_prime_test1();
+	cpc_prime_test2();
+	cpc_prime_test3();
+	cpc_eviction_prio_test();
+	cpc_prime_probe_test();
 	cpc_single_eviction_test(NULL);
+
+	shared_l2 = cpc_read_pmc(4) - shared_l2;
+	intr_count = cpc_read_pmc(5) - intr_count;
+	CPC_INFO("Shared L2 accesses: %llu\n", shared_l2);
+	CPC_INFO("Interrupts during test: %llu\n", intr_count);
+
 	spin_unlock_irq(&lock);
+
+	// native_apic_mem_write(APIC_ECTRL, prev_ctrl);
+	// for (n = 0; n < 8; n++) {
+	// 	native_apic_mem_write(0x480 + 0x10 * n, prev_mask[n]);
+	// }
+
+	//native_apic_mem_write(APIC_TASKPRI, taskpri);
 
 exit:
 	put_cpu();

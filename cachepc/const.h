@@ -9,9 +9,9 @@
 #define CPC_ISOLCPU 2
 
 #define CPC_L1MISS_PMC 0
-#define CPC_RETINST_PMC 1
-#define CPC_RETINST_USER_PMC 2
-#define CPC_L1MISS_GUEST_PMC 3
+#define CPC_L1MISS_GUEST_PMC 1
+#define CPC_RETINST_PMC 2
+#define CPC_RETINST_USER_PMC 3
 
 #define CPC_VMSA_MAGIC_ADDR ((void *) 0xC0FFEE)
 

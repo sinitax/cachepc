@@ -11,6 +11,18 @@
 #define PMC_HOST  (1 << 1)
 #define PMC_GUEST (1 << 0)
 
+#define CPC_L1MISS_PMC_INIT(pmc) \
+	cpc_init_pmc(pmc, 0x60, 0b10000000, 0, PMC_KERNEL)
+
+#define CPC_L1MISS_GUEST_PMC_INIT(pmc) \
+	cpc_init_pmc(pmc, 0x60, 0b10000000, PMC_GUEST, PMC_USER | PMC_KERNEL)
+
+#define CPC_RETINST_PMC_INIT(pmc) \
+	cpc_init_pmc(pmc, 0xC0, 0x00, PMC_GUEST, PMC_USER | PMC_KERNEL)
+
+#define CPC_RETINST_USER_PMC_INIT(pmc) \
+	cpc_init_pmc(pmc, 0xC0, 0x00, PMC_GUEST, PMC_USER)
+
 #define CPC_DBG(...) do { \
 		if (cpc_loglevel >= CPC_LOGLVL_DBG) \
 			pr_info("CachePC: " __VA_ARGS__); \
